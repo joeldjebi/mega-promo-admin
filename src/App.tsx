@@ -117,6 +117,7 @@ type PartnerSession = {
   email: string
   logoUrl: string
   sector: string
+  phone: string
   subscriptionPlan: string
   subscriptionExpiresAt: string
   isValidated: boolean
@@ -125,14 +126,68 @@ type PartnerSession = {
 type PartnerDashboardContest = {
   id: string
   title: string
+  description: string
   category: string
+  categoryId: string
   type: string
   status: string
+  imageUrl: string
+  brandLogoUrl: string
+  brandName: string
+  prizeDescription: string
   viewsCount: number
+  sharesCount: number
   prizeValue: number
+  winnersCount: number
+  maxParticipants: number | null
   startsAt: string
   endsAt: string
   isBoosted: boolean
+  participants: number
+  createdAt: string
+}
+type PartnerParticipationHistoryItem = {
+  id: string
+  contestId: string
+  contestTitle: string
+  userId: string
+  userLabel: string
+  score: number
+  rank: number
+  completed: boolean
+  participatedAt: string
+  answers: string
+}
+type PartnerPlayerItem = {
+  id: string
+  label: string
+  phone: string
+  username: string
+  avatarUrl: string
+  participations: number
+  bestScore: number
+  lastPlayedAt: string
+}
+type PartnerSubscriptionHistoryItem = {
+  id: string
+  planName: string
+  amount: number
+  status: string
+  startsAt: string
+  expiresAt: string
+  paymentMethod: string
+  createdAt: string
+}
+type PartnerProfileFormState = {
+  companyName: string
+  email: string
+  logoUrl: string
+  sector: string
+  phone: string
+}
+type PartnerPasswordFormState = {
+  password: string
+  confirmPassword: string
 }
 type PartnerPlanBenefit = {
   id: string
@@ -1262,6 +1317,7 @@ function mapPartnerSession(partner: Record<string, unknown>): PartnerSession {
     email: (partner.email as string | null) ?? '',
     logoUrl: (partner.logo_url as string | null) ?? '',
     sector: (partner.sector as string | null) ?? '',
+    phone: (partner.phone as string | null) ?? '',
     subscriptionPlan: (partner.subscription_plan as string | null) ?? 'free',
     subscriptionExpiresAt:
       (partner.subscription_expires_at as string | null) ?? '',
@@ -1272,7 +1328,7 @@ function mapPartnerSession(partner: Record<string, unknown>): PartnerSession {
 
 async function resolvePartnerSessionByUser(userId: string, email?: string | null) {
   const partnerFields =
-    'id, user_id, company_name, email, logo_url, sector, subscription_plan, subscription_expires_at, is_validated, is_active'
+    'id, user_id, company_name, email, logo_url, sector, phone, subscription_plan, subscription_expires_at, is_validated, is_active'
 
   let { data, error } = await supabase
     .from('partners')
@@ -1319,33 +1375,227 @@ async function resolvePartnerSessionByUser(userId: string, email?: string | null
 
 function mapPartnerDashboardContest(
   contest: Record<string, unknown>,
+  participants = 0,
 ): PartnerDashboardContest {
   return {
     id: contest.id as string,
     title: (contest.title as string | null) ?? 'Concours',
+    description: (contest.description as string | null) ?? '',
     category: (contest.category as string | null) ?? 'Non classe',
+    categoryId: (contest.category_id as string | null) ?? '',
     type: (contest.type as string | null) ?? 'concours',
     status: (contest.status as string | null) ?? 'draft',
+    imageUrl: (contest.image_url as string | null) ?? '',
+    brandLogoUrl: (contest.brand_logo_url as string | null) ?? '',
+    brandName: (contest.brand_name as string | null) ?? '',
+    prizeDescription: (contest.prize_description as string | null) ?? '',
     viewsCount: Number(contest.views_count ?? 0),
+    sharesCount: Number(contest.shares_count ?? 0),
     prizeValue: Number(contest.prize_value ?? 0),
+    winnersCount: Number(contest.winners_count ?? 1),
+    maxParticipants:
+      contest.max_participants === null || contest.max_participants === undefined
+        ? null
+        : Number(contest.max_participants),
     startsAt: (contest.starts_at as string | null) ?? '',
     endsAt: (contest.ends_at as string | null) ?? '',
     isBoosted: (contest.is_boosted as boolean | null) ?? false,
+    participants,
+    createdAt: (contest.created_at as string | null) ?? '',
   }
 }
 
 async function fetchPartnerDashboardContests(partnerId: string) {
-  const { data, error } = await supabase
+  const contestsResponse = await supabase
     .from('contests')
     .select(
-      'id, title, category, type, status, views_count, prize_value, starts_at, ends_at, is_boosted, created_at',
+      'id, title, description, category, category_id, type, status, image_url, brand_logo_url, brand_name, prize_description, views_count, shares_count, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, created_at',
     )
     .eq('partner_id', partnerId)
     .order('created_at', { ascending: false })
-    .limit(25)
+    .limit(200)
+
+  if (contestsResponse.error) throw contestsResponse.error
+
+  const contestIds = (contestsResponse.data ?? []).map(
+    (contest) => contest.id as string,
+  )
+  const participationsResponse =
+    contestIds.length > 0
+      ? await supabase
+          .from('participations')
+          .select('contest_id')
+          .in('contest_id', contestIds)
+      : { data: [], error: null }
+
+  if (participationsResponse.error) throw participationsResponse.error
+
+  const participationsByContest = new Map<string, number>()
+  for (const participation of participationsResponse.data ?? []) {
+    const contestId = participation.contest_id as string | null
+    if (!contestId) continue
+    participationsByContest.set(
+      contestId,
+      (participationsByContest.get(contestId) ?? 0) + 1,
+    )
+  }
+
+  return (contestsResponse.data ?? []).map((contest) =>
+    mapPartnerDashboardContest(
+      contest,
+      participationsByContest.get(contest.id as string) ?? 0,
+    ),
+  )
+}
+
+async function fetchPartnerParticipations(
+  contests: PartnerDashboardContest[],
+): Promise<PartnerParticipationHistoryItem[]> {
+  const contestIds = contests.map((contest) => contest.id)
+  if (contestIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('participations')
+    .select('id, user_id, contest_id, score, answers, completed, participated_at')
+    .in('contest_id', contestIds)
+    .order('participated_at', { ascending: false })
+    .limit(1000)
 
   if (error) throw error
-  return (data ?? []).map((contest) => mapPartnerDashboardContest(contest))
+
+  const userIds = Array.from(
+    new Set(
+      (data ?? [])
+        .map((participation) => participation.user_id as string | null)
+        .filter(Boolean),
+    ),
+  ) as string[]
+  const usersResponse =
+    userIds.length > 0
+      ? await supabase.from('users').select('id, username, phone, avatar_url').in('id', userIds)
+      : { data: [], error: null }
+
+  if (usersResponse.error) throw usersResponse.error
+
+  const userLabels = new Map(
+    (usersResponse.data ?? []).map((user) => [
+      user.id as string,
+      ((user.username as string | null) || (user.phone as string | null) || 'Joueur') as string,
+    ]),
+  )
+  const contestTitles = new Map(contests.map((contest) => [contest.id, contest.title]))
+  const rankedByContest = new Map<string, Map<string, number>>()
+
+  for (const contest of contests) {
+    const ranked = [...(data ?? [])]
+      .filter((participation) => participation.contest_id === contest.id)
+      .sort((first, second) => {
+        const scoreDiff =
+          ((second.score as number | null) ?? 0) -
+          ((first.score as number | null) ?? 0)
+        if (scoreDiff !== 0) return scoreDiff
+        return (
+          new Date((first.participated_at as string | null) ?? 0).getTime() -
+          new Date((second.participated_at as string | null) ?? 0).getTime()
+        )
+      })
+    rankedByContest.set(
+      contest.id,
+      new Map(ranked.map((participation, index) => [participation.id as string, index + 1])),
+    )
+  }
+
+  return (data ?? []).map((participation) => {
+    const contestId = (participation.contest_id as string | null) ?? ''
+    const userId = (participation.user_id as string | null) ?? ''
+
+    return {
+      id: participation.id as string,
+      contestId,
+      contestTitle: contestTitles.get(contestId) ?? 'Concours',
+      userId,
+      userLabel: userLabels.get(userId) ?? 'Joueur',
+      score: (participation.score as number | null) ?? 0,
+      rank: rankedByContest.get(contestId)?.get(participation.id as string) ?? 0,
+      completed: (participation.completed as boolean | null) ?? false,
+      participatedAt: (participation.participated_at as string | null) ?? '',
+      answers: formatParticipationAnswers(participation.answers),
+    }
+  })
+}
+
+function buildPartnerPlayers(
+  participations: PartnerParticipationHistoryItem[],
+): PartnerPlayerItem[] {
+  const players = new Map<string, PartnerPlayerItem>()
+
+  for (const participation of participations) {
+    if (!participation.userId) continue
+    const existing = players.get(participation.userId)
+    if (!existing) {
+      players.set(participation.userId, {
+        id: participation.userId,
+        label: participation.userLabel,
+        phone: participation.userLabel,
+        username: participation.userLabel,
+        avatarUrl: '',
+        participations: 1,
+        bestScore: participation.score,
+        lastPlayedAt: participation.participatedAt,
+      })
+      continue
+    }
+
+    existing.participations += 1
+    existing.bestScore = Math.max(existing.bestScore, participation.score)
+    if (
+      new Date(participation.participatedAt).getTime() >
+      new Date(existing.lastPlayedAt).getTime()
+    ) {
+      existing.lastPlayedAt = participation.participatedAt
+    }
+  }
+
+  return Array.from(players.values()).sort((first, second) => {
+    const participationDiff = second.participations - first.participations
+    if (participationDiff !== 0) return participationDiff
+    return second.bestScore - first.bestScore
+  })
+}
+
+async function fetchPartnerSubscriptionHistory(
+  partnerId: string,
+): Promise<PartnerSubscriptionHistoryItem[]> {
+  const [subscriptionsResponse, plansResponse] = await Promise.all([
+    supabase
+      .from('partner_subscriptions')
+      .select('id, plan_id, amount, status, starts_at, expires_at, payment_method, created_at')
+      .eq('partner_id', partnerId)
+      .order('created_at', { ascending: false })
+      .limit(100),
+    supabase.from('partner_plans').select('id, name'),
+  ])
+
+  if (subscriptionsResponse.error) throw subscriptionsResponse.error
+  if (plansResponse.error) throw plansResponse.error
+
+  const planNames = new Map(
+    (plansResponse.data ?? []).map((plan) => [
+      plan.id as string,
+      (plan.name as string | null) ?? 'Forfait',
+    ]),
+  )
+
+  return (subscriptionsResponse.data ?? []).map((subscription) => ({
+    id: subscription.id as string,
+    planName: planNames.get((subscription.plan_id as string | null) ?? '') ?? 'Forfait',
+    amount: (subscription.amount as number | null) ?? 0,
+    status: (subscription.status as string | null) ?? 'pending',
+    startsAt: (subscription.starts_at as string | null) ?? '',
+    expiresAt: (subscription.expires_at as string | null) ?? '',
+    paymentMethod: (subscription.payment_method as string | null) ?? '',
+    createdAt: (subscription.created_at as string | null) ?? '',
+  }))
 }
 
 async function fetchPartnerContestCatalog() {
@@ -9315,6 +9565,7 @@ function PartnerContestModal({
   error,
   form,
   isSaving,
+  mode,
   onChange,
   onClose,
   onSubmit,
@@ -9324,6 +9575,7 @@ function PartnerContestModal({
   error: string
   form: ContestFormState
   isSaving: boolean
+  mode: 'create' | 'edit'
   onChange: (next: ContestFormState) => void
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
@@ -9331,11 +9583,11 @@ function PartnerContestModal({
 }) {
   return (
     <div className="modal-backdrop" role="presentation">
-      <section aria-label="Créer un concours partenaire" className="contest-modal">
+      <section aria-label="Concours partenaire" className="contest-modal">
         <div className="modal-header">
           <div>
             <p className="eyebrow">Espace partenaire</p>
-            <h2>Nouveau concours</h2>
+            <h2>{mode === 'create' ? 'Nouveau concours' : 'Modifier concours'}</h2>
           </div>
           <button
             aria-label="Fermer"
@@ -9518,7 +9770,11 @@ function PartnerContestModal({
               disabled={isSaving}
               type="submit"
             >
-              {isSaving ? 'Envoi...' : 'Envoyer au Super Admin'}
+              {isSaving
+                ? 'Enregistrement...'
+                : mode === 'create'
+                  ? 'Envoyer au Super Admin'
+                  : 'Enregistrer'}
             </button>
           </div>
         </form>
@@ -11087,20 +11343,44 @@ function PartnerPreview() {
   const navigate = useNavigate()
   const [partner, setPartner] = useState<PartnerSession | null>(null)
   const [contests, setContests] = useState<PartnerDashboardContest[]>([])
+  const [participations, setParticipations] = useState<PartnerParticipationHistoryItem[]>(
+    [],
+  )
+  const [players, setPlayers] = useState<PartnerPlayerItem[]>([])
+  const [subscriptionHistory, setSubscriptionHistory] = useState<
+    PartnerSubscriptionHistoryItem[]
+  >([])
   const [categories, setCategories] = useState<CategoryOption[]>([])
   const [types, setTypes] = useState<ContestTypeOption[]>([])
   const [contestForm, setContestForm] = useState<ContestFormState>(
     createDefaultContestForm,
   )
   const [isContestModalOpen, setIsContestModalOpen] = useState(false)
+  const [editingPartnerContestId, setEditingPartnerContestId] = useState('')
   const [isSavingContest, setIsSavingContest] = useState(false)
   const [contestError, setContestError] = useState('')
   const [partnerNotice, setPartnerNotice] = useState('')
   const [partnerContestSearch, setPartnerContestSearch] = useState('')
   const [partnerContestStatusFilter, setPartnerContestStatusFilter] = useState('all')
   const [partnerContestTypeFilter, setPartnerContestTypeFilter] = useState('all')
+  const [partnerHistoryContestId, setPartnerHistoryContestId] = useState('all')
+  const [partnerPlayerSearch, setPartnerPlayerSearch] = useState('')
+  const [settingsError, setSettingsError] = useState('')
+  const [isProfileSaving, setIsProfileSaving] = useState(false)
+  const [isPasswordSaving, setIsPasswordSaving] = useState(false)
+  const [profileForm, setProfileForm] = useState<PartnerProfileFormState>({
+    companyName: '',
+    email: '',
+    logoUrl: '',
+    sector: '',
+    phone: '',
+  })
+  const [passwordForm, setPasswordForm] = useState<PartnerPasswordFormState>({
+    password: '',
+    confirmPassword: '',
+  })
   const [activePartnerView, setActivePartnerView] = useState<
-    'dashboard' | 'contests' | 'subscription'
+    'dashboard' | 'contests' | 'players' | 'subscriptions' | 'settings' | 'history'
   >('dashboard')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
@@ -11108,23 +11388,68 @@ function PartnerPreview() {
   const dashboardStats = useMemo(() => {
     const activeContests = contests.filter((contest) => contest.status === 'active')
     const boostedContests = contests.filter((contest) => contest.isBoosted)
+    const pendingContests = contests.filter((contest) => contest.status === 'pending')
     const totalViews = contests.reduce(
       (total, contest) => total + contest.viewsCount,
+      0,
+    )
+    const totalShares = contests.reduce(
+      (total, contest) => total + contest.sharesCount,
       0,
     )
     const totalPrizeValue = contests.reduce(
       (total, contest) => total + contest.prizeValue,
       0,
     )
+    const completedParticipations = participations.filter(
+      (participation) => participation.completed,
+    ).length
 
     return {
       activeContests: activeContests.length,
       boostedContests: boostedContests.length,
+      completionRate: Math.round(
+        (completedParticipations / Math.max(1, participations.length)) * 100,
+      ),
+      pendingContests: pendingContests.length,
+      players: players.length,
+      participations: participations.length,
       totalContests: contests.length,
       totalPrizeValue,
+      totalShares,
       totalViews,
     }
-  }, [contests])
+  }, [contests, participations.length, players.length])
+
+  const partnerParticipationTrend = useMemo(
+    () =>
+      buildLastSevenDaysTrend(
+        participations.map((participation) => participation.participatedAt),
+      ),
+    [participations],
+  )
+
+  const partnerTypeBreakdown = useMemo(
+    () => buildBreakdown(contests.map((contest) => contest.type)),
+    [contests],
+  )
+
+  const partnerStatusBreakdown = useMemo(
+    () => buildBreakdown(contests.map((contest) => contest.status)),
+    [contests],
+  )
+
+  const topPartnerContests = useMemo(
+    () =>
+      [...contests]
+        .sort((first, second) => {
+          const participationDiff = second.participants - first.participants
+          if (participationDiff !== 0) return participationDiff
+          return second.viewsCount - first.viewsCount
+        })
+        .slice(0, 5),
+    [contests],
+  )
 
   const filteredPartnerContests = useMemo(() => {
     const cleanedSearch = partnerContestSearch.trim().toLowerCase()
@@ -11152,6 +11477,26 @@ function PartnerPreview() {
     partnerContestTypeFilter,
   ])
 
+  const filteredPartnerHistory = useMemo(() => {
+    return participations.filter(
+      (participation) =>
+        partnerHistoryContestId === 'all' ||
+        participation.contestId === partnerHistoryContestId,
+    )
+  }, [participations, partnerHistoryContestId])
+
+  const filteredPartnerPlayers = useMemo(() => {
+    const cleanedSearch = partnerPlayerSearch.trim().toLowerCase()
+    if (!cleanedSearch) return players
+
+    return players.filter((player) =>
+      [player.label, player.phone, player.username]
+        .join(' ')
+        .toLowerCase()
+        .includes(cleanedSearch),
+    )
+  }, [partnerPlayerSearch, players])
+
   const loadPartnerDashboard = useCallback(
     async (isMounted: () => boolean) => {
       const { data } = await supabase.auth.getUser()
@@ -11164,13 +11509,25 @@ function PartnerPreview() {
         data.user.id,
         data.user.email,
       )
-      const [nextContests, catalog] = await Promise.all([
+      const [nextContests, catalog, nextSubscriptions] = await Promise.all([
         fetchPartnerDashboardContests(nextPartner.id),
         fetchPartnerContestCatalog(),
+        fetchPartnerSubscriptionHistory(nextPartner.id),
       ])
+      const nextParticipations = await fetchPartnerParticipations(nextContests)
       if (!isMounted()) return
       setPartner(nextPartner)
       setContests(nextContests)
+      setParticipations(nextParticipations)
+      setPlayers(buildPartnerPlayers(nextParticipations))
+      setSubscriptionHistory(nextSubscriptions)
+      setProfileForm({
+        companyName: nextPartner.companyName,
+        email: nextPartner.email,
+        logoUrl: nextPartner.logoUrl,
+        sector: nextPartner.sector,
+        phone: nextPartner.phone,
+      })
       setCategories(catalog.categories)
       setTypes(catalog.types)
       void registerWebPushToken(data.user.id, 'partner-web').catch((error) => {
@@ -11201,6 +11558,16 @@ function PartnerPreview() {
     }
   }, [loadPartnerDashboard])
 
+  const refreshPartnerDashboard = useCallback(async () => {
+    await loadPartnerDashboard(() => true)
+  }, [loadPartnerDashboard])
+
+  useRealtimeRefresh(
+    'partner-dashboard-realtime',
+    ['contests', 'participations', 'partner_subscriptions', 'partners'],
+    refreshPartnerDashboard,
+  )
+
   async function handlePartnerLogout() {
     await supabase.auth.signOut()
     navigate(PARTNER_AUTH_ROUTE, { replace: true })
@@ -11210,6 +11577,7 @@ function PartnerPreview() {
     if (!partner) return
     setContestError('')
     setPartnerNotice('')
+    setEditingPartnerContestId('')
     setContestForm({
       ...createDefaultContestForm(),
       partnerId: partner.id,
@@ -11220,9 +11588,46 @@ function PartnerPreview() {
     setIsContestModalOpen(true)
   }
 
+  function openEditPartnerContestModal(contest: PartnerDashboardContest) {
+    if (contest.status !== 'pending') {
+      setPartnerNotice('Seuls les concours en attente peuvent être modifiés.')
+      return
+    }
+
+    setContestError('')
+    setPartnerNotice('')
+    setEditingPartnerContestId(contest.id)
+    setContestForm({
+      title: contest.title,
+      description: contest.description,
+      type: contest.type,
+      categoryId: contest.categoryId,
+      partnerId: partner?.id ?? '',
+      imageUrl: contest.imageUrl,
+      brandLogoUrl: contest.brandLogoUrl,
+      brandName: contest.brandName || partner?.companyName || '',
+      prizeDescription: contest.prizeDescription,
+      prizeValue: String(contest.prizeValue || ''),
+      winnersCount: String(contest.winnersCount || 1),
+      maxParticipants:
+        contest.maxParticipants === null ? '' : String(contest.maxParticipants),
+      startsAt: contest.startsAt ? isoToDatetimeLocalValue(contest.startsAt) : '',
+      endsAt: contest.endsAt ? isoToDatetimeLocalValue(contest.endsAt) : '',
+      status: 'pending',
+      isBoosted: false,
+    })
+    setIsContestModalOpen(true)
+  }
+
+  function openPartnerContestHistory(contestId: string) {
+    setPartnerHistoryContestId(contestId)
+    setActivePartnerView('history')
+  }
+
   function closePartnerContestModal() {
     if (isSavingContest) return
     setContestError('')
+    setEditingPartnerContestId('')
     setIsContestModalOpen(false)
   }
 
@@ -11296,9 +11701,8 @@ function PartnerPreview() {
     setIsSavingContest(true)
 
     try {
-      const contestId = createClientUuid()
-      const { error } = await supabase.from('contests').insert({
-        id: contestId,
+      const contestId = editingPartnerContestId || createClientUuid()
+      const payload = {
         partner_id: partner.id,
         title,
         description,
@@ -11318,39 +11722,61 @@ function PartnerPreview() {
         is_boosted: false,
         views_count: 0,
         shares_count: 0,
-        created_at: new Date().toISOString(),
-      })
+      }
+      const saveResponse = editingPartnerContestId
+        ? await supabase
+            .from('contests')
+            .update(payload)
+            .eq('id', editingPartnerContestId)
+            .eq('partner_id', partner.id)
+            .eq('status', 'pending')
+        : await supabase.from('contests').insert({
+            id: contestId,
+            ...payload,
+            created_at: new Date().toISOString(),
+          })
 
-      if (error) throw error
+      if (saveResponse.error) throw saveResponse.error
 
-      setContests(await fetchPartnerDashboardContests(partner.id))
-      const pushPayload = {
-        audience: 'admins',
-        title: 'Concours partenaire à valider',
-        body: `${partner.companyName} a soumis le concours "${title}".`,
-        type: 'partner_contest_review',
-        data: {
-          contest_id: contestId,
-          contestId,
-          partner_id: partner.id,
+      const nextContests = await fetchPartnerDashboardContests(partner.id)
+      const nextParticipations = await fetchPartnerParticipations(nextContests)
+      setContests(nextContests)
+      setParticipations(nextParticipations)
+      setPlayers(buildPartnerPlayers(nextParticipations))
+      if (!editingPartnerContestId) {
+        const pushPayload = {
+          audience: 'admins',
+          title: 'Concours partenaire à valider',
+          body: `${partner.companyName} a soumis le concours "${title}".`,
           type: 'partner_contest_review',
-          source: 'partner_contest_submission',
-        },
-      }
-      console.info('[MegaPromo][partnerContest][pushPayload]', pushPayload)
-      try {
-        const pushResponse = await supabase.functions.invoke(
-          'send-push-notifications',
-          {
-            body: pushPayload,
+          data: {
+            contest_id: contestId,
+            contestId,
+            partner_id: partner.id,
+            type: 'partner_contest_review',
+            source: 'partner_contest_submission',
           },
-        )
-        console.info('[MegaPromo][partnerContest][pushResponse]', pushResponse)
-      } catch (pushError) {
-        console.warn('[MegaPromo][partnerContest][pushError]', pushError)
+        }
+        console.info('[MegaPromo][partnerContest][pushPayload]', pushPayload)
+        try {
+          const pushResponse = await supabase.functions.invoke(
+            'send-push-notifications',
+            {
+              body: pushPayload,
+            },
+          )
+          console.info('[MegaPromo][partnerContest][pushResponse]', pushResponse)
+        } catch (pushError) {
+          console.warn('[MegaPromo][partnerContest][pushError]', pushError)
+        }
       }
-      setPartnerNotice('Concours envoyé au Super Admin pour validation.')
+      setPartnerNotice(
+        editingPartnerContestId
+          ? 'Concours mis à jour. Il reste en attente de validation.'
+          : 'Concours envoyé au Super Admin pour validation.',
+      )
       setContestError('')
+      setEditingPartnerContestId('')
       setIsContestModalOpen(false)
       setActivePartnerView('contests')
     } catch (error) {
@@ -11361,6 +11787,92 @@ function PartnerPreview() {
       )
     } finally {
       setIsSavingContest(false)
+    }
+  }
+
+  async function handleUpdatePartnerProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!partner) return
+
+    const companyName = profileForm.companyName.trim()
+    const email = profileForm.email.trim().toLowerCase()
+
+    setSettingsError('')
+    setPartnerNotice('')
+
+    if (companyName.length < 2) {
+      setSettingsError('Le nom de la marque doit contenir au moins 2 caractères.')
+      return
+    }
+
+    if (!email.includes('@')) {
+      setSettingsError('Email invalide.')
+      return
+    }
+
+    setIsProfileSaving(true)
+    try {
+      if (email !== partner.email.toLowerCase()) {
+        const { error: authError } = await supabase.auth.updateUser({ email })
+        if (authError) throw authError
+      }
+
+      const { error: partnerError } = await supabase
+        .from('partners')
+        .update({
+          company_name: companyName,
+          email,
+          logo_url: profileForm.logoUrl.trim() || null,
+          sector: profileForm.sector.trim() || null,
+          phone: profileForm.phone.trim() || null,
+        })
+        .eq('id', partner.id)
+
+      if (partnerError) throw partnerError
+
+      await refreshPartnerDashboard()
+      setPartnerNotice(
+        email !== partner.email.toLowerCase()
+          ? 'Profil mis à jour. Supabase peut demander une confirmation email.'
+          : 'Profil partenaire mis à jour.',
+      )
+    } catch (error) {
+      setSettingsError(formatUnknownError(error, 'Impossible de mettre à jour le profil.'))
+    } finally {
+      setIsProfileSaving(false)
+    }
+  }
+
+  async function handleUpdatePartnerPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSettingsError('')
+    setPartnerNotice('')
+
+    const password = passwordForm.password.trim()
+    const confirmPassword = passwordForm.confirmPassword.trim()
+
+    if (password.length < 8) {
+      setSettingsError('Le nouveau mot de passe doit contenir au moins 8 caractères.')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setSettingsError('Les deux mots de passe ne correspondent pas.')
+      return
+    }
+
+    setIsPasswordSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) throw error
+      setPasswordForm({ password: '', confirmPassword: '' })
+      setPartnerNotice('Mot de passe partenaire mis à jour.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de mettre à jour le mot de passe.'),
+      )
+    } finally {
+      setIsPasswordSaving(false)
     }
   }
 
@@ -11428,12 +11940,28 @@ function PartnerPreview() {
             Concours
           </button>
           <button
-            className={activePartnerView === 'subscription' ? 'active' : ''}
-            onClick={() => setActivePartnerView('subscription')}
+            className={activePartnerView === 'subscriptions' ? 'active' : ''}
+            onClick={() => setActivePartnerView('subscriptions')}
             type="button"
           >
             <span className="nav-icon">AB</span>
-            Abonnement
+            Abonnements
+          </button>
+          <button
+            className={activePartnerView === 'players' ? 'active' : ''}
+            onClick={() => setActivePartnerView('players')}
+            type="button"
+          >
+            <span className="nav-icon">JR</span>
+            Joueurs
+          </button>
+          <button
+            className={activePartnerView === 'settings' ? 'active' : ''}
+            onClick={() => setActivePartnerView('settings')}
+            type="button"
+          >
+            <span className="nav-icon">PR</span>
+            Paramètres
           </button>
         </nav>
 
@@ -11467,14 +11995,26 @@ function PartnerPreview() {
                 ? partner.companyName
                 : activePartnerView === 'contests'
                   ? 'Concours'
-                  : 'Abonnement'}
+                  : activePartnerView === 'history'
+                    ? 'Historique'
+                    : activePartnerView === 'players'
+                      ? 'Joueurs'
+                      : activePartnerView === 'settings'
+                        ? 'Paramètres'
+                        : 'Abonnements'}
             </h1>
             <p className="page-subtitle">
               {activePartnerView === 'dashboard'
                 ? 'Suivi minimum de tes concours, vues et statut d’abonnement.'
                 : activePartnerView === 'contests'
                   ? 'Liste des concours enregistrés et création de nouveaux jeux.'
-                  : 'Statut du compte partenaire et informations de forfait.'}
+                  : activePartnerView === 'history'
+                    ? 'Historique de participation rattaché à tes concours.'
+                    : activePartnerView === 'players'
+                      ? 'Joueurs ayant participé au moins une fois à tes jeux.'
+                      : activePartnerView === 'settings'
+                        ? 'Mets à jour le profil partenaire et le mot de passe.'
+                        : 'Historique des abonnements du partenaire.'}
             </p>
           </div>
 
@@ -11499,29 +12039,115 @@ function PartnerPreview() {
           </div>
         ) : null}
 
+        {settingsError ? (
+          <div className="dashboard-alert" role="alert">
+            <div>
+              <strong>Action refusée</strong>
+              <p>{settingsError}</p>
+            </div>
+          </div>
+        ) : null}
+
         {activePartnerView === 'dashboard' ? (
-          <section className="stats-grid" aria-label="Statistiques partenaire">
-            <article className="stat-card">
-              <span>Concours</span>
-              <strong>{formatNumber(dashboardStats.totalContests)}</strong>
-              <p>Total créé pour ce partenaire.</p>
-            </article>
-            <article className="stat-card">
-              <span>Actifs</span>
-              <strong>{formatNumber(dashboardStats.activeContests)}</strong>
-              <p>Concours actuellement visibles.</p>
-            </article>
-            <article className="stat-card">
-              <span>Vues</span>
-              <strong>{formatNumber(dashboardStats.totalViews)}</strong>
-              <p>Somme des vues enregistrées.</p>
-            </article>
-            <article className="stat-card">
-              <span>Lots</span>
-              <strong>{formatMoney(dashboardStats.totalPrizeValue)}</strong>
-              <p>Valeur totale des lots déclarés.</p>
-            </article>
-          </section>
+          <>
+            <section className="stats-grid" aria-label="Statistiques partenaire">
+              <article className="stat-card">
+                <span>Concours</span>
+                <strong>{formatNumber(dashboardStats.totalContests)}</strong>
+                <p>{formatNumber(dashboardStats.pendingContests)} en attente SA.</p>
+              </article>
+              <article className="stat-card">
+                <span>Actifs</span>
+                <strong>{formatNumber(dashboardStats.activeContests)}</strong>
+                <p>Concours visibles dans l’app mobile.</p>
+              </article>
+              <article className="stat-card">
+                <span>Audience</span>
+                <strong>{formatNumber(dashboardStats.totalViews)}</strong>
+                <p>{formatNumber(dashboardStats.totalShares)} partage(s).</p>
+              </article>
+              <article className="stat-card">
+                <span>Participations</span>
+                <strong>{formatNumber(dashboardStats.participations)}</strong>
+                <p>{formatNumber(dashboardStats.players)} joueur(s) unique(s).</p>
+              </article>
+              <article className="stat-card">
+                <span>Complétion</span>
+                <strong>{dashboardStats.completionRate}%</strong>
+                <p>Parties terminées par les joueurs.</p>
+              </article>
+              <article className="stat-card">
+                <span>Lots</span>
+                <strong>{formatMoney(dashboardStats.totalPrizeValue)}</strong>
+                <p>Valeur totale déclarée.</p>
+              </article>
+            </section>
+
+            <section className="dashboard-analytics-grid partner-analytics-grid">
+              <DashboardTrendCard
+                data={partnerParticipationTrend}
+                loading={false}
+                title="Participations sur 7 jours"
+              />
+              <DashboardBreakdownCard
+                data={partnerStatusBreakdown}
+                loading={false}
+                title="Répartition par statut"
+              />
+              <DashboardBreakdownCard
+                data={partnerTypeBreakdown}
+                loading={false}
+                title="Répartition par type"
+              />
+              <DashboardEngagementCard
+                data={{
+                  views: dashboardStats.totalViews,
+                  shares: dashboardStats.totalShares,
+                  participations: dashboardStats.participations,
+                  completionRate: dashboardStats.completionRate,
+                }}
+              />
+            </section>
+
+            <section className="partner-page-section">
+              <article className="panel">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">Performance</p>
+                    <h2>Top concours</h2>
+                  </div>
+                  <span className="pill">{formatNumber(topPartnerContests.length)} lignes</span>
+                </div>
+                {topPartnerContests.length === 0 ? (
+                  <p className="empty-panel-text">
+                    Les performances apparaîtront dès les premières participations.
+                  </p>
+                ) : (
+                  <div className="partner-dashboard-list">
+                    {topPartnerContests.map((contest) => (
+                      <article className="partner-dashboard-row" key={contest.id}>
+                        <div>
+                          <strong>{contest.title}</strong>
+                          <p>{contest.category} · {contest.type}</p>
+                        </div>
+                        <span>{formatNumber(contest.participants)} joueur(s)</span>
+                        <span>{formatNumber(contest.viewsCount)} vues</span>
+                        <span>{formatNumber(contest.sharesCount)} partages</span>
+                        <small>{formatDate(contest.endsAt)}</small>
+                        <button
+                          className="table-action-button"
+                          onClick={() => openPartnerContestHistory(contest.id)}
+                          type="button"
+                        >
+                          Historique
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </section>
+          </>
         ) : null}
 
         {activePartnerView === 'contests' ? (
@@ -11595,9 +12221,26 @@ function PartnerPreview() {
                       <span className={`status-pill ${contest.status}`}>
                         {contest.status}
                       </span>
-                      <span>{formatNumber(contest.viewsCount)} vues</span>
+                      <span>{formatNumber(contest.participants)} joueurs</span>
                       <span>{contest.isBoosted ? 'Boosté' : 'Standard'}</span>
                       <small>{formatDate(contest.endsAt)}</small>
+                      <div className="table-actions compact">
+                        <button
+                          className="table-action-button"
+                          onClick={() => openPartnerContestHistory(contest.id)}
+                          type="button"
+                        >
+                          Historique
+                        </button>
+                        <button
+                          className="table-action-button"
+                          disabled={contest.status !== 'pending'}
+                          onClick={() => openEditPartnerContestModal(contest)}
+                          type="button"
+                        >
+                          Modifier
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -11606,18 +12249,144 @@ function PartnerPreview() {
           </section>
         ) : null}
 
-        {activePartnerView === 'subscription' ? (
+        {activePartnerView === 'history' ? (
+          <section className="partner-page-section">
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Participations</p>
+                  <h2>Historique des joueurs</h2>
+                </div>
+                <div className="section-heading-actions">
+                  <select
+                    onChange={(event) => setPartnerHistoryContestId(event.target.value)}
+                    value={partnerHistoryContestId}
+                  >
+                    <option value="all">Tous les concours</option>
+                    {contests.map((contest) => (
+                      <option key={contest.id} value={contest.id}>
+                        {contest.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="secondary-action-button"
+                    onClick={() => setActivePartnerView('contests')}
+                    type="button"
+                  >
+                    Retour concours
+                  </button>
+                </div>
+              </div>
+
+              {filteredPartnerHistory.length === 0 ? (
+                <p className="empty-panel-text">
+                  Aucun joueur n’a encore participé à ce concours.
+                </p>
+              ) : (
+                <div className="partner-dashboard-list">
+                  {filteredPartnerHistory.map((participation) => (
+                    <article className="partner-dashboard-row history-row" key={participation.id}>
+                      <div>
+                        <strong>{participation.userLabel}</strong>
+                        <p>{participation.contestTitle}</p>
+                      </div>
+                      <span>Score {formatNumber(participation.score)}</span>
+                      <span>Rang #{participation.rank || '-'}</span>
+                      <span className={`status-pill ${participation.completed ? 'active' : 'pending'}`}>
+                        {participation.completed ? 'Terminé' : 'En cours'}
+                      </span>
+                      <small>{formatDate(participation.participatedAt)}</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+          </section>
+        ) : null}
+
+        {activePartnerView === 'players' ? (
+          <section className="partner-page-section">
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Joueurs</p>
+                  <h2>Joueurs ayant déjà joué</h2>
+                </div>
+                <span className="pill">
+                  {formatNumber(filteredPartnerPlayers.length)} / {formatNumber(players.length)}
+                </span>
+              </div>
+
+              <div className="contest-filter-bar compact">
+                <input
+                  className="search-input"
+                  onChange={(event) => setPartnerPlayerSearch(event.target.value)}
+                  placeholder="Rechercher un joueur..."
+                  value={partnerPlayerSearch}
+                />
+              </div>
+
+              {filteredPartnerPlayers.length === 0 ? (
+                <p className="empty-panel-text">
+                  Aucun joueur n’a encore participé à tes concours.
+                </p>
+              ) : (
+                <div className="partner-dashboard-list">
+                  {filteredPartnerPlayers.map((player) => (
+                    <article className="partner-dashboard-row" key={player.id}>
+                      <div>
+                        <strong>{player.label}</strong>
+                        <p>Dernière participation : {formatDate(player.lastPlayedAt)}</p>
+                      </div>
+                      <span>{formatNumber(player.participations)} participation(s)</span>
+                      <span>Meilleur score {formatNumber(player.bestScore)}</span>
+                      <small>{player.id.slice(0, 8)}</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+          </section>
+        ) : null}
+
+        {activePartnerView === 'subscriptions' ? (
           <section className="partner-page-section">
             <article className="panel">
               <div className="section-heading">
                 <div>
                   <p className="eyebrow">Abonnement</p>
-                  <h2>Statut du compte</h2>
+                  <h2>Historique des abonnements</h2>
                 </div>
                 <span className="status-pill active">Validé</span>
               </div>
 
               <div className="compact-list">
+                {subscriptionHistory.length > 0 ? (
+                  subscriptionHistory.map((subscription) => (
+                    <article key={subscription.id}>
+                      <div>
+                        <strong>{subscription.planName}</strong>
+                        <p>
+                          {subscription.paymentMethod || 'Paiement'} ·{' '}
+                          {formatMoney(subscription.amount)}
+                        </p>
+                      </div>
+                      <span className={`status-pill ${subscription.status}`}>
+                        {subscription.status}
+                      </span>
+                      <small>{formatDate(subscription.expiresAt)}</small>
+                    </article>
+                  ))
+                ) : (
+                  <article>
+                    <div>
+                      <strong>Aucun historique</strong>
+                      <p>Le forfait actuel est conservé dans le profil partenaire.</p>
+                    </div>
+                    <span>{partner.subscriptionPlan || 'free'}</span>
+                  </article>
+                )}
                 <article>
                   <div>
                     <strong>Forfait</strong>
@@ -11647,6 +12416,147 @@ function PartnerPreview() {
             </article>
           </section>
         ) : null}
+
+        {activePartnerView === 'settings' ? (
+          <section className="partner-page-section dashboard-grid">
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Profil</p>
+                  <h2>Informations partenaire</h2>
+                </div>
+              </div>
+              <form className="category-form" onSubmit={handleUpdatePartnerProfile}>
+                <div className="form-grid two-columns">
+                  <label>
+                    <span>Marque</span>
+                    <input
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          companyName: event.target.value,
+                        }))
+                      }
+                      value={profileForm.companyName}
+                    />
+                  </label>
+                  <label>
+                    <span>Email</span>
+                    <input
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          email: event.target.value,
+                        }))
+                      }
+                      type="email"
+                      value={profileForm.email}
+                    />
+                  </label>
+                </div>
+                <div className="form-grid two-columns">
+                  <label>
+                    <span>Téléphone</span>
+                    <input
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          phone: event.target.value,
+                        }))
+                      }
+                      value={profileForm.phone}
+                    />
+                  </label>
+                  <label>
+                    <span>Secteur</span>
+                    <input
+                      onChange={(event) =>
+                        setProfileForm((current) => ({
+                          ...current,
+                          sector: event.target.value,
+                        }))
+                      }
+                      value={profileForm.sector}
+                    />
+                  </label>
+                </div>
+                <label>
+                  <span>Logo URL</span>
+                  <input
+                    onChange={(event) =>
+                      setProfileForm((current) => ({
+                        ...current,
+                        logoUrl: event.target.value,
+                      }))
+                    }
+                    placeholder="https://..."
+                    value={profileForm.logoUrl}
+                  />
+                </label>
+                <div className="modal-actions">
+                  <button
+                    className="inline-action-button"
+                    disabled={isProfileSaving}
+                    type="submit"
+                  >
+                    {isProfileSaving ? 'Mise à jour...' : 'Enregistrer le profil'}
+                  </button>
+                </div>
+              </form>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Sécurité</p>
+                  <h2>Mot de passe</h2>
+                </div>
+                <span className="status-pill pending">Sensible</span>
+              </div>
+              <form className="category-form" onSubmit={handleUpdatePartnerPassword}>
+                <label>
+                  <span>Nouveau mot de passe</span>
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setPasswordForm((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    placeholder="8 caractères minimum"
+                    type="password"
+                    value={passwordForm.password}
+                  />
+                </label>
+                <label>
+                  <span>Confirmer</span>
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setPasswordForm((current) => ({
+                        ...current,
+                        confirmPassword: event.target.value,
+                      }))
+                    }
+                    placeholder="Répéter le mot de passe"
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                  />
+                </label>
+                <div className="modal-actions">
+                  <button
+                    className="inline-action-button"
+                    disabled={isPasswordSaving}
+                    type="submit"
+                  >
+                    {isPasswordSaving ? 'Mise à jour...' : 'Changer le mot de passe'}
+                  </button>
+                </div>
+              </form>
+            </article>
+          </section>
+        ) : null}
       </section>
 
       {isContestModalOpen ? (
@@ -11655,6 +12565,7 @@ function PartnerPreview() {
           error={contestError}
           form={contestForm}
           isSaving={isSavingContest}
+          mode={editingPartnerContestId ? 'edit' : 'create'}
           onChange={setContestForm}
           onClose={closePartnerContestModal}
           onSubmit={handlePartnerContestSubmit}
