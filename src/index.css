@@ -98,11 +98,17 @@ a {
   height: 44px;
   place-items: center;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-dark) 100%);
-  box-shadow: 0 14px 28px rgb(107 127 255 / 24%);
-  color: white;
-  font-size: 18px;
+  background-color: white;
+  background-image: url('/megapromologo.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  border: 1px solid rgb(229 232 240 / 90%);
+  box-shadow: 0 14px 28px rgb(107 127 255 / 16%);
+  color: transparent;
+  font-size: 0;
   font-weight: 700;
+  overflow: hidden;
 }
 
 .partner-brand-image {
@@ -1872,6 +1878,59 @@ h3 {
   margin-top: 6px;
 }
 
+.player-telemetry-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.telemetry-box-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.telemetry-box-header span,
+.telemetry-grid span {
+  color: var(--hint);
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.telemetry-box-header strong {
+  display: block;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.telemetry-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.telemetry-grid div {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.telemetry-grid strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
 .subscription-assign-row {
   display: grid;
   gap: 10px;
@@ -3105,6 +3164,7 @@ h3 {
   .maintenance-guard-panel,
   .notification-recipient-list,
   .subscription-assign-row,
+  .telemetry-grid,
   .form-grid.two-columns,
   .form-grid.three-columns {
     grid-template-columns: 1fr;

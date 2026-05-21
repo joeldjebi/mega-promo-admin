@@ -19,6 +19,7 @@ grant select on public.partners to authenticated;
 grant select on public.categories to authenticated;
 grant select on public.contest_types to authenticated;
 grant select on public.winners to authenticated;
+grant select on public.user_badges to authenticated;
 
 alter table public.contests enable row level security;
 alter table public.notifications enable row level security;
@@ -31,6 +32,7 @@ alter table public.partners enable row level security;
 alter table public.categories enable row level security;
 alter table public.contest_types enable row level security;
 alter table public.winners enable row level security;
+alter table public.user_badges enable row level security;
 
 do $$
 begin
@@ -66,6 +68,12 @@ begin
 
   begin
     alter publication supabase_realtime add table public.winners;
+  exception
+    when duplicate_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.user_badges;
   exception
     when duplicate_object then null;
   end;

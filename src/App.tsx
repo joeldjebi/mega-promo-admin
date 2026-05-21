@@ -58,6 +58,7 @@ type NotificationFormState = {
 }
 type ContestType = string
 type ContestStatus = 'draft' | 'pending' | 'active' | 'inactive'
+type PlayerPlanAccessKey = 'free' | 'premium' | 'vip'
 type ContestItem = {
   id: string
   title: string
@@ -78,6 +79,7 @@ type ContestItem = {
   startsAt: string
   endsAt: string
   isBoosted: boolean
+  allowedPlayerPlanKeys: PlayerPlanAccessKey[]
   participants: number
 }
 type PartnerOption = {
@@ -145,6 +147,7 @@ type PartnerDashboardContest = {
   startsAt: string
   endsAt: string
   isBoosted: boolean
+  allowedPlayerPlanKeys: PlayerPlanAccessKey[]
   participants: number
   createdAt: string
 }
@@ -363,6 +366,9 @@ type PlayerUserItem = {
   pointsTotal: number
   participationsToday: number
   lastParticipationDate: string
+  deviceInfo: Record<string, unknown>
+  locationInfo: Record<string, unknown>
+  deviceLastSeenAt: string
   isActive: boolean
   createdAt: string
 }
@@ -474,6 +480,7 @@ type ContestFormState = {
   endsAt: string
   status: ContestStatus
   isBoosted: boolean
+  allowedPlayerPlanKeys: PlayerPlanAccessKey[]
 }
 type ContestsData = {
   contests: ContestItem[]
@@ -519,6 +526,82 @@ type EngagementSummary = {
   participations: number
   completionRate: number
 }
+type PlayerPlanAccessPreset = 'all' | 'free' | 'premium' | 'vip' | 'premium_vip'
+const playerPlanAccessOptions: Array<{ key: PlayerPlanAccessKey; label: string }> = [
+  { key: 'free', label: 'Standard' },
+  { key: 'premium', label: 'Premium' },
+  { key: 'vip', label: 'VIP' },
+]
+const playerPlanAccessPresetOptions: Array<{
+  value: PlayerPlanAccessPreset
+  label: string
+  description: string
+}> = [
+  {
+    value: 'all',
+    label: 'Tous les joueurs',
+    description: 'Standard, Premium et VIP',
+  },
+  {
+    value: 'free',
+    label: 'Standard uniquement',
+    description: 'Joueurs sans abonnement actif',
+  },
+  {
+    value: 'premium',
+    label: 'Premium uniquement',
+    description: 'Joueurs Premium seulement',
+  },
+  {
+    value: 'vip',
+    label: 'VIP uniquement',
+    description: 'Joueurs VIP seulement',
+  },
+  {
+    value: 'premium_vip',
+    label: 'Premium + VIP',
+    description: 'Exclut les joueurs Standard',
+  },
+]
+
+function normalizeAllowedPlayerPlanKeys(value: unknown): PlayerPlanAccessKey[] {
+  if (!Array.isArray(value)) return []
+  const allowed = new Set<PlayerPlanAccessKey>()
+  for (const item of value) {
+    if (item === 'standard' || item === 'free') allowed.add('free')
+    if (item === 'premium') allowed.add('premium')
+    if (item === 'vip') allowed.add('vip')
+  }
+  return Array.from(allowed)
+}
+
+function formatPlayerPlanAccess(keys: PlayerPlanAccessKey[]) {
+  if (keys.length === 0) return 'Tous les joueurs'
+  return playerPlanAccessOptions
+    .filter((option) => keys.includes(option.key))
+    .map((option) => option.label)
+    .join(' + ')
+}
+
+function playerPlanAccessPresetFromKeys(
+  keys: PlayerPlanAccessKey[],
+): PlayerPlanAccessPreset {
+  if (keys.length === 0) return 'all'
+  if (keys.length === 1) return keys[0]
+  if (keys.includes('premium') && keys.includes('vip') && !keys.includes('free')) {
+    return 'premium_vip'
+  }
+  return 'all'
+}
+
+function playerPlanAccessKeysFromPreset(
+  preset: PlayerPlanAccessPreset,
+): PlayerPlanAccessKey[] {
+  if (preset === 'all') return []
+  if (preset === 'premium_vip') return ['premium', 'vip']
+  return [preset]
+}
+
 type DashboardData = {
   stats: DashboardStat[]
   reviewQueue: ReviewItem[]
@@ -1404,6 +1487,9 @@ function mapPartnerDashboardContest(
     startsAt: (contest.starts_at as string | null) ?? '',
     endsAt: (contest.ends_at as string | null) ?? '',
     isBoosted: (contest.is_boosted as boolean | null) ?? false,
+    allowedPlayerPlanKeys: normalizeAllowedPlayerPlanKeys(
+      contest.allowed_player_plan_keys,
+    ),
     participants,
     createdAt: (contest.created_at as string | null) ?? '',
   }
@@ -1413,7 +1499,7 @@ async function fetchPartnerDashboardContests(partnerId: string) {
   const contestsResponse = await supabase
     .from('contests')
     .select(
-      'id, title, description, category, category_id, type, status, image_url, brand_logo_url, brand_name, prize_description, views_count, shares_count, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, created_at',
+      'id, title, description, category, category_id, type, status, image_url, brand_logo_url, brand_name, prize_description, views_count, shares_count, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, created_at',
     )
     .eq('partner_id', partnerId)
     .order('created_at', { ascending: false })
@@ -1909,7 +1995,7 @@ async function fetchPlayersData({
   let usersQuery = supabase
     .from('users')
     .select(
-      'id, phone, username, avatar_url, role, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, is_active, created_at',
+      'id, phone, username, avatar_url, role, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
       { count: 'exact' },
     )
     .order('created_at', { ascending: false })
@@ -1981,6 +2067,9 @@ async function fetchPlayersData({
       participationsToday: (user.participations_today as number | null) ?? 0,
       lastParticipationDate:
         (user.last_participation_date as string | null) ?? '',
+      deviceInfo: ((user.device_info as Record<string, unknown> | null) ?? {}),
+      locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
+      deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
       isActive: (user.is_active as boolean | null) ?? true,
       createdAt: (user.created_at as string | null) ?? '',
     })),
@@ -2115,7 +2204,7 @@ async function fetchContestsData(): Promise<ContestsData> {
       supabase
         .from('contests')
         .select(
-          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, created_at',
+          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, created_at',
         )
         .order('created_at', { ascending: false }),
       supabase
@@ -2200,6 +2289,9 @@ async function fetchContestsData(): Promise<ContestsData> {
         startsAt: (contest.starts_at as string | null) ?? '',
         endsAt: (contest.ends_at as string | null) ?? '',
         isBoosted: (contest.is_boosted as boolean | null) ?? false,
+        allowedPlayerPlanKeys: normalizeAllowedPlayerPlanKeys(
+          contest.allowed_player_plan_keys,
+        ),
         participants: participationsByContest.get(id) ?? 0,
       }
     }),
@@ -2369,7 +2461,7 @@ async function fetchContestById(contestId: string): Promise<ContestItem> {
     supabase
       .from('contests')
       .select(
-        'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted',
+        'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys',
       )
       .eq('id', contestId)
       .single(),
@@ -2403,6 +2495,9 @@ async function fetchContestById(contestId: string): Promise<ContestItem> {
     startsAt: (contest.starts_at as string | null) ?? '',
     endsAt: (contest.ends_at as string | null) ?? '',
     isBoosted: (contest.is_boosted as boolean | null) ?? false,
+    allowedPlayerPlanKeys: normalizeAllowedPlayerPlanKeys(
+      contest.allowed_player_plan_keys,
+    ),
     participants: participationsResponse.count ?? 0,
   }
 }
@@ -2476,6 +2571,34 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
+function telemetryTextValue(
+  data: Record<string, unknown>,
+  keys: string[],
+  fallback = 'Non défini',
+) {
+  for (const key of keys) {
+    const value = data[key]
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return String(value)
+    }
+  }
+  return fallback
+}
+
+function telemetryNumberValue(data: Record<string, unknown>, key: string) {
+  const value = data[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function formatTelemetryCoordinate(value: number | null) {
+  return value === null ? 'Non défini' : value.toFixed(5)
+}
+
 function hasContestEnded(endsAt: string) {
   const endDate = new Date(endsAt)
   return !Number.isNaN(endDate.getTime()) && endDate <= new Date()
@@ -2519,6 +2642,7 @@ function createDefaultContestForm(): ContestFormState {
     endsAt: toDatetimeLocalValue(tomorrow),
     status: 'draft',
     isBoosted: false,
+    allowedPlayerPlanKeys: [],
   }
 }
 
@@ -2665,6 +2789,7 @@ function contestToForm(contest: ContestItem): ContestFormState {
     endsAt: isoToDatetimeLocalValue(contest.endsAt),
     status: contest.status as ContestStatus,
     isBoosted: contest.isBoosted,
+    allowedPlayerPlanKeys: contest.allowedPlayerPlanKeys,
   }
 }
 
@@ -2810,6 +2935,17 @@ html {
   font-weight: 800;
   gap: 9px;
   letter-spacing: -0.02em;
+}
+
+.lp-logo img {
+  background: #fff;
+  border: 1px solid rgba(91, 74, 232, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(91, 74, 232, 0.12);
+  height: 42px;
+  object-fit: contain;
+  padding: 5px;
+  width: 42px;
 }
 
 .lp-logo strong {
@@ -3814,7 +3950,7 @@ function LandingPage() {
         <div className="lp-wrap">
           <div className="lp-nav-inner">
             <a className="lp-logo" href="#accueil" onClick={() => setMenuOpen(false)}>
-              <span>🏆</span>
+              <img alt="" src="/megapromologo.png" />
               <strong>MegaPromo</strong>
             </a>
             <div className="lp-menu">
@@ -4108,7 +4244,10 @@ function LandingPage() {
         <div className="lp-wrap">
           <div className="lp-footer-grid">
             <div>
-              <a className="lp-logo" href="#accueil"><span>🏆</span><strong>MegaPromo</strong></a>
+              <a className="lp-logo" href="#accueil">
+                <img alt="" src="/megapromologo.png" />
+                <strong>MegaPromo</strong>
+              </a>
               <p>{content.footer.description}</p>
               <div className="lp-socials"><span>f</span><span>ig</span><span>x</span><span>wa</span></div>
             </div>
@@ -7444,6 +7583,71 @@ function SuperAdminUsersPage() {
                   </button>
                 </div>
 
+                <div className="player-telemetry-box">
+                  <div className="telemetry-box-header">
+                    <div>
+                      <span>Device & localisation</span>
+                      <strong>Dernière synchro : {formatDate(selectedUser.deviceLastSeenAt)}</strong>
+                    </div>
+                    <span className="status-pill active">
+                      {telemetryTextValue(selectedUser.locationInfo, ['permission'], 'inconnu')}
+                    </span>
+                  </div>
+                  <div className="telemetry-grid">
+                    <div>
+                      <span>Appareil</span>
+                      <strong>
+                        {telemetryTextValue(selectedUser.deviceInfo, ['brand', 'name'])}{' '}
+                        {telemetryTextValue(selectedUser.deviceInfo, ['model'], '')}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Système</span>
+                      <strong>
+                        {telemetryTextValue(selectedUser.deviceInfo, ['os', 'platform'])}{' '}
+                        {telemetryTextValue(selectedUser.deviceInfo, ['os_version'], '')}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Application</span>
+                      <strong>
+                        v{telemetryTextValue(selectedUser.deviceInfo, ['app_version'])} (
+                        {telemetryTextValue(selectedUser.deviceInfo, ['app_build'])})
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Position</span>
+                      <strong>
+                        {formatTelemetryCoordinate(
+                          telemetryNumberValue(selectedUser.locationInfo, 'latitude'),
+                        )}
+                        ,{' '}
+                        {formatTelemetryCoordinate(
+                          telemetryNumberValue(selectedUser.locationInfo, 'longitude'),
+                        )}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Précision</span>
+                      <strong>
+                        {telemetryNumberValue(selectedUser.locationInfo, 'accuracy') !== null
+                          ? `${Math.round(
+                              telemetryNumberValue(selectedUser.locationInfo, 'accuracy') ?? 0,
+                            )} m`
+                          : 'Non défini'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Capture</span>
+                      <strong>
+                        {formatDate(
+                          telemetryTextValue(selectedUser.locationInfo, ['captured_at'], ''),
+                        )}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="player-subscription-box">
                   <div>
                     <span>Abonnement actuel</span>
@@ -9317,6 +9521,7 @@ function SuperAdminContestsPage() {
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
         is_boosted: contestForm.isBoosted,
+        allowed_player_plan_keys: contestForm.allowedPlayerPlanKeys,
       }
       const { error } = editingContestId
         ? await supabase.from('contests').update(payload).eq('id', editingContestId)
@@ -9649,6 +9854,7 @@ function SuperAdminContestsPage() {
                   </div>
                   <span className="contest-type-pill">{contest.type}</span>
                   <small>{formatMoney(contest.prizeValue)}</small>
+                  <p>{formatPlayerPlanAccess(contest.allowedPlayerPlanKeys)}</p>
                   <p>{contest.participants} participants</p>
                   <p>{formatDate(contest.endsAt)}</p>
                   <span className={`status-pill ${contest.status}`}>
@@ -11121,6 +11327,34 @@ function ContestModal({
               </select>
             </label>
           </div>
+
+          <label>
+            <span>Accès joueurs</span>
+            <select
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  allowedPlayerPlanKeys: playerPlanAccessKeysFromPreset(
+                    event.target.value as PlayerPlanAccessPreset,
+                  ),
+                })
+              }
+              value={playerPlanAccessPresetFromKeys(form.allowedPlayerPlanKeys)}
+            >
+              {playerPlanAccessPresetOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <small className="form-help">
+              {playerPlanAccessPresetOptions.find(
+                (option) =>
+                  option.value ===
+                  playerPlanAccessPresetFromKeys(form.allowedPlayerPlanKeys),
+              )?.description ?? 'Tous les joueurs'}
+            </small>
+          </label>
 
           <label>
             <span>Image URL</span>
@@ -13427,6 +13661,7 @@ function PartnerPreview() {
       endsAt: contest.endsAt ? isoToDatetimeLocalValue(contest.endsAt) : '',
       status: 'pending',
       isBoosted: false,
+      allowedPlayerPlanKeys: contest.allowedPlayerPlanKeys,
     })
     setIsContestModalOpen(true)
   }
@@ -13532,6 +13767,7 @@ function PartnerPreview() {
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
         is_boosted: false,
+        allowed_player_plan_keys: contestForm.allowedPlayerPlanKeys,
         views_count: 0,
         shares_count: 0,
       }
