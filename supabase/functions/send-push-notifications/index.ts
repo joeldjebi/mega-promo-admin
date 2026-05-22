@@ -137,6 +137,11 @@ function stringifyData(data: Record<string, unknown>) {
   )
 }
 
+function tokenPreview(token: string) {
+  if (token.length <= 18) return token
+  return `${token.slice(0, 10)}...${token.slice(-6)}`
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -175,7 +180,14 @@ Deno.serve(async (request) => {
     return jsonResponse({ ok: false, error: 'Titre et message requis.' }, 400)
   }
 
-  console.log('[MegaPromo][push] payload', payload)
+  console.log('[MegaPromo][push] payload', {
+    audience: payload.audience ?? 'users',
+    userIdsCount: payload.userIds?.length ?? 0,
+    title,
+    bodyLength: body.length,
+    type: payload.type ?? 'info',
+    data: payload.data ?? {},
+  })
 
   let targetQuery = supabaseAdmin
     .from('users')
@@ -206,6 +218,12 @@ Deno.serve(async (request) => {
     ),
   )
 
+  console.log('[MegaPromo][push] targets', {
+    users: users?.length ?? 0,
+    tokens: tokens.length,
+    tokenSamples: tokens.slice(0, 5).map(tokenPreview),
+  })
+
   if (tokens.length === 0) {
     const response = {
       ok: true,
@@ -220,10 +238,16 @@ Deno.serve(async (request) => {
 
   try {
     const serviceAccount = getServiceAccount()
+    console.log('[MegaPromo][push] firebase project', {
+      projectId: serviceAccount.project_id,
+      clientEmail: serviceAccount.client_email,
+    })
     const accessToken = await createAccessToken(serviceAccount)
     const data = stringifyData({
       ...(payload.data ?? {}),
       type: payload.type ?? 'info',
+      title,
+      body,
     })
     const results = await Promise.all(
       tokens.map(async (fcmToken) => {
@@ -240,6 +264,24 @@ Deno.serve(async (request) => {
                 token: fcmToken,
                 notification: { title, body },
                 data,
+                android: {
+                  priority: 'HIGH',
+                  notification: {
+                    sound: 'default',
+                    channel_id: 'default',
+                  },
+                },
+                apns: {
+                  headers: {
+                    'apns-priority': '10',
+                  },
+                  payload: {
+                    aps: {
+                      alert: { title, body },
+                      sound: 'default',
+                    },
+                  },
+                },
               },
             }),
           },
@@ -248,6 +290,7 @@ Deno.serve(async (request) => {
         return {
           ok: response.ok,
           status: response.status,
+          token: tokenPreview(fcmToken),
           response: responsePayload,
         }
       }),
@@ -259,6 +302,7 @@ Deno.serve(async (request) => {
       sent,
       failed,
       targetUsers: users?.length ?? 0,
+      failedSamples: results.filter((result) => !result.ok).slice(0, 10),
       results,
     }
     console.log('[MegaPromo][push] response', response)

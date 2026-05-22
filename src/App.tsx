@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { useAdminAuth } from './auth/useAdminAuth'
+import { LandingPage as PublicLandingPage } from './features/landing/LandingPage'
+import { LegalPage as PublicLegalPage } from './features/landing/LegalPage'
+import {
+  defaultLandingContent,
+  type LandingPageContent,
+  mergeLandingContent,
+} from './features/landing/landingContent'
 import { supabase } from './lib/supabase'
 import { registerWebPushToken } from './lib/webPush'
 
@@ -436,6 +443,18 @@ type PaymentMethodFormState = {
   isActive: boolean
   orderIndex: string
 }
+type LegalPageItem = {
+  key: 'terms' | 'privacy'
+  title: string
+  content: string
+  isActive: boolean
+  updatedAt: string
+}
+type LegalPageFormState = {
+  title: string
+  content: string
+  isActive: boolean
+}
 type PlayerSubscriptionItem = {
   id: string
   userId: string
@@ -722,6 +741,9 @@ function useRealtimeRefresh(
       window.clearTimeout(refreshTimeout)
       void supabase.removeChannel(channel)
     }
+  // tablesKey intentionally represents the table list to avoid resubscribing
+  // when callers pass a new array literal with the same content.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName, tablesKey])
 }
 
@@ -1457,11 +1479,12 @@ async function resolvePartnerSessionByUser(userId: string, email?: string | null
   const partnerFields =
     'id, user_id, company_name, email, logo_url, sector, phone, subscription_plan, subscription_expires_at, is_validated, is_active'
 
-  let { data, error } = await supabase
+  const { data: partnerData, error } = await supabase
     .from('partners')
     .select(partnerFields)
     .eq('user_id', userId)
     .maybeSingle()
+  let data = partnerData
 
   if (error) throw error
 
@@ -2047,6 +2070,47 @@ function paymentMethodToForm(method: PaymentMethodItem): PaymentMethodFormState 
     isActive: method.isActive,
     orderIndex: String(method.orderIndex),
   }
+}
+
+const defaultLegalForms: Record<'terms' | 'privacy', LegalPageFormState> = {
+  terms: {
+    title: 'Conditions générales d’utilisation',
+    content:
+      'Bienvenue sur MegaPromo.\n\nEn utilisant MegaPromo, tu acceptes les règles des concours affichées dans l’application.\n\nUn compte joueur est personnel. Toute tentative de fraude peut entraîner une suspension.',
+    isActive: true,
+  },
+  privacy: {
+    title: 'Politique de confidentialité',
+    content:
+      'MegaPromo collecte les informations nécessaires au fonctionnement du service : numéro de téléphone, profil joueur, participations, gains, informations techniques du device et localisation lorsque l’autorisation est donnée.\n\nCes données servent à sécuriser les concours, prévenir la fraude et améliorer l’expérience.',
+    isActive: true,
+  },
+}
+
+function legalPageToForm(page: LegalPageItem): LegalPageFormState {
+  return {
+    title: page.title,
+    content: page.content,
+    isActive: page.isActive,
+  }
+}
+
+async function fetchLegalPagesForAdmin(): Promise<LegalPageItem[]> {
+  const { data, error } = await supabase
+    .from('legal_pages')
+    .select('key, title, content, is_active, updated_at')
+    .in('key', ['terms', 'privacy'])
+    .order('key', { ascending: true })
+
+  if (error) throw error
+
+  return (data ?? []).map((page) => ({
+    key: ((page.key as string | null) ?? 'terms') as 'terms' | 'privacy',
+    title: (page.title as string | null) ?? '',
+    content: (page.content as string | null) ?? '',
+    isActive: (page.is_active as boolean | null) ?? true,
+    updatedAt: (page.updated_at as string | null) ?? '',
+  }))
 }
 
 async function fetchPaymentMethodsForAdmin(): Promise<PaymentMethodItem[]> {
@@ -2967,1432 +3031,12 @@ function winnerToForm(winner: WinnerItem): WinnerFormState {
   }
 }
 
-const landingStyle = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-html {
-  scroll-behavior: smooth;
-}
-
-.lp-page {
-  --lp-bg: #f8f8ff;
-  --lp-card: #ffffff;
-  --lp-elevated: #f1f0ff;
-  --lp-border: #e4e2f4;
-  --lp-accent: #5b4ae8;
-  --lp-accent-light: #8b6fff;
-  --lp-gold: #c0962a;
-  --lp-success: #4caf7d;
-  --lp-text: #171730;
-  --lp-muted: #68668d;
-  --lp-hint: #9a98b6;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(91, 74, 232, 0.16) 0%, transparent 68%),
-    linear-gradient(180deg, #ffffff 0%, #f8f8ff 42%, #f3f2ff 100%),
-    var(--lp-bg);
-  color: var(--lp-text);
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.7;
-  min-height: 100vh;
-  overflow-x: hidden;
-}
-
-.lp-page * {
-  box-sizing: border-box;
-}
-
-.lp-page a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.lp-wrap {
-  margin: 0 auto;
-  max-width: 1200px;
-  padding: 0 20px;
-  width: 100%;
-}
-
-.lp-nav {
-  backdrop-filter: blur(20px);
-  background: rgba(255, 255, 255, 0.78);
-  border-bottom: 1px solid var(--lp-border);
-  left: 0;
-  position: fixed;
-  right: 0;
-  top: 0;
-  transition: background 220ms ease, box-shadow 220ms ease;
-  z-index: 50;
-}
-
-.lp-nav.scrolled {
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 20px 60px rgba(91, 74, 232, 0.1);
-}
-
-.lp-nav-inner {
-  align-items: center;
-  display: flex;
-  height: 74px;
-  justify-content: space-between;
-}
-
-.lp-logo {
-  align-items: center;
-  display: inline-flex;
-  font-size: 18px;
-  font-weight: 800;
-  gap: 9px;
-  letter-spacing: -0.02em;
-}
-
-.lp-logo img {
-  background: #fff;
-  border: 1px solid rgba(91, 74, 232, 0.12);
-  border-radius: 14px;
-  box-shadow: 0 12px 28px rgba(91, 74, 232, 0.12);
-  height: 42px;
-  object-fit: contain;
-  padding: 5px;
-  width: 42px;
-}
-
-.lp-logo strong {
-  color: var(--lp-accent-light);
-}
-
-.lp-menu {
-  align-items: center;
-  display: none;
-  gap: 26px;
-}
-
-.lp-menu a {
-  color: var(--lp-muted);
-  font-size: 14px;
-  font-weight: 600;
-  transition: color 180ms ease;
-}
-
-.lp-menu a:hover {
-  color: var(--lp-text);
-}
-
-.lp-actions {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-}
-
-.lp-burger {
-  background: var(--lp-card);
-  border: 1px solid var(--lp-border);
-  border-radius: 14px;
-  color: var(--lp-text);
-  cursor: pointer;
-  display: grid;
-  gap: 4px;
-  height: 42px;
-  padding: 10px;
-  width: 42px;
-}
-
-.lp-burger span {
-  background: var(--lp-text);
-  border-radius: 999px;
-  display: block;
-  height: 2px;
-}
-
-.lp-mobile-menu {
-  border-top: 1px solid var(--lp-border);
-  display: grid;
-  gap: 4px;
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 240ms ease, padding 240ms ease;
-}
-
-.lp-mobile-menu.open {
-  max-height: 360px;
-  padding: 14px 0 20px;
-}
-
-.lp-mobile-menu a {
-  border-radius: 14px;
-  color: var(--lp-muted);
-  font-weight: 650;
-  padding: 12px 4px;
-}
-
-.lp-button {
-  align-items: center;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  font-weight: 750;
-  gap: 8px;
-  justify-content: center;
-  min-height: 46px;
-  padding: 0 20px;
-  transition: transform 180ms ease, filter 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-  white-space: nowrap;
-}
-
-.lp-button:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px) scale(1.02);
-}
-
-.lp-button.primary {
-  background: linear-gradient(135deg, var(--lp-accent), var(--lp-accent-light));
-  box-shadow: 0 0 40px rgba(91, 74, 232, 0.18);
-  color: white;
-}
-
-.lp-button.outline {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: var(--lp-border);
-  color: var(--lp-text);
-}
-
-.lp-button.light {
-  background: white;
-  color: var(--lp-accent);
-}
-
-.lp-section {
-  padding: 84px 0;
-  position: relative;
-}
-
-.lp-hero {
-  min-height: 100vh;
-  overflow: hidden;
-  padding: 150px 0 90px;
-}
-
-.lp-hero-grid {
-  align-items: center;
-  display: grid;
-  gap: 52px;
-}
-
-.lp-pill {
-  align-items: center;
-  background: rgba(91, 74, 232, 0.08);
-  border: 1px solid rgba(139, 111, 255, 0.35);
-  border-radius: 999px;
-  color: var(--lp-accent-light);
-  display: inline-flex;
-  font-size: 13px;
-  font-weight: 750;
-  gap: 8px;
-  padding: 8px 13px;
-}
-
-.lp-hero h1,
-.lp-section-head h2,
-.lp-final h2 {
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  line-height: 0.98;
-}
-
-.lp-hero h1 {
-  font-size: clamp(48px, 11vw, 86px);
-  margin: 24px 0 24px;
-}
-
-.lp-gradient-text {
-  background: linear-gradient(135deg, var(--lp-accent), var(--lp-accent-light));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.lp-lead {
-  color: #56547a;
-  font-size: clamp(16px, 2vw, 20px);
-  max-width: 650px;
-}
-
-.lp-hero-actions,
-.lp-final-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 30px;
-}
-
-.lp-stats {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 36px;
-  max-width: 650px;
-}
-
-.lp-stat {
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid var(--lp-border);
-  border-radius: 22px;
-  padding: 16px;
-}
-
-.lp-stat strong {
-  display: block;
-  font-size: clamp(20px, 4vw, 30px);
-  font-weight: 800;
-}
-
-.lp-stat span {
-  color: var(--lp-muted);
-  display: block;
-  font-size: 12px;
-  font-weight: 650;
-  margin-top: 2px;
-}
-
-.lp-stars {
-  inset: 0;
-  pointer-events: none;
-  position: absolute;
-}
-
-.lp-stars i {
-  animation: lp-twinkle 3s ease-in-out infinite;
-  background: rgba(91, 74, 232, 0.5);
-  border-radius: 999px;
-  height: 2px;
-  position: absolute;
-  width: 2px;
-}
-
-.lp-phone-wrap {
-  display: none;
-  justify-content: center;
-}
-
-.lp-phone {
-  animation: lp-float 5s ease-in-out infinite;
-  background: linear-gradient(180deg, #ffffff, #ecebff);
-  border: 1px solid rgba(139, 111, 255, 0.22);
-  border-radius: 44px;
-  box-shadow:
-    0 0 0 10px rgba(91, 74, 232, 0.05),
-    0 30px 100px rgba(91, 74, 232, 0.22);
-  height: 590px;
-  padding: 16px;
-  position: relative;
-  width: 292px;
-}
-
-.lp-phone-screen {
-  background:
-    radial-gradient(circle at 50% 0%, rgba(91, 74, 232, 0.14), transparent 44%),
-    #fbfbff;
-  border: 1px solid rgba(91, 74, 232, 0.1);
-  border-radius: 32px;
-  height: 100%;
-  overflow: hidden;
-  padding: 18px;
-}
-
-.lp-phone-notch {
-  background: #171730;
-  border-radius: 999px;
-  height: 24px;
-  left: 50%;
-  position: absolute;
-  top: 22px;
-  transform: translateX(-50%);
-  width: 86px;
-}
-
-.lp-app-top {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  margin-top: 18px;
-}
-
-.lp-app-top strong {
-  font-size: 17px;
-}
-
-.lp-app-balance,
-.lp-contest-card {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--lp-border);
-  border-radius: 24px;
-  margin-top: 16px;
-  padding: 15px;
-}
-
-.lp-app-balance small,
-.lp-contest-card small {
-  color: var(--lp-muted);
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.lp-app-balance strong {
-  color: var(--lp-gold);
-  display: block;
-  font-size: 25px;
-  margin-top: 2px;
-}
-
-.lp-contest-card.featured {
-  border-color: rgba(139, 111, 255, 0.42);
-  box-shadow: 0 0 40px rgba(91, 74, 232, 0.15);
-}
-
-.lp-progress {
-  background: #e8e6f7;
-  border-radius: 999px;
-  height: 8px;
-  margin-top: 12px;
-  overflow: hidden;
-}
-
-.lp-progress span {
-  background: linear-gradient(90deg, var(--lp-accent), var(--lp-accent-light));
-  display: block;
-  height: 100%;
-}
-
-.lp-section-head {
-  margin: 0 auto 34px;
-  max-width: 720px;
-  text-align: center;
-}
-
-.lp-section-head h2 {
-  font-size: clamp(34px, 6vw, 58px);
-  margin: 0;
-}
-
-.lp-section-head p {
-  color: var(--lp-muted);
-  font-size: 17px;
-  margin: 14px auto 0;
-}
-
-.lp-grid {
-  display: grid;
-  gap: 18px;
-}
-
-.lp-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 250, 255, 0.92));
-  border: 1px solid var(--lp-border);
-  border-radius: 28px;
-  padding: 24px;
-  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-}
-
-.lp-card:hover {
-  border-color: rgba(139, 111, 255, 0.34);
-  box-shadow: 0 24px 60px rgba(91, 74, 232, 0.12);
-  transform: translateY(-4px);
-}
-
-.lp-card .icon {
-  display: block;
-  font-size: 34px;
-  margin-bottom: 16px;
-}
-
-.lp-card h3 {
-  color: var(--lp-text);
-  font-size: 22px;
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-
-.lp-card p {
-  color: #68668d;
-  margin: 12px 0 0;
-}
-
-.lp-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 18px 0;
-}
-
-.lp-tags span {
-  background: #f5f4ff;
-  border: 1px solid var(--lp-border);
-  border-radius: 999px;
-  color: #56547a;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 10px;
-}
-
-.lp-game-card.quiz { --game-color: var(--lp-accent); }
-.lp-game-card.draw { --game-color: var(--lp-gold); }
-.lp-game-card.predict { --game-color: var(--lp-success); }
-
-.lp-game-card {
-  border-top: 3px solid var(--game-color);
-}
-
-.lp-game-card a {
-  color: var(--game-color);
-  display: inline-flex;
-  font-weight: 800;
-  margin-top: 4px;
-}
-
-.lp-live-card {
-  position: relative;
-}
-
-.lp-badge {
-  background: rgba(91, 74, 232, 0.12);
-  border: 1px solid rgba(139, 111, 255, 0.36);
-  border-radius: 999px;
-  color: var(--lp-accent-light);
-  display: inline-flex;
-  font-size: 11px;
-  font-weight: 800;
-  margin-bottom: 14px;
-  padding: 6px 10px;
-}
-
-.lp-live-card .lp-prize {
-  color: var(--lp-gold);
-  display: block;
-  font-size: 20px;
-  font-weight: 800;
-  margin-top: 10px;
-}
-
-.lp-live-meta {
-  align-items: center;
-  color: var(--lp-muted);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: space-between;
-  margin-top: 16px;
-}
-
-.lp-price-grid {
-  align-items: stretch;
-}
-
-.lp-price-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.lp-price-card.featured {
-  border-color: rgba(139, 111, 255, 0.55);
-  box-shadow: 0 0 48px rgba(91, 74, 232, 0.22);
-  position: relative;
-}
-
-.lp-price {
-  display: block;
-  font-size: 32px;
-  font-weight: 800;
-  margin: 14px 0 2px;
-}
-
-.lp-feature-list {
-  display: grid;
-  gap: 12px;
-  list-style: none;
-  margin: 24px 0;
-  padding: 0;
-}
-
-.lp-feature-list li {
-  color: #56547a;
-  font-weight: 600;
-}
-
-.lp-partners {
-  background:
-    radial-gradient(circle at 50% 0%, rgba(91, 74, 232, 0.1), transparent 55%),
-    #f1f0ff;
-}
-
-.lp-testimonial .avatar {
-  background: linear-gradient(135deg, var(--lp-accent), var(--lp-accent-light));
-  border-radius: 999px;
-  display: grid;
-  font-weight: 800;
-  height: 48px;
-  place-items: center;
-  width: 48px;
-}
-
-.lp-stars-text {
-  color: var(--lp-gold);
-  letter-spacing: 2px;
-  margin: 12px 0;
-}
-
-.lp-faq {
-  margin: 0 auto;
-  max-width: 860px;
-}
-
-.lp-faq-item {
-  background: var(--lp-card);
-  border: 1px solid var(--lp-border);
-  border-radius: 22px;
-  margin-top: 12px;
-  overflow: hidden;
-}
-
-.lp-faq-item button {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  color: var(--lp-text);
-  cursor: pointer;
-  display: flex;
-  font: inherit;
-  font-weight: 750;
-  justify-content: space-between;
-  padding: 18px 20px;
-  text-align: left;
-  width: 100%;
-}
-
-.lp-faq-answer {
-  color: #68668d;
-  max-height: 0;
-  overflow: hidden;
-  padding: 0 20px;
-  transition: max-height 260ms ease, padding 260ms ease;
-}
-
-.lp-faq-item.open .lp-faq-answer {
-  max-height: 220px;
-  padding: 0 20px 20px;
-}
-
-.lp-final {
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.38), transparent 55%),
-    linear-gradient(135deg, rgba(91, 74, 232, 0.92), rgba(139, 111, 255, 0.9));
-  border: 1px solid rgba(139, 111, 255, 0.35);
-  border-radius: 38px;
-  box-shadow: 0 0 70px rgba(91, 74, 232, 0.22);
-  padding: 48px 22px;
-  text-align: center;
-}
-
-.lp-final h2 {
-  color: white;
-  font-size: clamp(40px, 8vw, 72px);
-  margin: 0;
-}
-
-.lp-final p {
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 18px;
-  margin: 18px auto 0;
-  max-width: 660px;
-}
-
-.lp-store {
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 16px;
-  color: white;
-  display: inline-flex;
-  font-weight: 800;
-  gap: 8px;
-  margin-top: 22px;
-  padding: 10px 16px;
-}
-
-.lp-final .lp-button.outline {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.42);
-  color: white;
-}
-
-.lp-footer {
-  border-top: 1px solid var(--lp-border);
-  padding: 56px 0 26px;
-}
-
-.lp-footer-grid {
-  display: grid;
-  gap: 28px;
-}
-
-.lp-footer h4 {
-  margin: 0 0 12px;
-}
-
-.lp-footer a,
-.lp-footer p {
-  color: var(--lp-muted);
-  display: block;
-  margin: 8px 0 0;
-}
-
-.lp-socials {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.lp-socials span {
-  background: var(--lp-card);
-  border: 1px solid var(--lp-border);
-  border-radius: 999px;
-  display: grid;
-  height: 36px;
-  place-items: center;
-  width: 36px;
-}
-
-.lp-bottom {
-  border-top: 1px solid var(--lp-border);
-  color: var(--lp-hint);
-  font-size: 13px;
-  margin-top: 34px;
-  padding-top: 20px;
-}
-
-.lp-reveal {
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 650ms ease, transform 650ms ease;
-}
-
-.lp-reveal.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-@keyframes lp-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-14px); }
-}
-
-@keyframes lp-twinkle {
-  0%, 100% { opacity: 0.2; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.7); }
-}
-
-@media (min-width: 768px) {
-  .lp-hero-actions,
-  .lp-final-actions {
-    flex-direction: row;
-    justify-content: flex-start;
-  }
-
-  .lp-final-actions {
-    justify-content: center;
-  }
-
-  .lp-grid.two,
-  .lp-price-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lp-grid.three {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1024px) {
-  .lp-menu {
-    display: flex;
-  }
-
-  .lp-burger {
-    display: none;
-  }
-
-  .lp-hero-grid {
-    grid-template-columns: minmax(0, 1.12fr) minmax(330px, 0.88fr);
-  }
-
-  .lp-phone-wrap {
-    display: flex;
-  }
-
-  .lp-grid.three {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .lp-footer-grid {
-    grid-template-columns: 1.2fr repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 767px) {
-  .lp-nav .lp-actions .lp-button {
-    display: none;
-  }
-
-  .lp-stats {
-    grid-template-columns: 1fr;
-  }
-
-  .lp-section {
-    padding: 64px 0;
-  }
-
-  .lp-hero {
-    padding-top: 118px;
-  }
-
-  .lp-button {
-    width: 100%;
-  }
-}
-`
-
-type LandingGameItem = {
-  cls: string
-  icon: string
-  title: string
-  text: string
-  tags: string[]
-  cta: string
-}
-
-type LandingPartnerPlan = {
-  name: string
-  price: string
-  features: string[]
-}
-
-type LandingPageContent = {
-  navItems: string[][]
-  hero: {
-    badge: string
-    titleStart: string
-    titleHighlight: string
-    titleEnd: string
-    subtitle: string
-    primaryCta: string
-    secondaryCta: string
-  }
-  stats: {
-    players: number
-    money: number
-    contests: number
-  }
-  steps: string[][]
-  games: LandingGameItem[]
-  liveContests: Array<[string, string, string, string, number, string, string]>
-  playerPlans: {
-    free: { title: string; price: string; features: string[] }
-    premium: { title: string; price: string; subtitle: string; features: string[] }
-  }
-  partners: {
-    title: string
-    subtitle: string
-    benefits: string[][]
-    plans: LandingPartnerPlan[]
-  }
-  testimonials: string[][]
-  faqs: string[][]
-  finalCta: {
-    title: string
-    subtitle: string
-    primaryCta: string
-    secondaryCta: string
-    storeBadge: string
-  }
-  footer: {
-    description: string
-    bottom: string
-  }
-}
-
-const defaultLandingContent: LandingPageContent = {
-  navItems: [
-    ['Accueil', '#accueil'],
-    ['Comment ça marche', '#comment-ca-marche'],
-    ['Concours', '#concours'],
-    ['Partenaires', '#partenaires'],
-    ['Tarifs', '#tarifs'],
-  ],
-  hero: {
-    badge: '🇨🇮 La plateforme N°1 de concours en CI',
-    titleStart: 'Joue.',
-    titleHighlight: 'Gagne.',
-    titleEnd: 'Vis l’expérience.',
-    subtitle:
-      'Participe à des centaines de concours gratuits, réponds à des quiz, tente ta chance aux tirages et remporte des prix en FCFA, data et bien plus.',
-    primaryCta: 'Commencer gratuitement',
-    secondaryCta: 'Voir les concours',
-  },
-  stats: {
-    players: 50000,
-    money: 2000000,
-    contests: 500,
-  },
-  steps: [
-    ['📱', 'Inscris-toi', 'Crée ton compte en 30 secondes avec ton numéro de téléphone. Aucune carte bancaire requise.'],
-    ['🎮', 'Choisis ton jeu', 'Quiz de culture générale, tirages au sort ou pronostics sportifs. Un nouveau concours disponible chaque jour.'],
-    ['💰', 'Gagne tes prix', 'Les gains sont versés directement sur ton Wave, Orange Money ou MTN Money. En quelques minutes.'],
-  ],
-  games: [
-    {
-      cls: 'quiz',
-      icon: '🧠',
-      title: 'Quiz',
-      text: 'Teste tes connaissances sur le football, la culture ivoirienne, la musique africaine et bien plus. Réponds vite et juste pour maximiser tes points.',
-      tags: ['Culture générale', 'Sport', 'Musique', 'Tech'],
-      cta: 'Voir les quiz →',
-    },
-    {
-      cls: 'draw',
-      icon: '🎰',
-      title: 'Tirage au sort',
-      text: 'Participe en un seul clic et laisse la chance décider. Plus tu joues, plus tu as de tickets. Les gagnants sont tirés au sort à la fin du concours.',
-      tags: ['1 clic', '100% chance', 'Gratuit'],
-      cta: 'Voir les tirages →',
-    },
-    {
-      cls: 'predict',
-      icon: '🔮',
-      title: 'Pronostic',
-      text: 'Prédit les résultats des grands événements sportifs et culturels. CAN, AFCON, matchs de foot... Si tu as raison, tu gagnes.',
-      tags: ['Sport', 'Stratégie', 'Football'],
-      cta: 'Voir les pronostics →',
-    },
-  ],
-  liveContests: [
-    ['EN VEDETTE', "Grand Tirage MTN Côte d'Ivoire", '50 000 FCFA de crédit MTN', '1 720 / 5 000 participants', 34, '13 jours restants', 'Participer'],
-    ['QUIZ', 'Quiz Foot Africain', '25 000 FCFA', '342 participants', 54, '6 jours restants', 'Jouer'],
-    ['PRONOSTIC', 'Pronostic AFCON 2025', '100 000 FCFA', '891 participants', 41, '29 jours restants', 'Pronostiquer'],
-  ],
-  playerPlans: {
-    free: {
-      title: 'Gratuit',
-      price: '0 FCFA / mois',
-      features: [
-        '✅ 3 participations par jour',
-        '✅ Accès à tous les concours',
-        '✅ Classement général',
-        '❌ Participations illimitées',
-        '❌ Double tickets tirages',
-        '❌ Accès anticipé concours',
-        '❌ Badge Premium visible',
-      ],
-    },
-    premium: {
-      title: 'Premium',
-      price: '2 000 FCFA / mois',
-      subtitle: 'Soit 67 FCFA par jour.',
-      features: [
-        '✅ Participations illimitées',
-        '✅ Double tickets aux tirages',
-        '✅ Accès anticipé aux concours',
-        '✅ Badge Premium sur ton profil',
-        '✅ Support prioritaire',
-        '✅ Statistiques avancées',
-      ],
-    },
-  },
-  partners: {
-    title: 'Vous êtes une marque ?',
-    subtitle: 'Touchez des milliers d’Ivoiriens engagés grâce à vos concours sponsorisés.',
-    benefits: [
-      ['📢', 'Visibilité maximale', 'Vos concours vus par des milliers de joueurs actifs chaque jour sur MegaPromo.'],
-      ['🎯', 'Engagement réel', 'Les joueurs interagissent activement avec votre marque, pas juste un scroll passif.'],
-      ['📊', 'Stats détaillées', 'Tableau de bord complet : vues, participants, partages, profil de votre audience.'],
-    ],
-    plans: [
-      { name: 'Starter', price: '50 000 FCFA/mois', features: ['1 concours actif', 'Durée max 7 jours', 'Stats basiques'] },
-      { name: 'Business', price: '150 000 FCFA/mois', features: ['3 concours simultanés', 'Durée max 30 jours', 'Stats avancées', '1 boost inclus'] },
-      { name: 'Premium', price: '400 000 FCFA/mois', features: ['Concours illimités', 'Durée illimitée', 'Stats complètes + export', '3 boosts inclus', 'Support dédié'] },
-    ],
-  },
-  testimonials: [
-    ['K', 'Konan Aimé, Cocody', "J’ai gagné 25 000 FCFA au quiz foot ! L’argent était sur mon Wave en moins de 10 minutes. Incroyable !"],
-    ['M', 'Marie Kouassi, Yopougon', "Le tirage MTN m’a souri ! 50 000 FCFA de crédit. Je joue tous les jours maintenant, c’est trop bien !"],
-    ['D', 'Diabaté Moussa, Bouaké', "Les pronostics c’est ma passion. J’ai prédit la victoire de la CI à la CAN et j’ai décroché 100 000 FCFA. Merci MegaPromo !"],
-  ],
-  faqs: [
-    ['C’est vraiment gratuit ?', 'Oui, l’inscription et la participation aux concours sont totalement gratuites. Le Premium est optionnel et offre plus d’avantages.'],
-    ['Comment je reçois mes gains ?', 'Tes gains sont versés directement sur ton Wave, Orange Money ou MTN Money. Le virement est effectué sous 24-48h après la fin du concours.'],
-    ['Combien de fois puis-je participer ?', 'En version gratuite, tu peux participer à 3 concours par jour. En Premium, c’est illimité.'],
-    ['Comment sont désignés les gagnants ?', 'Pour les quiz : le meilleur score gagne. Pour les tirages : tirage aléatoire certifié. Pour les pronostics : ceux qui ont bien prédit l’événement.'],
-    ['L’app est disponible sur iOS ?', 'MegaPromo est actuellement disponible sur Android. La version iOS arrive très prochainement.'],
-    ['Je suis une entreprise, comment sponsoriser ?', 'Contacte-nous via le formulaire partenaire ou écris-nous sur WhatsApp. Notre équipe te rappelle sous 24h.'],
-  ],
-  finalCta: {
-    title: 'Prêt à gagner ?',
-    subtitle: 'Rejoins 50 000 joueurs ivoiriens et commence à gagner dès aujourd’hui.',
-    primaryCta: 'Télécharger l’app',
-    secondaryCta: 'Voir les concours',
-    storeBadge: '▶ Disponible sur Google Play',
-  },
-  footer: {
-    description: 'Joue. Gagne. Vis. La plateforme premium des concours en Côte d’Ivoire et en Afrique.',
-    bottom: '© 2025 MegaPromo — Fait avec amour en Côte d’Ivoire',
-  },
-}
-
-function mergeLandingContent(content: Partial<LandingPageContent> | null): LandingPageContent {
-  return {
-    ...defaultLandingContent,
-    ...(content ?? {}),
-    hero: { ...defaultLandingContent.hero, ...(content?.hero ?? {}) },
-    stats: { ...defaultLandingContent.stats, ...(content?.stats ?? {}) },
-    playerPlans: {
-      free: {
-        ...defaultLandingContent.playerPlans.free,
-        ...(content?.playerPlans?.free ?? {}),
-      },
-      premium: {
-        ...defaultLandingContent.playerPlans.premium,
-        ...(content?.playerPlans?.premium ?? {}),
-      },
-    },
-    partners: {
-      ...defaultLandingContent.partners,
-      ...(content?.partners ?? {}),
-    },
-    finalCta: {
-      ...defaultLandingContent.finalCta,
-      ...(content?.finalCta ?? {}),
-    },
-    footer: {
-      ...defaultLandingContent.footer,
-      ...(content?.footer ?? {}),
-    },
-  }
-}
-
-function LandingPage() {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
-  const [activeFaq, setActiveFaq] = useState(0)
-  const [statsStarted, setStatsStarted] = useState(false)
-  const [counts, setCounts] = useState({ players: 0, money: 0, contests: 0 })
-  const [content, setContent] = useState<LandingPageContent>(defaultLandingContent)
-  const statsRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    let isMounted = true
-    void (async () => {
-      try {
-        const { data } = await supabase
-          .from('landing_page_content')
-          .select('content')
-          .eq('key', 'main')
-          .maybeSingle()
-        if (!isMounted || !data?.content) return
-        setContent(mergeLandingContent(data.content as Partial<LandingPageContent>))
-      } catch {
-        if (isMounted) setContent(defaultLandingContent)
-      }
-    })()
-
-    const handleScroll = () => setScrolled(window.scrollY > 20)
-    handleScroll()
-    window.addEventListener('scroll', handleScroll)
-
-    const revealObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) entry.target.classList.add('visible')
-        })
-      },
-      { threshold: 0.15 },
-    )
-    document.querySelectorAll('.lp-reveal').forEach((item) => revealObserver.observe(item))
-
-    return () => {
-      isMounted = false
-      window.removeEventListener('scroll', handleScroll)
-      revealObserver.disconnect()
-    }
-  }, [])
-
-  useEffect(() => {
-    const node = statsRef.current
-    if (!node || statsStarted) return undefined
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry.isIntersecting || statsStarted) return
-        setStatsStarted(true)
-        const startedAt = performance.now()
-        const duration = 1400
-        const tick = (now: number) => {
-          const progress = Math.min(1, (now - startedAt) / duration)
-          const eased = 1 - Math.pow(1 - progress, 3)
-          setCounts({
-            players: Math.round(content.stats.players * eased),
-            money: Math.round(content.stats.money * eased),
-            contests: Math.round(content.stats.contests * eased),
-          })
-          if (progress < 1) requestAnimationFrame(tick)
-        }
-        requestAnimationFrame(tick)
-      },
-      { threshold: 0.4 },
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [content.stats.contests, content.stats.money, content.stats.players, statsStarted])
-
-  return (
-    <main className="lp-page">
-      <style>{landingStyle}</style>
-      <nav className={`lp-nav ${scrolled ? 'scrolled' : ''}`}>
-        <div className="lp-wrap">
-          <div className="lp-nav-inner">
-            <a className="lp-logo" href="#accueil" onClick={() => setMenuOpen(false)}>
-              <img alt="" src="/megapromologo.png" />
-              <strong>MegaPromo</strong>
-            </a>
-            <div className="lp-menu">
-              {content.navItems.map(([label, href]) => (
-                <a href={href} key={href}>{label}</a>
-              ))}
-            </div>
-            <div className="lp-actions">
-              <a className="lp-button primary" href="#telecharger">Télécharger l’app</a>
-              <button
-                aria-label="Menu"
-                className="lp-burger"
-                onClick={() => setMenuOpen((current) => !current)}
-                type="button"
-              >
-                <span />
-                <span />
-                <span />
-              </button>
-            </div>
-          </div>
-          <div className={`lp-mobile-menu ${menuOpen ? 'open' : ''}`}>
-            {content.navItems.map(([label, href]) => (
-              <a href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a>
-            ))}
-          </div>
-        </div>
-      </nav>
-
-      <section className="lp-hero" id="accueil">
-        <div className="lp-stars" aria-hidden="true">
-          {Array.from({ length: 34 }).map((_, index) => (
-            <i
-              key={index}
-              style={{
-                animationDelay: `${(index % 8) * 0.32}s`,
-                left: `${(index * 23) % 100}%`,
-                top: `${8 + ((index * 17) % 82)}%`,
-              }}
-            />
-          ))}
-        </div>
-        <div className="lp-wrap lp-hero-grid">
-          <div className="lp-reveal visible">
-            <span className="lp-pill">{content.hero.badge}</span>
-            <h1>
-              {content.hero.titleStart} <span className="lp-gradient-text">{content.hero.titleHighlight}</span><br />
-              {content.hero.titleEnd}
-            </h1>
-            <p className="lp-lead">
-              {content.hero.subtitle}
-            </p>
-            <div className="lp-hero-actions">
-              <a className="lp-button primary" href="#telecharger">{content.hero.primaryCta}</a>
-              <a className="lp-button outline" href="#concours">{content.hero.secondaryCta}</a>
-            </div>
-            <div className="lp-stats" ref={statsRef}>
-              <div className="lp-stat">
-                <strong>{new Intl.NumberFormat('fr-FR').format(counts.players)}+</strong>
-                <span>Joueurs actifs</span>
-              </div>
-              <div className="lp-stat">
-                <strong>{counts.money >= 1000000 ? `${Math.round(counts.money / 1000000)}M+ FCFA` : `${new Intl.NumberFormat('fr-FR').format(counts.money)} FCFA`}</strong>
-                <span>Distribués</span>
-              </div>
-              <div className="lp-stat">
-                <strong>{new Intl.NumberFormat('fr-FR').format(counts.contests)}+</strong>
-                <span>Concours lancés</span>
-              </div>
-            </div>
-          </div>
-          <div className="lp-phone-wrap lp-reveal">
-            <div className="lp-phone">
-              <span className="lp-phone-notch" />
-              <div className="lp-phone-screen">
-                <div className="lp-app-top">
-                  <strong>MegaPromo</strong>
-                  <span>🇨🇮</span>
-                </div>
-                <div className="lp-app-balance">
-                  <small>Gains disponibles</small>
-                  <strong>125 000 FCFA</strong>
-                </div>
-                <div className="lp-contest-card featured">
-                  <small>EN VEDETTE</small>
-                  <h3>Grand Tirage Data</h3>
-                  <p>50 000 FCFA + 20 Go</p>
-                  <div className="lp-progress"><span style={{ width: '64%' }} /></div>
-                </div>
-                <div className="lp-contest-card">
-                  <small>QUIZ</small>
-                  <h3>Foot Africain</h3>
-                  <p>Score à battre : 840 pts</p>
-                </div>
-                <div className="lp-contest-card">
-                  <small>PRONOSTIC</small>
-                  <h3>AFCON 2025</h3>
-                  <p>891 joueurs déjà inscrits</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section" id="comment-ca-marche">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>Simple. Rapide. Gratuit.</h2>
-            <p>Trois petites étapes et tu es déjà dans le jeu.</p>
-          </div>
-          <div className="lp-grid three">
-            {content.steps.map(([icon, title, text], index) => (
-              <article className="lp-card lp-reveal" key={title}>
-                <span className="lp-pill">Étape {index + 1}</span>
-                <span className="icon">{icon}</span>
-                <h3>{title}</h3>
-                <p>{text}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>3 façons de gagner</h2>
-            <p>Choisis ton style : connaissance, chance ou flair sportif.</p>
-          </div>
-          <div className="lp-grid three">
-            {content.games.map((game) => (
-              <article className={`lp-card lp-game-card ${game.cls} lp-reveal`} key={game.title}>
-                <span className="icon">{game.icon}</span>
-                <h3>{game.title}</h3>
-                <p>{game.text}</p>
-                <div className="lp-tags">
-                  {game.tags.map((tag) => <span key={tag}>{tag}</span>)}
-                </div>
-                <a href="#concours">{game.cta}</a>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section" id="concours">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>Concours en ce moment</h2>
-            <p>Rejoins-les avant qu’ils se terminent.</p>
-          </div>
-          <div className="lp-grid three">
-            {content.liveContests.map(([badge, title, prize, participants, progress, timer, cta]) => (
-              <article className="lp-card lp-live-card lp-reveal" key={title}>
-                <span className="lp-badge">{badge}</span>
-                <h3>{title}</h3>
-                <span className="lp-prize">{prize}</span>
-                <div className="lp-live-meta">
-                  <span>{participants}</span>
-                  <span>{timer}</span>
-                </div>
-                <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
-                <a className="lp-button primary" href="#telecharger" style={{ marginTop: 18 }}>{cta}</a>
-              </article>
-            ))}
-          </div>
-          <div style={{ marginTop: 28, textAlign: 'center' }}>
-            <a className="lp-button outline" href="#telecharger">Voir tous les concours →</a>
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section" id="tarifs">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>Passe Premium, gagne plus</h2>
-            <p>Le mode gratuit est solide. Le Premium te donne plus de puissance.</p>
-          </div>
-          <div className="lp-grid two lp-price-grid">
-            <article className="lp-card lp-price-card lp-reveal">
-              <h3>{content.playerPlans.free.title}</h3>
-              <span className="lp-price">{content.playerPlans.free.price}</span>
-              <ul className="lp-feature-list">
-                {content.playerPlans.free.features.map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-              <a className="lp-button outline" href="#telecharger">Commencer</a>
-            </article>
-            <article className="lp-card lp-price-card featured lp-reveal">
-              <span className="lp-badge">POPULAIRE</span>
-              <h3>{content.playerPlans.premium.title}</h3>
-              <span className="lp-price">{content.playerPlans.premium.price}</span>
-              <p>{content.playerPlans.premium.subtitle}</p>
-              <ul className="lp-feature-list">
-                {content.playerPlans.premium.features.map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-              <a className="lp-button primary" href="#telecharger">Passer Premium</a>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section lp-partners" id="partenaires">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>{content.partners.title}</h2>
-            <p>{content.partners.subtitle}</p>
-          </div>
-          <div className="lp-grid three">
-            {content.partners.benefits.map(([icon, title, text]) => (
-              <article className="lp-card lp-reveal" key={title}>
-                <span className="icon">{icon}</span>
-                <h3>{title}</h3>
-                <p>{text}</p>
-              </article>
-            ))}
-          </div>
-          <div className="lp-grid three" style={{ marginTop: 20 }}>
-            {content.partners.plans.map((plan) => (
-              <article className="lp-card lp-reveal" key={plan.name}>
-                <h3>{plan.name}</h3>
-                <span className="lp-price">{plan.price}</span>
-                <ul className="lp-feature-list">
-                  {plan.features.map((feature) => <li key={feature}>✅ {feature}</li>)}
-                </ul>
-              </article>
-            ))}
-          </div>
-          <div style={{ marginTop: 30, textAlign: 'center' }}>
-            <a className="lp-button primary" href="/auth/partner">Devenir partenaire</a>
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>Ils ont déjà gagné</h2>
-          </div>
-          <div className="lp-grid three">
-            {content.testimonials.map(([initial, name, text]) => (
-              <article className="lp-card lp-testimonial lp-reveal" key={name}>
-                <span className="avatar">{initial}</span>
-                <h3>{name}</h3>
-                <div className="lp-stars-text">★★★★★</div>
-                <p>{text}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>Questions fréquentes</h2>
-          </div>
-          <div className="lp-faq lp-reveal">
-            {content.faqs.map(([question, answer], index) => (
-              <div className={`lp-faq-item ${activeFaq === index ? 'open' : ''}`} key={question}>
-                <button onClick={() => setActiveFaq(activeFaq === index ? -1 : index)} type="button">
-                  <span>{question}</span>
-                  <span>{activeFaq === index ? '−' : '+'}</span>
-                </button>
-                <div className="lp-faq-answer">{answer}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section" id="telecharger">
-        <div className="lp-wrap">
-          <div className="lp-final lp-reveal">
-            <h2>{content.finalCta.title}</h2>
-            <p>{content.finalCta.subtitle}</p>
-            <div className="lp-final-actions">
-              <a className="lp-button light" href="/auth/partner">{content.finalCta.primaryCta}</a>
-              <a className="lp-button outline" href="#concours">{content.finalCta.secondaryCta}</a>
-            </div>
-            <span className="lp-store">{content.finalCta.storeBadge}</span>
-          </div>
-        </div>
-      </section>
-
-      <footer className="lp-footer">
-        <div className="lp-wrap">
-          <div className="lp-footer-grid">
-            <div>
-              <a className="lp-logo" href="#accueil">
-                <img alt="" src="/megapromologo.png" />
-                <strong>MegaPromo</strong>
-              </a>
-              <p>{content.footer.description}</p>
-              <div className="lp-socials"><span>f</span><span>ig</span><span>x</span><span>wa</span></div>
-            </div>
-            <div>
-              <h4>Produit</h4>
-              <a href="#comment-ca-marche">Comment ça marche</a>
-              <a href="#concours">Les concours</a>
-              <a href="#tarifs">Premium</a>
-              <a href="#telecharger">Classement</a>
-            </div>
-            <div>
-              <h4>Partenaires</h4>
-              <a href="#partenaires">Devenir partenaire</a>
-              <a href="#partenaires">Nos formules</a>
-              <a href="#partenaires">Témoignages marques</a>
-              <a href="#partenaires">Contact commercial</a>
-            </div>
-            <div>
-              <h4>Légal</h4>
-              <a href="#accueil">CGU</a>
-              <a href="#accueil">Politique de confidentialité</a>
-              <a href="#accueil">Mentions légales</a>
-              <a href="#accueil">Contact</a>
-            </div>
-          </div>
-          <div className="lp-bottom">{content.footer.bottom}</div>
-        </div>
-      </footer>
-    </main>
-  )
-}
-
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={<PublicLandingPage />} />
+      <Route path="/legal/terms" element={<PublicLegalPage pageKey="terms" />} />
+      <Route path="/legal/privacy" element={<PublicLegalPage pageKey="privacy" />} />
       <Route path="/auth" element={<Navigate to={PARTNER_AUTH_ROUTE} replace />} />
       <Route path={PARTNER_AUTH_ROUTE} element={<AuthPage role="partner" />} />
       <Route
@@ -5319,6 +3963,7 @@ function SuperAdminCountriesPage() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCountries()
   }, [loadCountries])
 
@@ -5641,6 +4286,7 @@ function SuperAdminPartnerSectorsPage() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadSectors()
   }, [loadSectors])
 
@@ -7973,6 +6619,7 @@ function SuperAdminLandingPage() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadLandingContent()
   }, [loadLandingContent])
 
@@ -8246,6 +6893,10 @@ function SuperAdminSettingsPage() {
     createDefaultPaymentMethodForm(),
   )
   const [isPaymentMethodSaving, setIsPaymentMethodSaving] = useState(false)
+  const [legalPages, setLegalPages] = useState<LegalPageItem[]>([])
+  const [legalForms, setLegalForms] =
+    useState<Record<'terms' | 'privacy', LegalPageFormState>>(defaultLegalForms)
+  const [isLegalSaving, setIsLegalSaving] = useState(false)
   const [profileForm, setProfileForm] = useState({
     username: adminAuth.profile?.username ?? '',
     email: adminAuth.user?.email ?? '',
@@ -8257,6 +6908,7 @@ function SuperAdminSettingsPage() {
   })
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setProfileForm({
       username: adminAuth.profile?.username ?? '',
       email: adminAuth.user?.email ?? '',
@@ -8274,8 +6926,28 @@ function SuperAdminSettingsPage() {
     }
   }
 
+  async function loadLegalPages() {
+    try {
+      const pages = await fetchLegalPagesForAdmin()
+      const nextForms = { ...defaultLegalForms }
+      for (const page of pages) {
+        nextForms[page.key] = legalPageToForm(page)
+      }
+      setLegalPages(pages)
+      setLegalForms(nextForms)
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de charger les pages légales. Exécute le script SQL legal_pages.',
+        ),
+      )
+    }
+  }
+
   useEffect(() => {
-    void loadPaymentMethods()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void Promise.all([loadPaymentMethods(), loadLegalPages()])
   }, [])
 
   async function handleLogout() {
@@ -8424,6 +7096,50 @@ function SuperAdminSettingsPage() {
       )
     } finally {
       setIsPaymentMethodSaving(false)
+    }
+  }
+
+  async function handleSaveLegalPage(
+    key: 'terms' | 'privacy',
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault()
+    setNotice('')
+    setSettingsError('')
+
+    const form = legalForms[key]
+    const title = form.title.trim()
+    const content = form.content.trim()
+
+    if (!title || !content) {
+      setSettingsError('Le titre et le contenu sont requis.')
+      return
+    }
+
+    setIsLegalSaving(true)
+    try {
+      const { error } = await supabase.from('legal_pages').upsert({
+        key,
+        title,
+        content,
+        is_active: form.isActive,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadLegalPages()
+      setNotice(
+        key === 'terms'
+          ? 'Conditions générales mises à jour.'
+          : 'Politique de confidentialité mise à jour.',
+      )
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible d’enregistrer cette page légale.'),
+      )
+    } finally {
+      setIsLegalSaving(false)
     }
   }
 
@@ -8892,6 +7608,93 @@ function SuperAdminSettingsPage() {
                   </div>
                 </article>
               ))}
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Légal mobile</p>
+                <h2>CGU et confidentialité</h2>
+              </div>
+              <span className="status-pill active">{legalPages.length} page(s)</span>
+            </div>
+            <div className="settings-module-grid">
+              {(['terms', 'privacy'] as const).map((legalKey) => {
+                const form = legalForms[legalKey]
+                return (
+                  <form
+                    className="category-form"
+                    key={legalKey}
+                    onSubmit={(event) => handleSaveLegalPage(legalKey, event)}
+                  >
+                    <div className="section-heading compact">
+                      <div>
+                        <p className="eyebrow">
+                          {legalKey === 'terms' ? 'CGU' : 'Confidentialité'}
+                        </p>
+                        <h2>{legalKey === 'terms' ? 'Conditions' : 'Politique'}</h2>
+                      </div>
+                      <label className="checkbox-row compact">
+                        <input
+                          checked={form.isActive}
+                          onChange={(event) =>
+                            setLegalForms((current) => ({
+                              ...current,
+                              [legalKey]: {
+                                ...current[legalKey],
+                                isActive: event.target.checked,
+                              },
+                            }))
+                          }
+                          type="checkbox"
+                        />
+                        <span>Actif</span>
+                      </label>
+                    </div>
+                    <label>
+                      <span>Titre affiché</span>
+                      <input
+                        onChange={(event) =>
+                          setLegalForms((current) => ({
+                            ...current,
+                            [legalKey]: {
+                              ...current[legalKey],
+                              title: event.target.value,
+                            },
+                          }))
+                        }
+                        value={form.title}
+                      />
+                    </label>
+                    <label>
+                      <span>Contenu</span>
+                      <textarea
+                        onChange={(event) =>
+                          setLegalForms((current) => ({
+                            ...current,
+                            [legalKey]: {
+                              ...current[legalKey],
+                              content: event.target.value,
+                            },
+                          }))
+                        }
+                        rows={9}
+                        value={form.content}
+                      />
+                    </label>
+                    <div className="modal-actions">
+                      <button
+                        className="inline-action-button"
+                        disabled={isLegalSaving}
+                        type="submit"
+                      >
+                        {isLegalSaving ? 'Enregistrement...' : 'Enregistrer'}
+                      </button>
+                    </div>
+                  </form>
+                )
+              })}
             </div>
           </article>
 
@@ -13489,6 +12292,7 @@ function SuperAdminNotificationsPage() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadUsers()
   }, [loadUsers])
 
@@ -13580,18 +12384,41 @@ function SuperAdminNotificationsPage() {
 
       if (insertError) throw insertError
 
+      let pushSummary = ''
       try {
-        await supabase.functions.invoke('send-push-notifications', {
-          body: {
-            userIds: targetIds,
-            title,
-            body,
-            type: form.type,
-            data: notificationData,
-          },
+        console.info('[MegaPromo][SA notifications][pushRequest]', {
+          target: form.target,
+          targetCount: targetIds.length,
+          type: form.type,
+          hasContestId: Boolean(form.contestId.trim()),
         })
-      } catch {
+        const { data: pushData, error: pushError } =
+          await supabase.functions.invoke('send-push-notifications', {
+            body: {
+              userIds: targetIds,
+              title,
+              body,
+              type: form.type,
+              data: notificationData,
+            },
+          })
+        console.info('[MegaPromo][SA notifications][pushResponse]', {
+          data: pushData,
+          error: pushError,
+        })
+        if (pushError) throw pushError
+        const sent = Number((pushData as { sent?: number } | null)?.sent ?? 0)
+        const failed = Number((pushData as { failed?: number } | null)?.failed ?? 0)
+        const targetUsers = Number(
+          (pushData as { targetUsers?: number } | null)?.targetUsers ?? targetIds.length,
+        )
+        pushSummary = ` Push: ${sent}/${targetUsers} envoyé(s), ${failed} échec(s).`
+      } catch (pushError) {
+        console.warn('[MegaPromo][SA notifications][pushError]', pushError)
         // La ligne Supabase est créée même si l'Edge Function push n'est pas encore déployée.
+        pushSummary = ` Push non envoyé: ${
+          pushError instanceof Error ? pushError.message : 'Edge Function indisponible.'
+        }`
       }
 
       let smsSummary = ''
@@ -13619,7 +12446,9 @@ function SuperAdminNotificationsPage() {
         }
       }
 
-      setSuccess(`${targetIds.length} notification(s) créée(s).${smsSummary}`)
+      setSuccess(
+        `${targetIds.length} notification(s) créée(s).${pushSummary}${smsSummary}`,
+      )
       setForm({
         target: 'all',
         userId: '',
@@ -14005,7 +12834,7 @@ function PartnerPreview() {
       totalShares,
       totalViews,
     }
-  }, [contests, participations.length, players.length])
+  }, [contests, participations, players.length])
 
   const partnerParticipationTrend = useMemo(
     () =>
@@ -14126,6 +12955,7 @@ function PartnerPreview() {
   useEffect(() => {
     let isMounted = true
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadPartnerDashboard(() => isMounted)
       .catch((error) => {
         if (!isMounted) return

@@ -287,7 +287,7 @@ Deno.serve(async (request) => {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
-  } catch (_error) {
+  } catch {
     return jsonResponse(
       { ok: false, error: 'Reponse OpenAI non JSON.', raw: text },
       502,
