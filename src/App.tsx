@@ -80,6 +80,12 @@ type ContestItem = {
   endsAt: string
   isBoosted: boolean
   allowedPlayerPlanKeys: PlayerPlanAccessKey[]
+  isLive: boolean
+  liveStartsAt: string
+  liveStatus: string
+  registeredCount: number
+  connectedCount: number
+  currentQuestionIndex: number
   participants: number
 }
 type PartnerOption = {
@@ -331,6 +337,15 @@ type QuizQuestionFormState = {
   timeLimit: string
   orderIndex: string
 }
+type GeneratedQuizQuestion = {
+  question: string
+  options: string[]
+  correct_answer: 'A' | 'B' | 'C' | 'D'
+  explanation: string
+  difficulty: string
+  category: string
+  time_limit: number
+}
 type DrawSettingsState = {
   standardTickets: string
   premiumTickets: string
@@ -398,6 +413,28 @@ type PlayerPlanFormState = {
   isActive: boolean
   orderIndex: string
   benefitsText: string
+}
+type PaymentMethodItem = {
+  id: string
+  name: string
+  operatorKey: string
+  country: string
+  paymentUrl: string
+  instructions: string
+  proofPhone: string
+  isActive: boolean
+  orderIndex: number
+}
+type PaymentMethodFormState = {
+  id: string
+  name: string
+  operatorKey: string
+  country: string
+  paymentUrl: string
+  instructions: string
+  proofPhone: string
+  isActive: boolean
+  orderIndex: string
 }
 type PlayerSubscriptionItem = {
   id: string
@@ -481,6 +518,9 @@ type ContestFormState = {
   status: ContestStatus
   isBoosted: boolean
   allowedPlayerPlanKeys: PlayerPlanAccessKey[]
+  isLive: boolean
+  liveStartsAt: string
+  liveStatus: string
 }
 type ContestsData = {
   contests: ContestItem[]
@@ -1981,6 +2021,55 @@ async function fetchPlayerPlansForAdmin(): Promise<PlayerPlanItem[]> {
   }))
 }
 
+function createDefaultPaymentMethodForm(): PaymentMethodFormState {
+  return {
+    id: '',
+    name: '',
+    operatorKey: '',
+    country: 'Côte d’Ivoire',
+    paymentUrl: '',
+    instructions: '',
+    proofPhone: '',
+    isActive: true,
+    orderIndex: '1',
+  }
+}
+
+function paymentMethodToForm(method: PaymentMethodItem): PaymentMethodFormState {
+  return {
+    id: method.id,
+    name: method.name,
+    operatorKey: method.operatorKey,
+    country: method.country,
+    paymentUrl: method.paymentUrl,
+    instructions: method.instructions,
+    proofPhone: method.proofPhone,
+    isActive: method.isActive,
+    orderIndex: String(method.orderIndex),
+  }
+}
+
+async function fetchPaymentMethodsForAdmin(): Promise<PaymentMethodItem[]> {
+  const { data, error } = await supabase
+    .from('payment_methods')
+    .select('id, name, operator_key, country, payment_url, instructions, proof_phone, is_active, order_index')
+    .order('order_index', { ascending: true })
+
+  if (error) throw error
+
+  return (data ?? []).map((method) => ({
+    id: method.id as string,
+    name: (method.name as string | null) ?? 'Paiement',
+    operatorKey: (method.operator_key as string | null) ?? '',
+    country: (method.country as string | null) ?? '',
+    paymentUrl: (method.payment_url as string | null) ?? '',
+    instructions: (method.instructions as string | null) ?? '',
+    proofPhone: (method.proof_phone as string | null) ?? '',
+    isActive: (method.is_active as boolean | null) ?? true,
+    orderIndex: (method.order_index as number | null) ?? 0,
+  }))
+}
+
 async function fetchPlayersData({
   page,
   pageSize,
@@ -2204,7 +2293,7 @@ async function fetchContestsData(): Promise<ContestsData> {
       supabase
         .from('contests')
         .select(
-          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, created_at',
+          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index, created_at',
         )
         .order('created_at', { ascending: false }),
       supabase
@@ -2292,6 +2381,13 @@ async function fetchContestsData(): Promise<ContestsData> {
         allowedPlayerPlanKeys: normalizeAllowedPlayerPlanKeys(
           contest.allowed_player_plan_keys,
         ),
+        isLive: (contest.is_live as boolean | null) ?? false,
+        liveStartsAt: (contest.live_starts_at as string | null) ?? '',
+        liveStatus: (contest.live_status as string | null) ?? 'scheduled',
+        registeredCount: (contest.registered_count as number | null) ?? 0,
+        connectedCount: (contest.connected_count as number | null) ?? 0,
+        currentQuestionIndex:
+          (contest.current_question_index as number | null) ?? 0,
         participants: participationsByContest.get(id) ?? 0,
       }
     }),
@@ -2461,7 +2557,7 @@ async function fetchContestById(contestId: string): Promise<ContestItem> {
     supabase
       .from('contests')
       .select(
-        'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys',
+        'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index',
       )
       .eq('id', contestId)
       .single(),
@@ -2498,6 +2594,13 @@ async function fetchContestById(contestId: string): Promise<ContestItem> {
     allowedPlayerPlanKeys: normalizeAllowedPlayerPlanKeys(
       contest.allowed_player_plan_keys,
     ),
+    isLive: (contest.is_live as boolean | null) ?? false,
+    liveStartsAt: (contest.live_starts_at as string | null) ?? '',
+    liveStatus: (contest.live_status as string | null) ?? 'scheduled',
+    registeredCount: (contest.registered_count as number | null) ?? 0,
+    connectedCount: (contest.connected_count as number | null) ?? 0,
+    currentQuestionIndex:
+      (contest.current_question_index as number | null) ?? 0,
     participants: participationsResponse.count ?? 0,
   }
 }
@@ -2643,6 +2746,9 @@ function createDefaultContestForm(): ContestFormState {
     status: 'draft',
     isBoosted: false,
     allowedPlayerPlanKeys: [],
+    isLive: false,
+    liveStartsAt: '',
+    liveStatus: 'scheduled',
   }
 }
 
@@ -2790,6 +2896,9 @@ function contestToForm(contest: ContestItem): ContestFormState {
     status: contest.status as ContestStatus,
     isBoosted: contest.isBoosted,
     allowedPlayerPlanKeys: contest.allowedPlayerPlanKeys,
+    isLive: contest.isLive,
+    liveStartsAt: isoToDatetimeLocalValue(contest.liveStartsAt),
+    liveStatus: contest.liveStatus || 'scheduled',
   }
 }
 
@@ -8132,6 +8241,11 @@ function SuperAdminSettingsPage() {
   const [settingsError, setSettingsError] = useState('')
   const [isProfileSaving, setIsProfileSaving] = useState(false)
   const [isPasswordSaving, setIsPasswordSaving] = useState(false)
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodItem[]>([])
+  const [paymentMethodForm, setPaymentMethodForm] = useState<PaymentMethodFormState>(
+    createDefaultPaymentMethodForm(),
+  )
+  const [isPaymentMethodSaving, setIsPaymentMethodSaving] = useState(false)
   const [profileForm, setProfileForm] = useState({
     username: adminAuth.profile?.username ?? '',
     email: adminAuth.user?.email ?? '',
@@ -8149,6 +8263,20 @@ function SuperAdminSettingsPage() {
       avatarUrl: adminAuth.profile?.avatar_url ?? '',
     })
   }, [adminAuth.profile, adminAuth.user?.email])
+
+  async function loadPaymentMethods() {
+    try {
+      setPaymentMethods(await fetchPaymentMethodsForAdmin())
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de charger les méthodes de paiement.'),
+      )
+    }
+  }
+
+  useEffect(() => {
+    void loadPaymentMethods()
+  }, [])
 
   async function handleLogout() {
     await adminAuth.logout()
@@ -8252,6 +8380,50 @@ function SuperAdminSettingsPage() {
       )
     } finally {
       setIsPasswordSaving(false)
+    }
+  }
+
+  async function handleSavePaymentMethod(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setNotice('')
+    setSettingsError('')
+
+    const name = paymentMethodForm.name.trim()
+    const operatorKey = paymentMethodForm.operatorKey.trim().toLowerCase()
+    if (!name || !operatorKey) {
+      setSettingsError('Nom et clé opérateur sont requis.')
+      return
+    }
+
+    setIsPaymentMethodSaving(true)
+    try {
+      const payload = {
+        name,
+        operator_key: operatorKey,
+        country: paymentMethodForm.country.trim() || 'Côte d’Ivoire',
+        payment_url: paymentMethodForm.paymentUrl.trim() || null,
+        instructions: paymentMethodForm.instructions.trim() || null,
+        proof_phone: paymentMethodForm.proofPhone.trim() || null,
+        is_active: paymentMethodForm.isActive,
+        order_index: Number(paymentMethodForm.orderIndex) || 0,
+        updated_at: new Date().toISOString(),
+      }
+
+      const response = paymentMethodForm.id
+        ? await supabase.from('payment_methods').update(payload).eq('id', paymentMethodForm.id)
+        : await supabase.from('payment_methods').insert(payload)
+
+      if (response.error) throw response.error
+
+      setPaymentMethodForm(createDefaultPaymentMethodForm())
+      await loadPaymentMethods()
+      setNotice('Méthode de paiement enregistrée.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible d’enregistrer la méthode de paiement.'),
+      )
+    } finally {
+      setIsPaymentMethodSaving(false)
     }
   }
 
@@ -8559,6 +8731,167 @@ function SuperAdminSettingsPage() {
                 </div>
                 <span className="status-pill active">RLS</span>
               </article>
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Souscriptions</p>
+                <h2>Méthodes de paiement</h2>
+              </div>
+              <span className="status-pill active">{paymentMethods.length} méthode(s)</span>
+            </div>
+            <form className="category-form" onSubmit={handleSavePaymentMethod}>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Nom opérateur</span>
+                  <input
+                    onChange={(event) =>
+                      setPaymentMethodForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Wave"
+                    value={paymentMethodForm.name}
+                  />
+                </label>
+                <label>
+                  <span>Clé opérateur</span>
+                  <input
+                    onChange={(event) =>
+                      setPaymentMethodForm((current) => ({
+                        ...current,
+                        operatorKey: event.target.value,
+                      }))
+                    }
+                    placeholder="wave"
+                    value={paymentMethodForm.operatorKey}
+                  />
+                </label>
+                <label>
+                  <span>Pays</span>
+                  <input
+                    onChange={(event) =>
+                      setPaymentMethodForm((current) => ({
+                        ...current,
+                        country: event.target.value,
+                      }))
+                    }
+                    value={paymentMethodForm.country}
+                  />
+                </label>
+                <label>
+                  <span>Téléphone preuve</span>
+                  <input
+                    onChange={(event) =>
+                      setPaymentMethodForm((current) => ({
+                        ...current,
+                        proofPhone: event.target.value,
+                      }))
+                    }
+                    placeholder="+225..."
+                    value={paymentMethodForm.proofPhone}
+                  />
+                </label>
+              </div>
+              <label>
+                <span>Lien de paiement</span>
+                <input
+                  onChange={(event) =>
+                    setPaymentMethodForm((current) => ({
+                      ...current,
+                      paymentUrl: event.target.value,
+                    }))
+                  }
+                  placeholder="https://pay.wave.com/..."
+                  value={paymentMethodForm.paymentUrl}
+                />
+              </label>
+              <label>
+                <span>Texte du popup mobile</span>
+                <textarea
+                  onChange={(event) =>
+                    setPaymentMethodForm((current) => ({
+                      ...current,
+                      instructions: event.target.value,
+                    }))
+                  }
+                  rows={4}
+                  value={paymentMethodForm.instructions}
+                />
+              </label>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Ordre</span>
+                  <input
+                    min="0"
+                    onChange={(event) =>
+                      setPaymentMethodForm((current) => ({
+                        ...current,
+                        orderIndex: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={paymentMethodForm.orderIndex}
+                  />
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    checked={paymentMethodForm.isActive}
+                    onChange={(event) =>
+                      setPaymentMethodForm((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>Actif dans l’app mobile</span>
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button
+                  className="secondary-action-button"
+                  onClick={() => setPaymentMethodForm(createDefaultPaymentMethodForm())}
+                  type="button"
+                >
+                  Nouveau
+                </button>
+                <button
+                  className="inline-action-button"
+                  disabled={isPaymentMethodSaving}
+                  type="submit"
+                >
+                  {isPaymentMethodSaving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+            <div className="compact-list">
+              {paymentMethods.map((method) => (
+                <article key={method.id}>
+                  <div>
+                    <strong>{method.name}</strong>
+                    <p>
+                      {method.operatorKey} · {method.country} ·{' '}
+                      {method.proofPhone || 'preuve non définie'}
+                    </p>
+                  </div>
+                  <div className="table-actions compact">
+                    <span className={`status-pill ${method.isActive ? 'active' : 'inactive'}`}>
+                      {method.isActive ? 'Actif' : 'Inactif'}
+                    </span>
+                    <button
+                      className="table-action-button"
+                      onClick={() => setPaymentMethodForm(paymentMethodToForm(method))}
+                      type="button"
+                    >
+                      Modifier
+                    </button>
+                  </div>
+                </article>
+              ))}
             </div>
           </article>
 
@@ -9453,6 +9786,9 @@ function SuperAdminContestsPage() {
       : null
     const startsAt = new Date(contestForm.startsAt)
     const endsAt = new Date(contestForm.endsAt)
+    const liveStartsAt = contestForm.liveStartsAt
+      ? new Date(contestForm.liveStartsAt)
+      : startsAt
     const selectedCategory = contestsData.categories.find(
       (category) => category.id === contestForm.categoryId,
     )
@@ -9500,6 +9836,30 @@ function SuperAdminContestsPage() {
       return
     }
 
+    if (
+      contestForm.isLive &&
+      (Number.isNaN(liveStartsAt.getTime()) || liveStartsAt < startsAt || liveStartsAt > endsAt)
+    ) {
+      setContestError('La date live doit être comprise entre le début et la fin.')
+      return
+    }
+
+    if (contestForm.isLive && contestForm.liveStatus !== 'ended') {
+      const openLiveQuiz = contestsData.contests.find((contest) => {
+        if (contest.id === editingContestId) return false
+        if (!contest.isLive) return false
+        if (contest.liveStatus === 'ended') return false
+        return !['inactive', 'ended', 'completed', 'finished'].includes(contest.status)
+      })
+
+      if (openLiveQuiz) {
+        setContestError(
+          `Termine d'abord le Quiz Live "${openLiveQuiz.title}" avant d'en créer un nouveau.`,
+        )
+        return
+      }
+    }
+
     setIsSavingContest(true)
 
     try {
@@ -9522,6 +9882,9 @@ function SuperAdminContestsPage() {
         ends_at: endsAt.toISOString(),
         is_boosted: contestForm.isBoosted,
         allowed_player_plan_keys: contestForm.allowedPlayerPlanKeys,
+        is_live: contestForm.isLive,
+        live_starts_at: contestForm.isLive ? liveStartsAt.toISOString() : null,
+        live_status: contestForm.isLive ? contestForm.liveStatus : 'scheduled',
       }
       const { error } = editingContestId
         ? await supabase.from('contests').update(payload).eq('id', editingContestId)
@@ -9853,9 +10216,16 @@ function SuperAdminContestsPage() {
                     </p>
                   </div>
                   <span className="contest-type-pill">{contest.type}</span>
+                  {contest.isLive ? (
+                    <span className="contest-type-pill live">LIVE</span>
+                  ) : null}
                   <small>{formatMoney(contest.prizeValue)}</small>
                   <p>{formatPlayerPlanAccess(contest.allowedPlayerPlanKeys)}</p>
-                  <p>{contest.participants} participants</p>
+                  <p>
+                    {contest.isLive
+                      ? `${contest.registeredCount} inscrit(s)`
+                      : `${contest.participants} participants`}
+                  </p>
                   <p>{formatDate(contest.endsAt)}</p>
                   <span className={`status-pill ${contest.status}`}>
                     {contest.status}
@@ -9961,6 +10331,7 @@ function SuperAdminContestGamePage() {
   const [predictionSettings, setPredictionSettings] =
     useState<PredictionSettingsState>(createDefaultPredictionSettings)
   const [isSavingGame, setIsSavingGame] = useState(false)
+  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false)
 
   const loadGame = useCallback(async () => {
     if (!contestId) {
@@ -10116,6 +10487,112 @@ function SuperAdminContestGamePage() {
       )
     } finally {
       setIsSavingGame(false)
+    }
+  }
+
+  async function handleGenerateQuestionsWithAi() {
+    if (!gameData) return
+
+    const questionCountInput = window.prompt(
+      'Combien de questions générer ?',
+      gameData.questions.length > 0 ? '5' : '10',
+    )
+    if (questionCountInput === null) return
+
+    const questionCount = Number(questionCountInput)
+    if (!Number.isFinite(questionCount) || questionCount < 3 || questionCount > 30) {
+      setGameError('Choisis un nombre entre 3 et 30 questions.')
+      return
+    }
+
+    const difficultyInput = window.prompt(
+      'Niveau : facile, moyen ou difficile ?',
+      'moyen',
+    )
+    if (difficultyInput === null) return
+    const difficulty = difficultyInput.trim().toLowerCase()
+    if (!['facile', 'moyen', 'difficile'].includes(difficulty)) {
+      setGameError('Niveau invalide. Utilise facile, moyen ou difficile.')
+      return
+    }
+
+    const topic =
+      window.prompt(
+        'Thème précis du Quiz Live ?',
+        gameData.contest.category || gameData.contest.title,
+      )?.trim() || gameData.contest.category || gameData.contest.title
+
+    setIsGeneratingQuestions(true)
+    setGameError('')
+    setGameNotice('')
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'generate-live-quiz-questions',
+        {
+          body: {
+            category: gameData.contest.category,
+            topic,
+            difficulty,
+            questionCount,
+            timeLimit: 25,
+            locale: 'Côte d’Ivoire et Afrique francophone',
+          },
+        },
+      )
+
+      if (error) {
+        const context = (error as { context?: unknown }).context
+        if (context instanceof Response) {
+          try {
+            const payload = await context.json()
+            throw new Error(
+              formatUnknownError(
+                payload,
+                'Edge Function generate-live-quiz-questions indisponible.',
+              ),
+            )
+          } catch (payloadError) {
+            if (payloadError instanceof Error) throw payloadError
+          }
+        }
+        throw error
+      }
+      if (!data?.ok || !Array.isArray(data.questions)) {
+        throw new Error(data?.error ?? 'Réponse IA invalide.')
+      }
+
+      const startOrder = gameData.questions.length + 1
+      const rows = (data.questions as GeneratedQuizQuestion[]).map(
+        (question, index) => ({
+          id: createClientUuid(),
+          contest_id: gameData.contest.id,
+          question_text: question.question,
+          option_a: question.options[0] ?? '',
+          option_b: question.options[1] ?? '',
+          option_c: question.options[2] ?? '',
+          option_d: question.options[3] ?? '',
+          correct_answer: question.correct_answer,
+          points: 10,
+          time_limit: question.time_limit || 25,
+          order_index: startOrder + index,
+          created_at: new Date().toISOString(),
+        }),
+      )
+
+      const { error: insertError } = await supabase.from('questions').insert(rows)
+      if (insertError) throw insertError
+
+      await loadGame()
+      setGameNotice(
+        `${rows.length} question(s) générée(s) par IA. Relis-les avant d’activer le live.`,
+      )
+    } catch (error) {
+      setGameError(
+        formatUnknownError(error, 'Impossible de générer les questions avec IA.'),
+      )
+    } finally {
+      setIsGeneratingQuestions(false)
     }
   }
 
@@ -10341,6 +10818,16 @@ function SuperAdminContestGamePage() {
                 >
                   Actualiser
                 </button>
+                {gameData.contest.type === 'quiz' ? (
+                  <button
+                    className="primary-button"
+                    disabled={isGeneratingQuestions}
+                    onClick={handleGenerateQuestionsWithAi}
+                    type="button"
+                  >
+                    {isGeneratingQuestions ? 'Génération IA...' : 'Générer avec IA'}
+                  </button>
+                ) : null}
               </div>
 
               {gameData.contest.type === 'quiz' ? (
@@ -11277,6 +11764,59 @@ function ContestModal({
                 stockera ensuite le score ou choix du joueur dans
                 <code>participations.answers</code>.
               </p>
+            </div>
+          ) : null}
+
+          <div className="contest-context-note">
+            <label className="switch-row inline-switch">
+              <span>Quiz Live</span>
+              <input
+                checked={form.isLive}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    isLive: event.target.checked,
+                    type: event.target.checked ? 'quiz' : form.type,
+                    liveStartsAt:
+                      form.liveStartsAt || form.startsAt,
+                  })
+                }
+                type="checkbox"
+              />
+            </label>
+            <p>
+              Active ce mode pour un événement à heure fixe : inscription,
+              salle d’attente et questions jouées en même temps.
+            </p>
+          </div>
+
+          {form.isLive ? (
+            <div className="form-grid two-columns">
+              <label>
+                <span>Date et heure du live</span>
+                <input
+                  onChange={(event) =>
+                    onChange({ ...form, liveStartsAt: event.target.value })
+                  }
+                  type="datetime-local"
+                  value={form.liveStartsAt || form.startsAt}
+                />
+              </label>
+
+              <label>
+                <span>Statut live</span>
+                <select
+                  onChange={(event) =>
+                    onChange({ ...form, liveStatus: event.target.value })
+                  }
+                  value={form.liveStatus}
+                >
+                  <option value="scheduled">Programmé</option>
+                  <option value="waiting">Salle d’attente</option>
+                  <option value="playing">En cours</option>
+                  <option value="ended">Terminé</option>
+                </select>
+              </label>
             </div>
           ) : null}
 
@@ -13662,6 +14202,9 @@ function PartnerPreview() {
       status: 'pending',
       isBoosted: false,
       allowedPlayerPlanKeys: contest.allowedPlayerPlanKeys,
+      isLive: false,
+      liveStartsAt: '',
+      liveStatus: 'scheduled',
     })
     setIsContestModalOpen(true)
   }
