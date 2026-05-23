@@ -593,6 +593,145 @@ html { scroll-behavior: smooth; }
   padding: 0 16px 16px;
 }
 
+.lp-contact-section {
+  background:
+    radial-gradient(circle at 12% 10%, rgba(63, 196, 147, 0.12), transparent 34%),
+    #f8f8ff;
+}
+
+.lp-contact-grid {
+  align-items: stretch;
+  display: grid;
+  gap: 18px;
+}
+
+.lp-contact-copy,
+.lp-contact-form {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--lp-border);
+  border-radius: 24px;
+  box-shadow: 0 18px 54px rgba(91, 74, 232, 0.1);
+  padding: 22px;
+}
+
+.lp-contact-copy h2 {
+  font-size: clamp(30px, 5vw, 48px);
+  line-height: 1;
+  margin: 14px 0 10px;
+}
+
+.lp-contact-copy p {
+  color: var(--lp-muted);
+  margin: 0;
+  max-width: 620px;
+}
+
+.lp-whatsapp-card {
+  align-items: center;
+  background: linear-gradient(135deg, #20c768, #11a85a);
+  border-radius: 20px;
+  box-shadow: 0 18px 42px rgba(32, 199, 104, 0.26);
+  color: white;
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.lp-whatsapp-card strong {
+  display: block;
+  font-size: 16px;
+}
+
+.lp-whatsapp-card small {
+  color: rgba(255, 255, 255, 0.82);
+  display: block;
+  margin-top: 3px;
+}
+
+.lp-whatsapp-icon {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  display: grid;
+  flex: 0 0 44px;
+  font-size: 13px;
+  font-weight: 900;
+  height: 44px;
+  place-items: center;
+  width: 44px;
+}
+
+.lp-contact-meta {
+  color: var(--lp-muted);
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.lp-contact-form {
+  display: grid;
+  gap: 12px;
+}
+
+.lp-form-row {
+  display: grid;
+  gap: 12px;
+}
+
+.lp-contact-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.lp-contact-form label span {
+  color: var(--lp-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lp-contact-form input,
+.lp-contact-form textarea {
+  background: white;
+  border: 1px solid var(--lp-border);
+  border-radius: 14px;
+  color: var(--lp-text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  padding: 12px 13px;
+  resize: vertical;
+}
+
+.lp-contact-form input:focus,
+.lp-contact-form textarea:focus {
+  border-color: var(--lp-accent-light);
+  box-shadow: 0 0 0 3px rgba(139, 111, 255, 0.14);
+}
+
+.lp-contact-form .lp-button {
+  width: 100%;
+}
+
+.lp-form-success,
+.lp-form-error {
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 750;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.lp-form-success {
+  background: rgba(63, 196, 147, 0.12);
+  color: #207a58;
+}
+
+.lp-form-error {
+  background: rgba(255, 90, 95, 0.12);
+  color: #b82d35;
+}
+
 .lp-final {
   background:
     radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.38), transparent 55%),
@@ -773,6 +912,7 @@ html { scroll-behavior: smooth; }
   }
 
   .lp-final-actions { justify-content: center; }
+  .lp-form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .lp-grid.two,
   .lp-price-grid {
@@ -794,6 +934,7 @@ html { scroll-behavior: smooth; }
 
   .lp-phone-wrap { display: flex; }
   .lp-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lp-contact-grid { grid-template-columns: 0.92fr 1.08fr; }
   .lp-footer-grid { grid-template-columns: 1.2fr repeat(3, 1fr); }
 }
 

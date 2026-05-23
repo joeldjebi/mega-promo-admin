@@ -394,6 +394,12 @@ type PlayerUserItem = {
   isActive: boolean
   createdAt: string
 }
+type UserRoleFilter = 'player' | 'partner' | 'all_non_admin'
+const userRoleFilterLabels: Record<UserRoleFilter, string> = {
+  player: 'joueurs',
+  partner: 'partenaires',
+  all_non_admin: 'utilisateurs hors SA',
+}
 type PlayerPlanItem = {
   id: string
   key: string
@@ -454,6 +460,79 @@ type LegalPageFormState = {
   title: string
   content: string
   isActive: boolean
+}
+type ContactSettingsItem = {
+  whatsappNumber: string
+  whatsappMessage: string
+  email: string
+}
+type ContactSettingsFormState = ContactSettingsItem
+type ContactMessageItem = {
+  id: string
+  name: string
+  phone: string
+  email: string
+  subject: string
+  message: string
+  source: string
+  status: string
+  createdAt: string
+}
+type MobileInfoMessageItem = {
+  id: string
+  title: string
+  body: string
+  imageUrl: string
+  ctaLabel: string
+  ctaUrl: string
+  backgroundColor: string
+  textColor: string
+  isActive: boolean
+  orderIndex: number
+  createdAt: string
+}
+type MobileInfoMessageFormState = {
+  id: string
+  title: string
+  body: string
+  imageUrl: string
+  ctaLabel: string
+  ctaUrl: string
+  backgroundColor: string
+  textColor: string
+  isActive: boolean
+  orderIndex: string
+}
+type AppUpdateConfigItem = {
+  minimumAndroidBuild: number
+  latestAndroidBuild: number
+  minimumIosBuild: number
+  latestIosBuild: number
+  androidStoreUrl: string
+  iosStoreUrl: string
+  title: string
+  message: string
+  forceUpdate: boolean
+  isActive: boolean
+  updatedAt: string
+}
+type AppUpdateConfigFormState = {
+  minimumAndroidBuild: string
+  latestAndroidBuild: string
+  minimumIosBuild: string
+  latestIosBuild: string
+  androidStoreUrl: string
+  iosStoreUrl: string
+  title: string
+  message: string
+  forceUpdate: boolean
+  isActive: boolean
+}
+type SupabaseLikeError = {
+  message?: unknown
+  details?: unknown
+  hint?: unknown
+  code?: unknown
 }
 type PlayerSubscriptionItem = {
   id: string
@@ -2087,6 +2166,75 @@ const defaultLegalForms: Record<'terms' | 'privacy', LegalPageFormState> = {
   },
 }
 
+const defaultContactSettingsForm: ContactSettingsFormState = {
+  whatsappNumber: '2250000000000',
+  whatsappMessage: 'Bonjour MegaPromo, j’ai besoin d’informations.',
+  email: 'contact@megapromo.ci',
+}
+
+function createDefaultMobileInfoMessageForm(): MobileInfoMessageFormState {
+  return {
+    id: '',
+    title: '',
+    body: '',
+    imageUrl: '',
+    ctaLabel: '',
+    ctaUrl: '',
+    backgroundColor: '#F7C4AD',
+    textColor: '#4B1609',
+    isActive: true,
+    orderIndex: '1',
+  }
+}
+
+const defaultAppUpdateConfigForm: AppUpdateConfigFormState = {
+  minimumAndroidBuild: '1',
+  latestAndroidBuild: '1',
+  minimumIosBuild: '1',
+  latestIosBuild: '1',
+  androidStoreUrl: '',
+  iosStoreUrl: '',
+  title: 'Mise à jour disponible',
+  message:
+    'Une nouvelle version de MegaPromo est disponible avec des améliorations importantes.',
+  forceUpdate: false,
+  isActive: true,
+}
+
+function appUpdateConfigToForm(
+  config: AppUpdateConfigItem,
+): AppUpdateConfigFormState {
+  return {
+    minimumAndroidBuild: String(config.minimumAndroidBuild),
+    latestAndroidBuild: String(config.latestAndroidBuild),
+    minimumIosBuild: String(config.minimumIosBuild),
+    latestIosBuild: String(config.latestIosBuild),
+    androidStoreUrl: config.androidStoreUrl,
+    iosStoreUrl: config.iosStoreUrl,
+    title: config.title,
+    message: config.message,
+    forceUpdate: config.forceUpdate,
+    isActive: config.isActive,
+  }
+}
+
+function mobileInfoMessageToForm(
+  message: MobileInfoMessageItem,
+): MobileInfoMessageFormState {
+  return {
+    id: message.id,
+    title: message.title,
+    body: message.body,
+    imageUrl: message.imageUrl,
+    ctaLabel: message.ctaLabel,
+    ctaUrl: message.ctaUrl,
+    backgroundColor: message.backgroundColor,
+    textColor: message.textColor,
+    isActive: message.isActive,
+    orderIndex: String(message.orderIndex),
+  }
+}
+
 function legalPageToForm(page: LegalPageItem): LegalPageFormState {
   return {
     title: page.title,
@@ -2111,6 +2259,103 @@ async function fetchLegalPagesForAdmin(): Promise<LegalPageItem[]> {
     isActive: (page.is_active as boolean | null) ?? true,
     updatedAt: (page.updated_at as string | null) ?? '',
   }))
+}
+
+async function fetchLandingContactSettingsForAdmin(): Promise<ContactSettingsItem> {
+  const { data, error } = await supabase
+    .from('landing_contact_settings')
+    .select('whatsapp_number, whatsapp_message, email')
+    .eq('key', 'main')
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    whatsappNumber:
+      (data?.whatsapp_number as string | null) ??
+      defaultContactSettingsForm.whatsappNumber,
+    whatsappMessage:
+      (data?.whatsapp_message as string | null) ??
+      defaultContactSettingsForm.whatsappMessage,
+    email: (data?.email as string | null) ?? defaultContactSettingsForm.email,
+  }
+}
+
+async function fetchLandingContactMessagesForAdmin(): Promise<ContactMessageItem[]> {
+  const { data, error } = await supabase
+    .from('landing_contact_messages')
+    .select('id, name, phone, email, subject, message, source, status, created_at')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) throw error
+
+  return (data ?? []).map((message) => ({
+    id: message.id as string,
+    name: (message.name as string | null) ?? 'Visiteur',
+    phone: (message.phone as string | null) ?? '',
+    email: (message.email as string | null) ?? '',
+    subject: (message.subject as string | null) ?? 'Contact landing',
+    message: (message.message as string | null) ?? '',
+    source: (message.source as string | null) ?? 'landing',
+    status: (message.status as string | null) ?? 'new',
+    createdAt: (message.created_at as string | null) ?? '',
+  }))
+}
+
+async function fetchMobileInfoMessagesForAdmin(): Promise<MobileInfoMessageItem[]> {
+  const { data, error } = await supabase
+    .from('mobile_info_messages')
+    .select(
+      'id, title, body, image_url, cta_label, cta_url, background_color, text_color, is_active, order_index, created_at',
+    )
+    .order('order_index', { ascending: true })
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+
+  return (data ?? []).map((message) => ({
+    id: message.id as string,
+    title: (message.title as string | null) ?? '',
+    body: (message.body as string | null) ?? '',
+    imageUrl: (message.image_url as string | null) ?? '',
+    ctaLabel: (message.cta_label as string | null) ?? '',
+    ctaUrl: (message.cta_url as string | null) ?? '',
+    backgroundColor: (message.background_color as string | null) ?? '#F7C4AD',
+    textColor: (message.text_color as string | null) ?? '#4B1609',
+    isActive: (message.is_active as boolean | null) ?? true,
+    orderIndex: (message.order_index as number | null) ?? 0,
+    createdAt: (message.created_at as string | null) ?? '',
+  }))
+}
+
+async function fetchAppUpdateConfigForAdmin(): Promise<AppUpdateConfigItem | null> {
+  const { data, error } = await supabase
+    .from('app_update_config')
+    .select(
+      'minimum_android_build, latest_android_build, minimum_ios_build, latest_ios_build, android_store_url, ios_store_url, title, message, force_update, is_active, updated_at',
+    )
+    .eq('key', 'main')
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return {
+    minimumAndroidBuild: (data.minimum_android_build as number | null) ?? 1,
+    latestAndroidBuild: (data.latest_android_build as number | null) ?? 1,
+    minimumIosBuild: (data.minimum_ios_build as number | null) ?? 1,
+    latestIosBuild: (data.latest_ios_build as number | null) ?? 1,
+    androidStoreUrl: (data.android_store_url as string | null) ?? '',
+    iosStoreUrl: (data.ios_store_url as string | null) ?? '',
+    title: (data.title as string | null) ?? 'Mise à jour disponible',
+    message:
+      (data.message as string | null) ??
+      'Une nouvelle version de MegaPromo est disponible.',
+    forceUpdate: (data.force_update as boolean | null) ?? false,
+    isActive: (data.is_active as boolean | null) ?? true,
+    updatedAt: (data.updated_at as string | null) ?? '',
+  }
 }
 
 async function fetchPaymentMethodsForAdmin(): Promise<PaymentMethodItem[]> {
@@ -2138,10 +2383,12 @@ async function fetchPlayersData({
   page,
   pageSize,
   search,
+  roleFilter,
 }: {
   page: number
   pageSize: number
   search: string
+  roleFilter: UserRoleFilter
 }): Promise<PlayersData> {
   const from = page * pageSize
   const to = from + pageSize - 1
@@ -2151,9 +2398,14 @@ async function fetchPlayersData({
       'id, phone, username, avatar_url, role, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
       { count: 'exact' },
     )
+    .neq('role', 'admin')
     .order('created_at', { ascending: false })
     .range(from, to)
   const cleanedSearch = search.trim()
+
+  if (roleFilter !== 'all_non_admin') {
+    usersQuery = usersQuery.eq('role', roleFilter)
+  }
 
   if (cleanedSearch) {
     const escapedSearch = cleanedSearch.replaceAll('%', '\\%').replaceAll('_', '\\_')
@@ -2774,17 +3026,19 @@ function hasContestEnded(endsAt: string) {
 function formatUnknownError(error: unknown, fallback: string) {
   if (error instanceof Error) return error.message
   if (error && typeof error === 'object') {
-    const payload = error as {
-      message?: unknown
-      details?: unknown
-      hint?: unknown
-      code?: unknown
-    }
+    const payload = error as SupabaseLikeError
     return [payload.message, payload.details, payload.hint, payload.code]
       .filter((item) => typeof item === 'string' && item.length > 0)
       .join(' · ') || fallback
   }
   return typeof error === 'string' && error.length > 0 ? error : fallback
+}
+
+function isMissingTableError(error: unknown, tableName: string) {
+  if (!error || typeof error !== 'object') return false
+  const payload = error as SupabaseLikeError
+  const message = String(payload.message ?? '')
+  return payload.code === 'PGRST205' && message.includes(`'public.${tableName}'`)
 }
 
 function createDefaultContestForm(): ContestFormState {
@@ -5764,6 +6018,7 @@ function SuperAdminUsersPage() {
   const [selectedUserId, setSelectedUserId] = useState('')
   const [usersSearch, setUsersSearch] = useState('')
   const [debouncedUsersSearch, setDebouncedUsersSearch] = useState('')
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('player')
   const [usersPage, setUsersPage] = useState(0)
   const [selectedPlanId, setSelectedPlanId] = useState('')
   const [isUsersLoading, setIsUsersLoading] = useState(true)
@@ -5793,6 +6048,7 @@ function SuperAdminUsersPage() {
         page: nextPage,
         pageSize,
         search: debouncedUsersSearch,
+        roleFilter: userRoleFilter,
       })
       setPlayersData(nextPlayersData)
       setSelectedUserId((currentUserId) => {
@@ -5810,7 +6066,7 @@ function SuperAdminUsersPage() {
     } finally {
       setIsUsersLoading(false)
     }
-  }, [debouncedUsersSearch, pageSize, usersPage])
+  }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -5823,12 +6079,18 @@ function SuperAdminUsersPage() {
   }, [usersSearch])
 
   useEffect(() => {
+    setUsersPage(0)
+    setSelectedUserId('')
+  }, [userRoleFilter])
+
+  useEffect(() => {
     let isMounted = true
 
     void fetchPlayersData({
       page: usersPage,
       pageSize,
       search: debouncedUsersSearch,
+      roleFilter: userRoleFilter,
     })
       .then((nextPlayersData) => {
         if (!isMounted) return
@@ -5855,7 +6117,7 @@ function SuperAdminUsersPage() {
     return () => {
       isMounted = false
     }
-  }, [debouncedUsersSearch, pageSize, usersPage])
+  }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
 
   useEffect(() => {
     if (!selectedUserId) return
@@ -6149,9 +6411,9 @@ function SuperAdminUsersPage() {
         </nav>
 
         <div className="sidebar-card">
-          <span>Joueurs</span>
+          <span>Utilisateurs</span>
           <strong>{formatNumber(playersData.totalCount)} comptes</strong>
-          <p>Analyse les profils, abonnements, participations, gains et badges.</p>
+          <p>Filtre les joueurs, partenaires et autres comptes sans afficher les SA.</p>
         </div>
       </aside>
 
@@ -6159,9 +6421,9 @@ function SuperAdminUsersPage() {
         <header className="dashboard-topbar">
           <div>
             <p className="eyebrow">Communauté</p>
-            <h1>Joueurs</h1>
+            <h1>Utilisateurs</h1>
             <p className="page-subtitle">
-              Vue complète des utilisateurs, forfaits premium, historiques et récompenses.
+              Vue filtrée des comptes. Les super administrateurs ne sont jamais listés ici.
             </p>
           </div>
 
@@ -6204,7 +6466,7 @@ function SuperAdminUsersPage() {
           <div className="panel players-list-panel">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Base joueurs</p>
+                <p className="eyebrow">Base {userRoleFilterLabels[userRoleFilter]}</p>
                 <h2>Liste des utilisateurs</h2>
               </div>
               <span className="pill">
@@ -6220,6 +6482,15 @@ function SuperAdminUsersPage() {
               placeholder="Rechercher pseudo, téléphone, rôle..."
               value={usersSearch}
             />
+            <select
+              className="search-input"
+              onChange={(event) => setUserRoleFilter(event.target.value as UserRoleFilter)}
+              value={userRoleFilter}
+            >
+              <option value="player">Joueurs</option>
+              <option value="partner">Partenaires</option>
+              <option value="all_non_admin">Tous hors SA</option>
+            </select>
 
             <div className="player-list">
               {playersData.users.length > 0 ? (
@@ -6251,7 +6522,9 @@ function SuperAdminUsersPage() {
                   ))
               ) : (
                 <p className="empty-panel-text">
-                  {isUsersLoading ? 'Chargement des joueurs...' : 'Aucun joueur trouvé.'}
+                  {isUsersLoading
+                    ? `Chargement des ${userRoleFilterLabels[userRoleFilter]}...`
+                    : `Aucun ${userRoleFilterLabels[userRoleFilter]} trouvé.`}
                 </p>
               )}
             </div>
@@ -6289,7 +6562,7 @@ function SuperAdminUsersPage() {
                       .toUpperCase()}
                   </span>
                   <div>
-                    <p className="eyebrow">Fiche joueur</p>
+                    <p className="eyebrow">Fiche {selectedUser.role === 'partner' ? 'partenaire' : 'utilisateur'}</p>
                     <h2>{selectedUser.username || 'Pseudo non défini'}</h2>
                     <p>{selectedUser.phone || 'Téléphone non défini'}</p>
                   </div>
@@ -6897,6 +7170,21 @@ function SuperAdminSettingsPage() {
   const [legalForms, setLegalForms] =
     useState<Record<'terms' | 'privacy', LegalPageFormState>>(defaultLegalForms)
   const [isLegalSaving, setIsLegalSaving] = useState(false)
+  const [contactSettingsForm, setContactSettingsForm] =
+    useState<ContactSettingsFormState>(defaultContactSettingsForm)
+  const [contactMessages, setContactMessages] = useState<ContactMessageItem[]>([])
+  const [isContactSettingsSaving, setIsContactSettingsSaving] = useState(false)
+  const [mobileInfoMessages, setMobileInfoMessages] = useState<
+    MobileInfoMessageItem[]
+  >([])
+  const [mobileInfoMessageForm, setMobileInfoMessageForm] =
+    useState<MobileInfoMessageFormState>(createDefaultMobileInfoMessageForm())
+  const [isMobileInfoMessageSaving, setIsMobileInfoMessageSaving] =
+    useState(false)
+  const [appUpdateConfigForm, setAppUpdateConfigForm] =
+    useState<AppUpdateConfigFormState>(defaultAppUpdateConfigForm)
+  const [appUpdateConfigUpdatedAt, setAppUpdateConfigUpdatedAt] = useState('')
+  const [isAppUpdateConfigSaving, setIsAppUpdateConfigSaving] = useState(false)
   const [profileForm, setProfileForm] = useState({
     username: adminAuth.profile?.username ?? '',
     email: adminAuth.user?.email ?? '',
@@ -6920,6 +7208,10 @@ function SuperAdminSettingsPage() {
     try {
       setPaymentMethods(await fetchPaymentMethodsForAdmin())
     } catch (error) {
+      if (isMissingTableError(error, 'payment_methods')) {
+        setPaymentMethods([])
+        return
+      }
       setSettingsError(
         formatUnknownError(error, 'Impossible de charger les méthodes de paiement.'),
       )
@@ -6945,9 +7237,76 @@ function SuperAdminSettingsPage() {
     }
   }
 
+  async function loadLandingContact() {
+    try {
+      const [settings, messages] = await Promise.all([
+        fetchLandingContactSettingsForAdmin(),
+        fetchLandingContactMessagesForAdmin(),
+      ])
+      setContactSettingsForm(settings)
+      setContactMessages(messages)
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de charger le contact landing. Exécute le script SQL landing_contact_system.',
+        ),
+      )
+    }
+  }
+
+  async function loadMobileInfoMessages() {
+    try {
+      setMobileInfoMessages(await fetchMobileInfoMessagesForAdmin())
+    } catch (error) {
+      if (isMissingTableError(error, 'mobile_info_messages')) {
+        setMobileInfoMessages([])
+        return
+      }
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de charger les messages info mobile.',
+        ),
+      )
+    }
+  }
+
+  async function loadAppUpdateConfig() {
+    try {
+      const config = await fetchAppUpdateConfigForAdmin()
+      if (!config) {
+        setAppUpdateConfigForm(defaultAppUpdateConfigForm)
+        setAppUpdateConfigUpdatedAt('')
+        return
+      }
+      setAppUpdateConfigForm(appUpdateConfigToForm(config))
+      setAppUpdateConfigUpdatedAt(config.updatedAt)
+    } catch (error) {
+      if (isMissingTableError(error, 'app_update_config')) {
+        setAppUpdateConfigForm(defaultAppUpdateConfigForm)
+        setAppUpdateConfigUpdatedAt('')
+        return
+      }
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de charger la configuration de mise à jour app.',
+        ),
+      )
+    }
+  }
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void Promise.all([loadPaymentMethods(), loadLegalPages()])
+    void (async () => {
+      await Promise.all([
+        loadPaymentMethods(),
+        loadLegalPages(),
+        loadLandingContact(),
+        loadMobileInfoMessages(),
+        loadAppUpdateConfig(),
+      ])
+    })()
   }, [])
 
   async function handleLogout() {
@@ -7140,6 +7499,143 @@ function SuperAdminSettingsPage() {
       )
     } finally {
       setIsLegalSaving(false)
+    }
+  }
+
+  async function handleSaveLandingContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setNotice('')
+    setSettingsError('')
+
+    const whatsappNumber = contactSettingsForm.whatsappNumber.replace(/[^\d]/g, '')
+    const whatsappMessage = contactSettingsForm.whatsappMessage.trim()
+    const email = contactSettingsForm.email.trim()
+
+    if (!whatsappNumber) {
+      setSettingsError('Le numéro WhatsApp est requis.')
+      return
+    }
+
+    setIsContactSettingsSaving(true)
+    try {
+      const { error } = await supabase.from('landing_contact_settings').upsert({
+        key: 'main',
+        whatsapp_number: whatsappNumber,
+        whatsapp_message:
+          whatsappMessage || defaultContactSettingsForm.whatsappMessage,
+        email: email || defaultContactSettingsForm.email,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadLandingContact()
+      setNotice('Contact landing et numéro WhatsApp mis à jour.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible d’enregistrer le contact landing.'),
+      )
+    } finally {
+      setIsContactSettingsSaving(false)
+    }
+  }
+
+  async function handleSaveMobileInfoMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setNotice('')
+    setSettingsError('')
+
+    const title = mobileInfoMessageForm.title.trim()
+    const body = mobileInfoMessageForm.body.trim()
+    if (!title || !body) {
+      setSettingsError('Titre et message sont requis.')
+      return
+    }
+
+    setIsMobileInfoMessageSaving(true)
+    try {
+      const payload = {
+        title,
+        body,
+        image_url: mobileInfoMessageForm.imageUrl.trim() || null,
+        cta_label: mobileInfoMessageForm.ctaLabel.trim() || null,
+        cta_url: mobileInfoMessageForm.ctaUrl.trim() || null,
+        background_color: mobileInfoMessageForm.backgroundColor.trim() || '#F7C4AD',
+        text_color: mobileInfoMessageForm.textColor.trim() || '#4B1609',
+        is_active: mobileInfoMessageForm.isActive,
+        order_index: Number(mobileInfoMessageForm.orderIndex) || 0,
+        updated_at: new Date().toISOString(),
+      }
+
+      const response = mobileInfoMessageForm.id
+        ? await supabase
+            .from('mobile_info_messages')
+            .update(payload)
+            .eq('id', mobileInfoMessageForm.id)
+        : await supabase.from('mobile_info_messages').insert(payload)
+
+      if (response.error) throw response.error
+
+      setMobileInfoMessageForm(createDefaultMobileInfoMessageForm())
+      await loadMobileInfoMessages()
+      setNotice('Message info mobile enregistré.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible d’enregistrer le message info.'),
+      )
+    } finally {
+      setIsMobileInfoMessageSaving(false)
+    }
+  }
+
+  async function handleSaveAppUpdateConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setNotice('')
+    setSettingsError('')
+
+    const title = appUpdateConfigForm.title.trim()
+    const message = appUpdateConfigForm.message.trim()
+    if (!title || !message) {
+      setSettingsError('Titre et message de mise à jour sont requis.')
+      return
+    }
+
+    const minimumAndroidBuild =
+      Number(appUpdateConfigForm.minimumAndroidBuild) || 1
+    const latestAndroidBuild = Number(appUpdateConfigForm.latestAndroidBuild) || 1
+    const minimumIosBuild = Number(appUpdateConfigForm.minimumIosBuild) || 1
+    const latestIosBuild = Number(appUpdateConfigForm.latestIosBuild) || 1
+
+    setIsAppUpdateConfigSaving(true)
+    try {
+      const { error } = await supabase.from('app_update_config').upsert({
+        key: 'main',
+        minimum_android_build: minimumAndroidBuild,
+        latest_android_build: Math.max(latestAndroidBuild, minimumAndroidBuild),
+        minimum_ios_build: minimumIosBuild,
+        latest_ios_build: Math.max(latestIosBuild, minimumIosBuild),
+        android_store_url: appUpdateConfigForm.androidStoreUrl.trim() || null,
+        ios_store_url: appUpdateConfigForm.iosStoreUrl.trim() || null,
+        title,
+        message,
+        force_update: appUpdateConfigForm.forceUpdate,
+        is_active: appUpdateConfigForm.isActive,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadAppUpdateConfig()
+      setNotice('Configuration de mise à jour enregistrée.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible d’enregistrer la configuration de mise à jour.',
+        ),
+      )
+    } finally {
+      setIsAppUpdateConfigSaving(false)
     }
   }
 
@@ -7695,6 +8191,459 @@ function SuperAdminSettingsPage() {
                   </form>
                 )
               })}
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Landing</p>
+                <h2>Contact & WhatsApp</h2>
+              </div>
+              <span className="status-pill active">
+                {contactMessages.length} message(s)
+              </span>
+            </div>
+            <form className="category-form" onSubmit={handleSaveLandingContact}>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Numéro WhatsApp</span>
+                  <input
+                    onChange={(event) =>
+                      setContactSettingsForm((current) => ({
+                        ...current,
+                        whatsappNumber: event.target.value,
+                      }))
+                    }
+                    placeholder="2250700000000"
+                    value={contactSettingsForm.whatsappNumber}
+                  />
+                </label>
+                <label>
+                  <span>Email contact</span>
+                  <input
+                    onChange={(event) =>
+                      setContactSettingsForm((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    placeholder="contact@megapromo.ci"
+                    type="email"
+                    value={contactSettingsForm.email}
+                  />
+                </label>
+              </div>
+              <label>
+                <span>Message pré-rempli WhatsApp</span>
+                <textarea
+                  onChange={(event) =>
+                    setContactSettingsForm((current) => ({
+                      ...current,
+                      whatsappMessage: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  value={contactSettingsForm.whatsappMessage}
+                />
+              </label>
+              <div className="modal-actions">
+                <button
+                  className="secondary-action-button"
+                  onClick={() => void loadLandingContact()}
+                  type="button"
+                >
+                  Actualiser
+                </button>
+                <button
+                  className="inline-action-button"
+                  disabled={isContactSettingsSaving}
+                  type="submit"
+                >
+                  {isContactSettingsSaving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+            <div className="compact-list">
+              {contactMessages.length === 0 ? (
+                <article>
+                  <div>
+                    <strong>Aucun message landing</strong>
+                    <p>Les messages du formulaire de contact apparaîtront ici.</p>
+                  </div>
+                </article>
+              ) : (
+                contactMessages.map((message) => (
+                  <article key={message.id}>
+                    <div>
+                      <strong>{message.name}</strong>
+                      <p>
+                        {message.subject} · {formatDate(message.createdAt)}
+                      </p>
+                      <p>{message.message}</p>
+                      <small>
+                        {message.phone || 'Téléphone non défini'}
+                        {message.email ? ` · ${message.email}` : ''}
+                      </small>
+                    </div>
+                    <span
+                      className={`status-pill ${
+                        message.status === 'new' ? 'pending' : 'active'
+                      }`}
+                    >
+                      {message.status === 'new' ? 'Nouveau' : message.status}
+                    </span>
+                  </article>
+                ))
+              )}
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Mobile</p>
+                <h2>Mise à jour app</h2>
+              </div>
+              <span
+                className={`status-pill ${
+                  appUpdateConfigForm.isActive ? 'active' : 'inactive'
+                }`}
+              >
+                {appUpdateConfigForm.forceUpdate ? 'Obligatoire' : 'Configurable'}
+              </span>
+            </div>
+            <form className="category-form" onSubmit={handleSaveAppUpdateConfig}>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Build minimum Android</span>
+                  <input
+                    min="1"
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        minimumAndroidBuild: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={appUpdateConfigForm.minimumAndroidBuild}
+                  />
+                </label>
+                <label>
+                  <span>Dernier build Android</span>
+                  <input
+                    min="1"
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        latestAndroidBuild: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={appUpdateConfigForm.latestAndroidBuild}
+                  />
+                </label>
+                <label>
+                  <span>Build minimum iOS</span>
+                  <input
+                    min="1"
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        minimumIosBuild: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={appUpdateConfigForm.minimumIosBuild}
+                  />
+                </label>
+                <label>
+                  <span>Dernier build iOS</span>
+                  <input
+                    min="1"
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        latestIosBuild: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={appUpdateConfigForm.latestIosBuild}
+                  />
+                </label>
+              </div>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Lien Play Store</span>
+                  <input
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        androidStoreUrl: event.target.value,
+                      }))
+                    }
+                    placeholder="https://play.google.com/store/apps/details?id=..."
+                    value={appUpdateConfigForm.androidStoreUrl}
+                  />
+                </label>
+                <label>
+                  <span>Lien App Store</span>
+                  <input
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        iosStoreUrl: event.target.value,
+                      }))
+                    }
+                    placeholder="https://apps.apple.com/app/..."
+                    value={appUpdateConfigForm.iosStoreUrl}
+                  />
+                </label>
+              </div>
+              <label>
+                <span>Titre affiché</span>
+                <input
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  value={appUpdateConfigForm.title}
+                />
+              </label>
+              <label>
+                <span>Message affiché</span>
+                <textarea
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      message: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  value={appUpdateConfigForm.message}
+                />
+              </label>
+              <label className="checkbox-row">
+                <input
+                  checked={appUpdateConfigForm.isActive}
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      isActive: event.target.checked,
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span>Activer le contrôle de version au démarrage</span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  checked={appUpdateConfigForm.forceUpdate}
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      forceUpdate: event.target.checked,
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span>Forcer la mise à jour pour tous les joueurs</span>
+              </label>
+              <div className="modal-actions">
+                <span className="helper-text">
+                  {appUpdateConfigUpdatedAt
+                    ? `Dernière modification : ${formatDate(appUpdateConfigUpdatedAt)}`
+                    : 'Exécute le script SQL app_update_config si la table manque.'}
+                </span>
+                <button
+                  className="inline-action-button"
+                  disabled={isAppUpdateConfigSaving}
+                  type="submit"
+                >
+                  {isAppUpdateConfigSaving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Mobile</p>
+                <h2>Messages d’information</h2>
+              </div>
+              <span className="status-pill active">
+                {mobileInfoMessages.length} message(s)
+              </span>
+            </div>
+            <form className="category-form" onSubmit={handleSaveMobileInfoMessage}>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Titre</span>
+                  <input
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        title: event.target.value,
+                      }))
+                    }
+                    placeholder="Nouveau Quiz Live"
+                    value={mobileInfoMessageForm.title}
+                  />
+                </label>
+                <label>
+                  <span>Ordre</span>
+                  <input
+                    min="0"
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        orderIndex: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={mobileInfoMessageForm.orderIndex}
+                  />
+                </label>
+              </div>
+              <label>
+                <span>Message</span>
+                <textarea
+                  onChange={(event) =>
+                    setMobileInfoMessageForm((current) => ({
+                      ...current,
+                      body: event.target.value,
+                    }))
+                  }
+                  rows={4}
+                  value={mobileInfoMessageForm.body}
+                />
+              </label>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>CTA label</span>
+                  <input
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        ctaLabel: event.target.value,
+                      }))
+                    }
+                    placeholder="Voir les jeux"
+                    value={mobileInfoMessageForm.ctaLabel}
+                  />
+                </label>
+                <label>
+                  <span>CTA route ou lien</span>
+                  <input
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        ctaUrl: event.target.value,
+                      }))
+                    }
+                    placeholder="/contests ou https://apps.apple.com/app/..."
+                    value={mobileInfoMessageForm.ctaUrl}
+                  />
+                </label>
+                <label>
+                  <span>Couleur fond</span>
+                  <input
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        backgroundColor: event.target.value,
+                      }))
+                    }
+                    value={mobileInfoMessageForm.backgroundColor}
+                  />
+                </label>
+                <label>
+                  <span>Couleur texte</span>
+                  <input
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        textColor: event.target.value,
+                      }))
+                    }
+                    value={mobileInfoMessageForm.textColor}
+                  />
+                </label>
+              </div>
+              <label className="checkbox-row">
+                <input
+                  checked={mobileInfoMessageForm.isActive}
+                  onChange={(event) =>
+                    setMobileInfoMessageForm((current) => ({
+                      ...current,
+                      isActive: event.target.checked,
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span>Afficher dans l’app mobile</span>
+              </label>
+              <div className="modal-actions">
+                <button
+                  className="secondary-action-button"
+                  onClick={() =>
+                    setMobileInfoMessageForm(createDefaultMobileInfoMessageForm())
+                  }
+                  type="button"
+                >
+                  Nouveau
+                </button>
+                <button
+                  className="inline-action-button"
+                  disabled={isMobileInfoMessageSaving}
+                  type="submit"
+                >
+                  {isMobileInfoMessageSaving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+            <div className="compact-list">
+              {mobileInfoMessages.length === 0 ? (
+                <article>
+                  <div>
+                    <strong>Aucun message</strong>
+                    <p>Ajoute un message pour le carousel de la page home.</p>
+                  </div>
+                </article>
+              ) : (
+                mobileInfoMessages.map((message) => (
+                  <article key={message.id}>
+                    <div>
+                      <strong>{message.title}</strong>
+                      <p>{message.body}</p>
+                      <small>{formatDate(message.createdAt)}</small>
+                    </div>
+                    <div className="table-actions compact">
+                      <span
+                        className={`status-pill ${
+                          message.isActive ? 'active' : 'inactive'
+                        }`}
+                      >
+                        {message.isActive ? 'Actif' : 'Inactif'}
+                      </span>
+                      <button
+                        className="table-action-button"
+                        onClick={() =>
+                          setMobileInfoMessageForm(
+                            mobileInfoMessageToForm(message),
+                          )
+                        }
+                        type="button"
+                      >
+                        Modifier
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </article>
 

@@ -34,6 +34,19 @@ function normalizePhone(value: string) {
   return phone
 }
 
+function normalizePhoneDigits(value: string) {
+  return normalizePhone(value).replace(/\D/g, '')
+}
+
+function getReviewOtpConfig() {
+  return {
+    phoneDigits: normalizePhoneDigits(
+      Deno.env.get('APP_REVIEW_OTP_PHONE') ?? '+2250700000000',
+    ),
+    code: Deno.env.get('APP_REVIEW_OTP_CODE') ?? '260493',
+  }
+}
+
 async function sendMtargetSms(msisdn: string, message: string, sender: string) {
   const url = Deno.env.get('MTARGET_URL') ?? 'https://api-public-2.mtarget.fr/messages'
   const username = Deno.env.get('MTARGET_USERNAME')
@@ -100,6 +113,8 @@ Deno.serve(async (request) => {
     }
 
     const msisdn = normalizePhone(phone)
+    const reviewOtp = getReviewOtpConfig()
+    const isReviewPhone = normalizePhoneDigits(msisdn) === reviewOtp.phoneDigits
     const template =
       Deno.env.get('MTARGET_AUTH_MESSAGE_TEMPLATE') ??
       'Ton code MegaPromo est {{ otp }}. Ne le partage avec personne.'
@@ -109,9 +124,16 @@ Deno.serve(async (request) => {
       msisdn,
       sender,
       hasOtp: Boolean(otp),
+      isReviewPhone,
       messageLength: message.length,
     }
     console.log('[MegaPromo][auth-sms-mtarget] payload', safePayload)
+
+    if (isReviewPhone && otp !== reviewOtp.code) {
+      console.warn(
+        '[MegaPromo][auth-sms-mtarget] review phone received a generated OTP. Configure Supabase Auth test OTP: SMS_TEST_OTP=2250700000000:260493.',
+      )
+    }
 
     const result = await sendMtargetSms(msisdn, message, sender)
     const response = {

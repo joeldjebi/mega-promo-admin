@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
   defaultLandingContent,
@@ -8,6 +8,26 @@ import {
   mergeLandingContent,
 } from './landingContent'
 import { landingStyle } from './landingStyles'
+
+type LandingContactSettings = {
+  whatsappNumber: string
+  whatsappMessage: string
+  email: string
+}
+
+type LandingContactForm = {
+  name: string
+  phone: string
+  email: string
+  subject: string
+  message: string
+}
+
+const defaultContactSettings: LandingContactSettings = {
+  whatsappNumber: '2250000000000',
+  whatsappMessage: 'Bonjour MegaPromo, j’ai besoin d’informations.',
+  email: 'contact@megapromo.ci',
+}
 
 function formatPlanPrice(price: number, durationDays: number) {
   if (price <= 0) return '0 FCFA'
@@ -99,6 +119,36 @@ async function fetchLandingPlayerPlans(): Promise<LandingPlayerPlan[]> {
   })
 }
 
+function normalizeWhatsappNumber(value: string) {
+  return value.replace(/[^\d]/g, '')
+}
+
+function buildWhatsappUrl(settings: LandingContactSettings) {
+  const phone = normalizeWhatsappNumber(settings.whatsappNumber)
+  const text = encodeURIComponent(settings.whatsappMessage || defaultContactSettings.whatsappMessage)
+  return phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`
+}
+
+async function fetchContactSettings(): Promise<LandingContactSettings> {
+  const { data, error } = await supabase
+    .from('landing_contact_settings')
+    .select('whatsapp_number, whatsapp_message, email')
+    .eq('key', 'main')
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    whatsappNumber:
+      (data?.whatsapp_number as string | null) ??
+      defaultContactSettings.whatsappNumber,
+    whatsappMessage:
+      (data?.whatsapp_message as string | null) ??
+      defaultContactSettings.whatsappMessage,
+    email: (data?.email as string | null) ?? defaultContactSettings.email,
+  }
+}
+
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
@@ -106,6 +156,18 @@ export function LandingPage() {
   const [statsStarted, setStatsStarted] = useState(false)
   const [counts, setCounts] = useState({ players: 0, money: 0, contests: 0 })
   const [content, setContent] = useState<LandingPageContent>(defaultLandingContent)
+  const [contactSettings, setContactSettings] =
+    useState<LandingContactSettings>(defaultContactSettings)
+  const [contactForm, setContactForm] = useState<LandingContactForm>({
+    name: '',
+    phone: '',
+    email: '',
+    subject: '',
+    message: '',
+  })
+  const [contactStatus, setContactStatus] = useState('')
+  const [contactError, setContactError] = useState('')
+  const [isContactSending, setIsContactSending] = useState(false)
   const [playerPlans, setPlayerPlans] = useState<LandingPlayerPlan[]>(
     fallbackPlayerPlans(defaultLandingContent),
   )
@@ -122,6 +184,9 @@ export function LandingPage() {
       const plansResult = await fetchLandingPlayerPlans()
         .then((plans) => ({ plans, error: null }))
         .catch((error: unknown) => ({ plans: [] as LandingPlayerPlan[], error }))
+      const contactResult = await fetchContactSettings()
+        .then((settings) => ({ settings, error: null }))
+        .catch((error: unknown) => ({ settings: defaultContactSettings, error }))
 
       if (!isMounted) return
 
@@ -135,12 +200,16 @@ export function LandingPage() {
           ? plansResult.plans
           : fallbackPlayerPlans(nextContent),
       )
+      setContactSettings(contactResult.settings)
 
       if (contentResult.error) {
         console.warn('[MegaPromo][landing] content unavailable', contentResult.error)
       }
       if (plansResult.error) {
         console.warn('[MegaPromo][landing] player plans unavailable', plansResult.error)
+      }
+      if (contactResult.error) {
+        console.warn('[MegaPromo][landing] contact settings unavailable', contactResult.error)
       }
     })()
 
@@ -197,6 +266,46 @@ export function LandingPage() {
     observer.observe(node)
     return () => observer.disconnect()
   }, [content.stats.contests, content.stats.money, content.stats.players, statsStarted])
+
+  async function handleContactSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setContactStatus('')
+    setContactError('')
+
+    const name = contactForm.name.trim()
+    const phone = contactForm.phone.trim()
+    const email = contactForm.email.trim()
+    const subject = contactForm.subject.trim()
+    const message = contactForm.message.trim()
+
+    if (!name || !message) {
+      setContactError('Ton nom et ton message sont requis.')
+      return
+    }
+
+    setIsContactSending(true)
+    try {
+      const { error } = await supabase.from('landing_contact_messages').insert({
+        name,
+        phone: phone || null,
+        email: email || null,
+        subject: subject || 'Contact landing',
+        message,
+        source: 'landing',
+        status: 'new',
+      })
+
+      if (error) throw error
+
+      setContactForm({ name: '', phone: '', email: '', subject: '', message: '' })
+      setContactStatus('Message envoyé. L’équipe MegaPromo te répondra rapidement.')
+    } catch (error) {
+      console.warn('[MegaPromo][landing] contact submit failed', error)
+      setContactError('Impossible d’envoyer le message. Utilise WhatsApp pour nous contacter.')
+    } finally {
+      setIsContactSending(false)
+    }
+  }
 
   return (
     <main className="lp-page">
@@ -484,6 +593,111 @@ export function LandingPage() {
         </div>
       </section>
 
+      <section className="lp-section lp-contact-section" id="contact">
+        <div className="lp-wrap">
+          <div className="lp-contact-grid">
+            <div className="lp-contact-copy lp-reveal">
+              <span className="lp-pill">Contact</span>
+              <h2>{content.contact.title}</h2>
+              <p>{content.contact.subtitle}</p>
+              <a
+                className="lp-whatsapp-card"
+                href={buildWhatsappUrl(contactSettings)}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="lp-whatsapp-icon">WA</span>
+                <span>
+                  <strong>{content.contact.whatsappLabel}</strong>
+                  <small>{content.contact.whatsappHint}</small>
+                </span>
+              </a>
+              <div className="lp-contact-meta">
+                <span>WhatsApp : +{normalizeWhatsappNumber(contactSettings.whatsappNumber)}</span>
+                <span>Email : {contactSettings.email}</span>
+              </div>
+            </div>
+
+            <form className="lp-contact-form lp-reveal" onSubmit={handleContactSubmit}>
+              <div className="lp-form-row">
+                <label>
+                  <span>Nom</span>
+                  <input
+                    onChange={(event) =>
+                      setContactForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Ton nom"
+                    value={contactForm.name}
+                  />
+                </label>
+                <label>
+                  <span>Téléphone</span>
+                  <input
+                    onChange={(event) =>
+                      setContactForm((current) => ({
+                        ...current,
+                        phone: event.target.value,
+                      }))
+                    }
+                    placeholder="+225..."
+                    value={contactForm.phone}
+                  />
+                </label>
+              </div>
+              <label>
+                <span>Email</span>
+                <input
+                  onChange={(event) =>
+                    setContactForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  placeholder="email@exemple.com"
+                  type="email"
+                  value={contactForm.email}
+                />
+              </label>
+              <label>
+                <span>Sujet</span>
+                <input
+                  onChange={(event) =>
+                    setContactForm((current) => ({
+                      ...current,
+                      subject: event.target.value,
+                    }))
+                  }
+                  placeholder="Question, gain, partenariat..."
+                  value={contactForm.subject}
+                />
+              </label>
+              <label>
+                <span>Message</span>
+                <textarea
+                  onChange={(event) =>
+                    setContactForm((current) => ({
+                      ...current,
+                      message: event.target.value,
+                    }))
+                  }
+                  placeholder="Écris ton message ici..."
+                  rows={5}
+                  value={contactForm.message}
+                />
+              </label>
+              {contactStatus ? <p className="lp-form-success">{contactStatus}</p> : null}
+              {contactError ? <p className="lp-form-error">{contactError}</p> : null}
+              <button className="lp-button primary" disabled={isContactSending} type="submit">
+                {isContactSending ? 'Envoi...' : 'Envoyer le message'}
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
       <section className="lp-section" id="telecharger">
         <div className="lp-wrap">
           <div className="lp-final lp-reveal">
@@ -528,7 +742,7 @@ export function LandingPage() {
               <a href="/legal/terms">CGU</a>
               <a href="/legal/privacy">Politique de confidentialité</a>
               <a href="#accueil">Mentions légales</a>
-              <a href="#accueil">Contact</a>
+              <a href="#contact">Contact</a>
             </div>
           </div>
           <div className="lp-bottom">{content.footer.bottom}</div>

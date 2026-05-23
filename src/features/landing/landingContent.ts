@@ -42,6 +42,12 @@ export type LandingPageContent = {
     benefits: string[][]
     plans: LandingPartnerPlan[]
   }
+  contact: {
+    title: string
+    subtitle: string
+    whatsappLabel: string
+    whatsappHint: string
+  }
   testimonials: string[][]
   faqs: string[][]
   finalCta: {
@@ -75,6 +81,7 @@ export const defaultLandingContent: LandingPageContent = {
     ['Concours', '#concours'],
     ['Partenaires', '#partenaires'],
     ['Tarifs', '#tarifs'],
+    ['Contact', '#contact'],
   ],
   hero: {
     badge: '🇨🇮 La plateforme N°1 de concours en CI',
@@ -164,6 +171,13 @@ export const defaultLandingContent: LandingPageContent = {
       { name: 'Premium', price: '400 000 FCFA/mois', features: ['Concours illimités', 'Durée illimitée', 'Stats complètes + export', '3 boosts inclus', 'Support dédié'] },
     ],
   },
+  contact: {
+    title: 'Besoin d’aide ?',
+    subtitle:
+      'Écris-nous pour une question, un partenariat ou un problème avec un concours. WhatsApp reste le chemin le plus rapide.',
+    whatsappLabel: 'Contacter sur WhatsApp',
+    whatsappHint: 'Réponse rapide via l’équipe MegaPromo',
+  },
   testimonials: [
     ['K', 'Konan Aimé, Cocody', "J’ai gagné 25 000 FCFA au quiz foot ! L’argent était sur mon Wave en moins de 10 minutes. Incroyable !"],
     ['M', 'Marie Kouassi, Yopougon', "Le tirage MTN m’a souri ! 50 000 FCFA de crédit. Je joue tous les jours maintenant, c’est trop bien !"],
@@ -211,6 +225,10 @@ export function mergeLandingContent(
     partners: {
       ...defaultLandingContent.partners,
       ...(content?.partners ?? {}),
+    },
+    contact: {
+      ...defaultLandingContent.contact,
+      ...(content?.contact ?? {}),
     },
     finalCta: {
       ...defaultLandingContent.finalCta,

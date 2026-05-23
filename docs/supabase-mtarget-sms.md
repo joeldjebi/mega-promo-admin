@@ -24,6 +24,17 @@ Optionnel pour personnaliser le SMS OTP :
 supabase secrets set MTARGET_AUTH_MESSAGE_TEMPLATE="Ton code MegaPromo est {{ otp }}. Ne le partage avec personne."
 ```
 
+Optionnel pour documenter le compte de revue App Store / Play Store dans les logs du hook SMS :
+
+```bash
+supabase secrets set APP_REVIEW_OTP_PHONE="+2250700000000"
+supabase secrets set APP_REVIEW_OTP_CODE="260493"
+supabase secrets set APP_REVIEW_EMAIL="app-review@megapromo.ci"
+supabase secrets set APP_REVIEW_PASSWORD="MOT_DE_PASSE_REVIEW_TRES_LONG"
+```
+
+Important : le téléphone et le code reviewer servent aussi au hook SMS pour reconnaître le numéro reviewer et afficher un warning clair si Supabase génère encore un OTP aléatoire. L'email et le mot de passe servent uniquement à la fonction `app-review-login`.
+
 ## Déployer les fonctions
 
 SMS depuis le Super Admin :
@@ -38,24 +49,80 @@ SMS OTP de Supabase Auth :
 supabase functions deploy auth-sms-mtarget --no-verify-jwt
 ```
 
+Connexion reviewer sans dépendre du SMS :
+
+```bash
+supabase functions deploy app-review-login --no-verify-jwt
+```
+
 Le `--no-verify-jwt` est volontaire pour le hook Auth, car l'appel vient de Supabase Auth et non d'une session utilisateur du dashboard.
 
 ## Configurer Supabase Auth
 
 Dans Supabase Dashboard :
 
-1. Va dans `Authentication` > `Hooks`.
-2. Active le hook `Send SMS`.
-3. Choisis un hook HTTP.
-4. Mets l'URL de la fonction :
+1. Va dans `Authentication` > `Providers`.
+2. Ouvre `Phone`.
+3. Active le provider téléphone.
+4. Enregistre.
+5. Va dans `Authentication` > `Hooks`.
+6. Active le hook `Send SMS`.
+7. Choisis un hook HTTP.
+8. Mets l'URL de la fonction :
 
 ```text
 https://<PROJECT_REF>.supabase.co/functions/v1/auth-sms-mtarget
 ```
 
-5. Clique sur `Generate secret`, copie la valeur complète qui commence par `v1,whsec_`, puis enregistre la même valeur dans le secret Supabase `SEND_SMS_HOOK_SECRET`.
+9. Clique sur `Generate secret`, copie la valeur complète qui commence par `v1,whsec_`, puis enregistre la même valeur dans le secret Supabase `SEND_SMS_HOOK_SECRET`.
 
 Supabase enverra un payload signé contenant notamment `user.phone` et `sms.otp`. La fonction vérifie la signature avec `SEND_SMS_HOOK_SECRET`, envoie ensuite le SMS via mTarget et retourne une réponse vide en `200` si tout est bon.
+
+Si l'app affiche dans les logs `phone_provider_disabled`, le provider téléphone n'est pas activé dans `Authentication` > `Providers` > `Phone`.
+
+## OTP fixe pour App Store / Play Store
+
+Pour permettre aux équipes Apple/Google de tester l'application sans dépendre d'un SMS réel, l'app intercepte ce couple numéro/code :
+
+```text
++2250700000000 / 260493
+```
+
+et appelle la fonction Edge `app-review-login`. Cette fonction crée ou met à jour un compte reviewer email/password côté serveur, puis renvoie une session Supabase à l'app. Le mot de passe reviewer reste dans les secrets Supabase et n'est pas embarqué dans Flutter.
+
+Tu peux aussi configurer le numéro reviewer directement dans Supabase Auth si ton projet le supporte :
+
+```text
+2250700000000:260493
+```
+
+Le numéro à saisir dans l'app reste :
+
+```text
++2250700000000
+```
+
+Et le code à entrer est :
+
+```text
+260493
+```
+
+Pourquoi ce réglage est côté Supabase Auth : l'app Flutter appelle `verifyOTP()`, et Supabase ne crée une session valide que si le serveur Auth accepte le code. Le hook `auth-sms-mtarget` peut envoyer le SMS, mais il ne peut pas changer le code que Supabase attend.
+
+Si ton projet est self-hosted ou géré via variables d'environnement Auth, utilise :
+
+```env
+SMS_TEST_OTP=2250700000000:260493
+```
+
+Si tu vois dans les logs :
+
+```text
+[MegaPromo][auth-sms-mtarget] review phone received a generated OTP
+```
+
+cela signifie que le numéro reviewer n'est pas encore configuré dans Supabase Auth Test OTP.
 
 ## Côté Super Admin
 
