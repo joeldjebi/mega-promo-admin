@@ -87,7 +87,13 @@ export async function registerWebPushToken(userId: string, context = 'web') {
 
   const { error } = await supabase
     .from('users')
-    .update({ fcm_token: fcmToken })
+    .update({
+      fcm_token: fcmToken,
+      fcm_token_platform: 'web',
+      fcm_token_updated_at: new Date().toISOString(),
+      fcm_token_last_error: null,
+      fcm_token_last_error_at: null,
+    })
     .eq('id', userId)
 
   if (error) throw error

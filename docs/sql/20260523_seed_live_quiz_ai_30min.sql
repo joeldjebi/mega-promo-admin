@@ -1,6 +1,6 @@
--- MegaPromo - Demo Quiz Live dans 5 minutes
+-- MegaPromo - Quiz Live Intelligence Artificielle dans 30 minutes
 -- A executer apres docs/sql/20260521_create_live_quiz_system.sql
--- Script idempotent : cree un nouveau Quiz Live actif avec 5 questions de 20 secondes.
+-- Script idempotent : cree un Quiz Live actif avec 5 questions sur l'IA.
 
 alter table public.contests
 add column if not exists is_live bool not null default false,
@@ -22,10 +22,10 @@ with category_seed as (
     created_at
   )
   values (
-    'Quiz Live',
-    'Evenements live MegaPromo avec questions synchronisees.',
-    'bolt',
-    '#8B6FFF',
+    'Technologie',
+    'Quiz sur le digital, l''intelligence artificielle et les innovations.',
+    'cpu',
+    '#5B4AE8',
     true,
     now()
   )
@@ -68,27 +68,27 @@ live_contest as (
     created_at
   )
   select
-    '20260521-0000-4000-9000-000000000801'::uuid,
+    '20260523-0000-4000-9000-000000000831'::uuid,
     null,
-    'Quiz Live Test - Départ 5 min',
-    'Quiz Live de test : entre en salle d''attente, attends le décompte, puis le jeu se lance automatiquement sans action manuelle.',
-    'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80',
+    'Quiz Live Intelligence Artificielle',
+    'Teste ta culture IA en direct : concepts, usages, limites et outils du quotidien. Réserve ta place, entre en salle d''attente et réponds vite pour viser le meilleur score.',
+    'https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1200&q=80',
     null,
     'MegaPromo',
     'quiz',
     category_seed.name,
     category_seed.id,
     'active',
-    '500F de crédit communication pour le meilleur score',
+    '500F de crédit communication pour le meilleur score IA',
     500,
     1,
     null,
     now(),
-    now() + interval '5 minutes' + interval '100 seconds',
+    now() + interval '30 minutes' + interval '100 seconds',
     true,
     array[]::text[],
     true,
-    now() + interval '5 minutes',
+    now() + interval '30 minutes',
     'scheduled',
     0,
     0,
@@ -138,41 +138,41 @@ insert into public.questions (
 )
 values
   (
-    '20260521-0000-4000-9000-000000000811'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Quel est le principe principal d''un Quiz Live MegaPromo ?',
-    'Tout le monde joue au même moment',
-    'Chacun joue quand il veut',
-    'Les réponses sont visibles avant le jeu',
-    'Le quiz se joue sans inscription',
-    'A',
+    '20260523-0000-4000-9000-000000000841'::uuid,
+    '20260523-0000-4000-9000-000000000831'::uuid,
+    'Que signifie généralement le sigle IA ?',
+    'Interface Automatique',
+    'Intelligence Artificielle',
+    'Internet Avancé',
+    'Information Active',
+    'B',
     10,
     20,
     1,
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000812'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Combien de secondes dure chaque question dans ce test ?',
-    '10 secondes',
-    '20 secondes',
-    '45 secondes',
-    '60 secondes',
-    'B',
+    '20260523-0000-4000-9000-000000000842'::uuid,
+    '20260523-0000-4000-9000-000000000831'::uuid,
+    'Quel type d''IA peut générer du texte, des images ou du son ?',
+    'IA générative',
+    'IA analogique',
+    'IA mécanique',
+    'IA silencieuse',
+    'A',
     10,
     20,
     2,
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000813'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Quelle action est recommandée avant le début ?',
-    'Entrer en salle d''attente',
-    'Fermer l''application',
-    'Désactiver internet',
-    'Attendre le lendemain',
+    '20260523-0000-4000-9000-000000000843'::uuid,
+    '20260523-0000-4000-9000-000000000831'::uuid,
+    'Pourquoi faut-il vérifier une réponse produite par une IA ?',
+    'Parce qu''elle peut se tromper',
+    'Parce qu''elle ne répond jamais',
+    'Parce qu''elle efface le téléphone',
+    'Parce qu''elle bloque internet',
     'A',
     10,
     20,
@@ -180,13 +180,13 @@ values
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000814'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Quel facteur améliore le score dans un quiz rapide ?',
-    'La vitesse et la bonne réponse',
-    'Le hasard uniquement',
-    'Changer de téléphone',
-    'Rater le timer',
+    '20260523-0000-4000-9000-000000000844'::uuid,
+    '20260523-0000-4000-9000-000000000831'::uuid,
+    'Quel élément améliore souvent la qualité d''une demande faite à une IA ?',
+    'Un prompt clair et précis',
+    'Un écran plus sombre',
+    'Un mot de passe plus court',
+    'Une batterie faible',
     'A',
     10,
     20,
@@ -194,13 +194,13 @@ values
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000815'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Que se passe-t-il quand le décompte arrive à zéro ?',
-    'Le quiz démarre automatiquement',
-    'Le quiz est supprimé',
-    'Le joueur doit attendre une notification papier',
-    'Les questions disparaissent définitivement',
+    '20260523-0000-4000-9000-000000000845'::uuid,
+    '20260523-0000-4000-9000-000000000831'::uuid,
+    'Quel usage de l''IA est utile dans une application mobile ?',
+    'Aider à personnaliser l''expérience utilisateur',
+    'Désactiver toutes les notifications',
+    'Supprimer les règles de sécurité',
+    'Empêcher les mises à jour',
     'A',
     10,
     20,
@@ -222,8 +222,9 @@ select
   contests.id,
   contests.title,
   contests.live_starts_at,
+  contests.live_status,
   count(questions.id) as questions_count
 from public.contests
 left join public.questions on questions.contest_id = contests.id
-where contests.id = '20260521-0000-4000-9000-000000000801'::uuid
+where contests.id = '20260523-0000-4000-9000-000000000831'::uuid
 group by contests.id;

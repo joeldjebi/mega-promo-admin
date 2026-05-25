@@ -1,6 +1,6 @@
--- MegaPromo - Demo Quiz Live dans 5 minutes
+-- MegaPromo - Quiz Live Developpement Fullstack dans 5 minutes
 -- A executer apres docs/sql/20260521_create_live_quiz_system.sql
--- Script idempotent : cree un nouveau Quiz Live actif avec 5 questions de 20 secondes.
+-- Script idempotent : cree un Quiz Live actif avec 5 questions fullstack.
 
 alter table public.contests
 add column if not exists is_live bool not null default false,
@@ -22,10 +22,10 @@ with category_seed as (
     created_at
   )
   values (
-    'Quiz Live',
-    'Evenements live MegaPromo avec questions synchronisees.',
-    'bolt',
-    '#8B6FFF',
+    'Developpement',
+    'Quiz sur le web, le mobile, les APIs et le developpement fullstack.',
+    'code',
+    '#2563EB',
     true,
     now()
   )
@@ -68,18 +68,18 @@ live_contest as (
     created_at
   )
   select
-    '20260521-0000-4000-9000-000000000801'::uuid,
+    '20260524-0000-4000-9000-000000000861'::uuid,
     null,
-    'Quiz Live Test - Départ 5 min',
-    'Quiz Live de test : entre en salle d''attente, attends le décompte, puis le jeu se lance automatiquement sans action manuelle.',
-    'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80',
+    'Quiz Live Fullstack',
+    'Teste tes bases en developpement fullstack : frontend, backend, APIs, base de donnees et deploiement. Reserve ta place, entre en salle d''attente et reponds vite.',
+    'https://images.unsplash.com/photo-1515879218367-8466d910aaa4?auto=format&fit=crop&w=1200&q=80',
     null,
     'MegaPromo',
     'quiz',
     category_seed.name,
     category_seed.id,
     'active',
-    '500F de crédit communication pour le meilleur score',
+    '500F de credit communication pour le meilleur score fullstack',
     500,
     1,
     null,
@@ -138,13 +138,13 @@ insert into public.questions (
 )
 values
   (
-    '20260521-0000-4000-9000-000000000811'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Quel est le principe principal d''un Quiz Live MegaPromo ?',
-    'Tout le monde joue au même moment',
-    'Chacun joue quand il veut',
-    'Les réponses sont visibles avant le jeu',
-    'Le quiz se joue sans inscription',
+    '20260524-0000-4000-9000-000000000871'::uuid,
+    '20260524-0000-4000-9000-000000000861'::uuid,
+    'Quel langage est execute principalement dans le navigateur ?',
+    'JavaScript',
+    'SQL',
+    'Bash',
+    'PHP uniquement',
     'A',
     10,
     20,
@@ -152,13 +152,13 @@ values
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000812'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Combien de secondes dure chaque question dans ce test ?',
-    '10 secondes',
-    '20 secondes',
-    '45 secondes',
-    '60 secondes',
+    '20260524-0000-4000-9000-000000000872'::uuid,
+    '20260524-0000-4000-9000-000000000861'::uuid,
+    'Dans une API REST, quelle methode sert generalement a creer une ressource ?',
+    'GET',
+    'POST',
+    'DELETE',
+    'OPTIONS',
     'B',
     10,
     20,
@@ -166,13 +166,13 @@ values
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000813'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Quelle action est recommandée avant le début ?',
-    'Entrer en salle d''attente',
-    'Fermer l''application',
-    'Désactiver internet',
-    'Attendre le lendemain',
+    '20260524-0000-4000-9000-000000000873'::uuid,
+    '20260524-0000-4000-9000-000000000861'::uuid,
+    'Quel outil est souvent utilise pour versionner le code source ?',
+    'Git',
+    'Figma',
+    'Postman',
+    'Excel',
     'A',
     10,
     20,
@@ -180,13 +180,13 @@ values
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000814'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Quel facteur améliore le score dans un quiz rapide ?',
-    'La vitesse et la bonne réponse',
-    'Le hasard uniquement',
-    'Changer de téléphone',
-    'Rater le timer',
+    '20260524-0000-4000-9000-000000000874'::uuid,
+    '20260524-0000-4000-9000-000000000861'::uuid,
+    'Quel element stocke les donnees de facon structuree cote backend ?',
+    'Une base de donnees',
+    'Une balise HTML',
+    'Une animation CSS',
+    'Une icone',
     'A',
     10,
     20,
@@ -194,13 +194,13 @@ values
     now()
   ),
   (
-    '20260521-0000-4000-9000-000000000815'::uuid,
-    '20260521-0000-4000-9000-000000000801'::uuid,
-    'Que se passe-t-il quand le décompte arrive à zéro ?',
-    'Le quiz démarre automatiquement',
-    'Le quiz est supprimé',
-    'Le joueur doit attendre une notification papier',
-    'Les questions disparaissent définitivement',
+    '20260524-0000-4000-9000-000000000875'::uuid,
+    '20260524-0000-4000-9000-000000000861'::uuid,
+    'Que designe le terme fullstack ?',
+    'Le developpement frontend et backend',
+    'Uniquement le design logo',
+    'Seulement le reseau mobile',
+    'La suppression des tests',
     'A',
     10,
     20,
@@ -222,8 +222,10 @@ select
   contests.id,
   contests.title,
   contests.live_starts_at,
+  contests.ends_at,
+  contests.live_status,
   count(questions.id) as questions_count
 from public.contests
 left join public.questions on questions.contest_id = contests.id
-where contests.id = '20260521-0000-4000-9000-000000000801'::uuid
+where contests.id = '20260524-0000-4000-9000-000000000861'::uuid
 group by contests.id;

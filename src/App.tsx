@@ -19,6 +19,7 @@ type CategoryItem = {
   contests: number
   color: string
   description: string
+  isActive: boolean
 }
 type CategoryFormState = Pick<CategoryItem, 'name' | 'color' | 'description'>
 type CountryItem = {
@@ -60,6 +61,7 @@ type NotificationFormState = {
   body: string
   type: string
   contestId: string
+  sendPush: boolean
   sendSms: boolean
   smsMessage: string
 }
@@ -81,6 +83,9 @@ type ContestItem = {
   brandName: string
   prizeDescription: string
   prizeValue: number
+  rewardCatalogId: string
+  rewardType: string
+  rewardLabel: string
   winnersCount: number
   maxParticipants: number | null
   startsAt: string
@@ -265,6 +270,10 @@ type WinnerStatus = 'pending' | 'sent' | 'received' | 'cancelled'
 type UserOption = {
   id: string
   label: string
+  hasPushToken?: boolean
+  pushPlatform?: string
+  pushLastError?: string
+  pushLastErrorAt?: string
 }
 type ContestOption = {
   id: string
@@ -272,6 +281,7 @@ type ContestOption = {
   prizeValue: number
   prizeDescription: string
   endsAt: string
+  isLive: boolean
 }
 type WinnerItem = {
   id: string
@@ -279,6 +289,7 @@ type WinnerItem = {
   userLabel: string
   contestId: string
   contestTitle: string
+  isLiveContest: boolean
   prizeDescription: string
   prizeValue: number
   paymentMethod: string
@@ -302,10 +313,59 @@ type WinnersData = {
   users: UserOption[]
   contests: ContestOption[]
 }
-type ContestParticipationCandidate = {
-  user_id: string | null
-  score: number | null
-  participated_at: string | null
+type RewardCatalogType = string
+type RewardTypeItem = {
+  key: string
+  name: string
+  description: string
+  icon: string
+  color: string
+  isActive: boolean
+  orderIndex: number
+}
+type RewardTypeFormState = {
+  key: string
+  name: string
+  description: string
+  icon: string
+  color: string
+  isActive: boolean
+  orderIndex: string
+}
+type RewardCatalogItem = {
+  id: string
+  name: string
+  rewardType: RewardCatalogType
+  description: string
+  valueLabel: string
+  estimatedValue: number
+  partnerId: string
+  partnerName: string
+  defaultCode: string
+  defaultDeliveryInstructions: string
+  terms: string
+  stockQuantity: number | null
+  usedQuantity: number
+  isActive: boolean
+  createdAt: string
+}
+type RewardCatalogData = {
+  rewards: RewardCatalogItem[]
+  partners: PartnerOption[]
+  rewardTypes: RewardTypeItem[]
+}
+type RewardCatalogFormState = {
+  name: string
+  rewardType: RewardCatalogType
+  description: string
+  valueLabel: string
+  estimatedValue: string
+  partnerId: string
+  defaultCode: string
+  defaultDeliveryInstructions: string
+  terms: string
+  stockQuantity: string
+  isActive: boolean
 }
 type ContestHistoryItem = {
   id: string
@@ -316,18 +376,25 @@ type ContestHistoryItem = {
   completed: boolean
   participatedAt: string
   answers: string
+  rawAnswers: unknown
 }
 type ContestHistoryData = {
   contest: ContestItem
   participations: ContestHistoryItem[]
+  questions: QuizQuestionItem[]
 }
 type QuizQuestionItem = {
   id: string
   questionText: string
+  questionImageUrl: string
   optionA: string
   optionB: string
   optionC: string
   optionD: string
+  optionAImageUrl: string
+  optionBImageUrl: string
+  optionCImageUrl: string
+  optionDImageUrl: string
   correctAnswer: string
   points: number
   timeLimit: number
@@ -335,10 +402,15 @@ type QuizQuestionItem = {
 }
 type QuizQuestionFormState = {
   questionText: string
+  questionImageUrl: string
   optionA: string
   optionB: string
   optionC: string
   optionD: string
+  optionAImageUrl: string
+  optionBImageUrl: string
+  optionCImageUrl: string
+  optionDImageUrl: string
   correctAnswer: string
   points: string
   timeLimit: string
@@ -383,6 +455,11 @@ type PlayerUserItem = {
   username: string
   avatarUrl: string
   role: string
+  fcmToken: string
+  fcmTokenPlatform: string
+  fcmTokenUpdatedAt: string
+  fcmTokenLastError: string
+  fcmTokenLastErrorAt: string
   isPremium: boolean
   premiumExpiresAt: string
   pointsTotal: number
@@ -400,6 +477,8 @@ const userRoleFilterLabels: Record<UserRoleFilter, string> = {
   partner: 'partenaires',
   all_non_admin: 'utilisateurs hors SA',
 }
+type UserStatusFilter = 'all' | 'active' | 'inactive'
+type UserPlanFilter = 'all' | 'premium' | 'standard'
 type PlayerPlanItem = {
   id: string
   key: string
@@ -448,6 +527,19 @@ type PaymentMethodFormState = {
   proofPhone: string
   isActive: boolean
   orderIndex: string
+}
+type PlayerKycRequestItem = {
+  id: string
+  userId: string
+  playerName: string
+  playerPhone: string
+  documentType: string
+  documentFrontUrl: string
+  documentBackUrl: string
+  status: 'pending' | 'approved' | 'rejected'
+  rejectionReason: string
+  createdAt: string
+  reviewedAt: string
 }
 type LegalPageItem = {
   key: 'terms' | 'privacy'
@@ -569,6 +661,18 @@ type PlayerBadgeItem = {
   description: string
   earnedAt: string
 }
+type PlayerSavedPaymentMethodItem = {
+  id: string
+  operatorName: string
+  operatorKey: string
+  phone: string
+  label: string
+  isPrimary: boolean
+  isWhatsapp: boolean
+  status: string
+  createdAt: string
+  updatedAt: string
+}
 type PlayersData = {
   users: PlayerUserItem[]
   plans: PlayerPlanItem[]
@@ -579,6 +683,8 @@ type PlayerDetailData = {
   participations: PlayerParticipationItem[]
   rewards: PlayerRewardItem[]
   badges: PlayerBadgeItem[]
+  paymentMethods: PlayerSavedPaymentMethodItem[]
+  kycRequests: PlayerKycRequestItem[]
 }
 type PlayerParticipationHistoryRow = {
   participation_id: string
@@ -609,6 +715,8 @@ type ContestFormState = {
   brandName: string
   prizeDescription: string
   prizeValue: string
+  rewardCatalogId: string
+  rewardType: string
   winnersCount: string
   maxParticipants: string
   startsAt: string
@@ -625,6 +733,7 @@ type ContestsData = {
   categories: CategoryOption[]
   partners: PartnerOption[]
   types: ContestTypeOption[]
+  rewards: RewardCatalogItem[]
 }
 type DashboardStat = {
   label: string
@@ -762,6 +871,7 @@ const SUPER_ADMIN_CONTESTS_ROUTE = `${SUPER_ADMIN_ROUTE}/contests`
 const SUPER_ADMIN_PARTNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/partners`
 const SUPER_ADMIN_PLANS_ROUTE = `${SUPER_ADMIN_ROUTE}/plans`
 const SUPER_ADMIN_WINNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/winners`
+const SUPER_ADMIN_REWARD_CATALOG_ROUTE = `${SUPER_ADMIN_ROUTE}/reward-catalog`
 const SUPER_ADMIN_USERS_ROUTE = `${SUPER_ADMIN_ROUTE}/users`
 const SUPER_ADMIN_NOTIFICATIONS_ROUTE = `${SUPER_ADMIN_ROUTE}/notifications`
 const SUPER_ADMIN_LANDING_ROUTE = `${SUPER_ADMIN_ROUTE}/landing`
@@ -899,11 +1009,21 @@ const navItems = [
   { label: 'Secteurs', href: SUPER_ADMIN_SECTORS_ROUTE, icon: 'T' },
   { label: 'Forfaits', href: SUPER_ADMIN_PLANS_ROUTE, icon: 'F' },
   { label: 'Gagnants', href: SUPER_ADMIN_WINNERS_ROUTE, icon: 'W' },
+  { label: 'Catalogue des gains', href: SUPER_ADMIN_REWARD_CATALOG_ROUTE, icon: 'R' },
   { label: 'Notifications', href: SUPER_ADMIN_NOTIFICATIONS_ROUTE, icon: 'N' },
   { label: 'Landing', href: SUPER_ADMIN_LANDING_ROUTE, icon: 'L' },
   { label: 'Paramètres', href: SUPER_ADMIN_SETTINGS_ROUTE, icon: 'S' },
   { label: 'Maintenance', href: SUPER_ADMIN_MAINTENANCE_ROUTE, icon: 'M' },
 ]
+
+const defaultRewardCatalogTypeLabels: Record<string, string> = {
+  mobile_money: 'Mobile Money',
+  discount_code: 'Code réduction',
+  voucher: 'Bon de réduction',
+  concert_ticket: 'Ticket de concert',
+  physical_item: 'Lot physique',
+  manual: 'Manuel',
+}
 
 const maintenanceActions: MaintenanceAction[] = [
   {
@@ -1471,6 +1591,7 @@ async function fetchCategoriesData(): Promise<CategoryItem[]> {
     description: (category.description as string | null) ?? '',
     color: (category.color as string | null) || '#6b7fff',
     contests: contestsByCategory.get(category.id as string) ?? 0,
+    isActive: (category.is_active as boolean | null) ?? true,
   }))
 }
 
@@ -2022,6 +2143,7 @@ async function fetchWinnersData(): Promise<WinnersData> {
       .select(
         'id, user_id, contest_id, prize_description, prize_value, payment_method, payment_number, status, sent_at, created_at',
       )
+      .neq('status', 'cancelled')
       .order('created_at', { ascending: false }),
     supabase
       .from('users')
@@ -2031,7 +2153,7 @@ async function fetchWinnersData(): Promise<WinnersData> {
       .limit(500),
     supabase
       .from('contests')
-      .select('id, title, prize_value, prize_description, ends_at')
+      .select('id, title, prize_value, prize_description, ends_at, is_live')
       .order('created_at', { ascending: false })
       .limit(500),
   ])
@@ -2054,9 +2176,11 @@ async function fetchWinnersData(): Promise<WinnersData> {
     prizeValue: (contest.prize_value as number | null) ?? 0,
     prizeDescription: (contest.prize_description as string | null) ?? '',
     endsAt: (contest.ends_at as string | null) ?? '',
+    isLive: (contest.is_live as boolean | null) ?? false,
   }))
   const userLabels = new Map(users.map((user) => [user.id, user.label]))
   const contestLabels = new Map(contests.map((contest) => [contest.id, contest.title]))
+  const contestTypes = new Map(contests.map((contest) => [contest.id, contest.isLive]))
 
   return {
     users,
@@ -2070,6 +2194,7 @@ async function fetchWinnersData(): Promise<WinnersData> {
       contestTitle:
         contestLabels.get((winner.contest_id as string | null) ?? '') ??
         'Concours',
+      isLiveContest: contestTypes.get((winner.contest_id as string | null) ?? '') ?? false,
       prizeDescription: (winner.prize_description as string | null) ?? '',
       prizeValue: (winner.prize_value as number | null) ?? 0,
       paymentMethod: (winner.payment_method as string | null) ?? '',
@@ -2079,6 +2204,132 @@ async function fetchWinnersData(): Promise<WinnersData> {
       createdAt: (winner.created_at as string | null) ?? '',
     })),
   }
+}
+
+
+async function fetchRewardCatalogData(): Promise<RewardCatalogData> {
+  const [rewardsResponse, partnersResponse, rewardTypesResponse] = await Promise.all([
+    supabase
+      .from('reward_catalog')
+      .select(
+        'id, name, reward_type, description, value_label, estimated_value, partner_id, default_code, default_delivery_instructions, terms, stock_quantity, used_quantity, is_active, created_at',
+      )
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('partners')
+      .select('id, company_name')
+      .order('company_name', { ascending: true }),
+    supabase
+      .from('reward_types')
+      .select('key, name, description, icon, color, is_active, order_index')
+      .order('order_index', { ascending: true })
+      .order('name', { ascending: true }),
+  ])
+
+  if (rewardsResponse.error) throw rewardsResponse.error
+  if (partnersResponse.error) throw partnersResponse.error
+  if (rewardTypesResponse.error) throw rewardTypesResponse.error
+
+  const partners = (partnersResponse.data ?? []).map((partner) => ({
+    id: partner.id as string,
+    name: (partner.company_name as string | null) || 'Partenaire',
+  }))
+  const partnerNames = new Map(partners.map((partner) => [partner.id, partner.name]))
+
+  const rewardTypes = (rewardTypesResponse.data ?? []).map((type) => ({
+    key: type.key as string,
+    name: (type.name as string | null) ?? 'Type de gain',
+    description: (type.description as string | null) ?? '',
+    icon: (type.icon as string | null) ?? '',
+    color: (type.color as string | null) ?? '',
+    isActive: (type.is_active as boolean | null) ?? true,
+    orderIndex: (type.order_index as number | null) ?? 0,
+  }))
+
+  return {
+    partners,
+    rewardTypes,
+    rewards: (rewardsResponse.data ?? []).map((reward) => ({
+      id: reward.id as string,
+      name: (reward.name as string | null) ?? 'Gain',
+      rewardType: ((reward.reward_type as string | null) ?? 'manual') as RewardCatalogType,
+      description: (reward.description as string | null) ?? '',
+      valueLabel: (reward.value_label as string | null) ?? '',
+      estimatedValue: (reward.estimated_value as number | null) ?? 0,
+      partnerId: (reward.partner_id as string | null) ?? '',
+      partnerName:
+        partnerNames.get((reward.partner_id as string | null) ?? '') ?? 'MegaPromo',
+      defaultCode: (reward.default_code as string | null) ?? '',
+      defaultDeliveryInstructions:
+        (reward.default_delivery_instructions as string | null) ?? '',
+      terms: (reward.terms as string | null) ?? '',
+      stockQuantity: (reward.stock_quantity as number | null) ?? null,
+      usedQuantity: (reward.used_quantity as number | null) ?? 0,
+      isActive: (reward.is_active as boolean | null) ?? true,
+      createdAt: (reward.created_at as string | null) ?? '',
+    })),
+  }
+}
+
+function createDefaultRewardCatalogForm(): RewardCatalogFormState {
+  return {
+    name: '',
+    rewardType: 'manual',
+    description: '',
+    valueLabel: '',
+    estimatedValue: '0',
+    partnerId: '',
+    defaultCode: '',
+    defaultDeliveryInstructions: '',
+    terms: '',
+    stockQuantity: '',
+    isActive: true,
+  }
+}
+
+function rewardCatalogItemToForm(item: RewardCatalogItem): RewardCatalogFormState {
+  return {
+    name: item.name,
+    rewardType: item.rewardType,
+    description: item.description,
+    valueLabel: item.valueLabel,
+    estimatedValue: String(item.estimatedValue),
+    partnerId: item.partnerId,
+    defaultCode: item.defaultCode,
+    defaultDeliveryInstructions: item.defaultDeliveryInstructions,
+    terms: item.terms,
+    stockQuantity: item.stockQuantity == null ? '' : String(item.stockQuantity),
+    isActive: item.isActive,
+  }
+}
+
+
+function createDefaultRewardTypeForm(): RewardTypeFormState {
+  return {
+    key: '',
+    name: '',
+    description: '',
+    icon: 'gift',
+    color: '#475569',
+    isActive: true,
+    orderIndex: '0',
+  }
+}
+
+function rewardTypeItemToForm(item: RewardTypeItem): RewardTypeFormState {
+  return {
+    key: item.key,
+    name: item.name,
+    description: item.description,
+    icon: item.icon,
+    color: item.color,
+    isActive: item.isActive,
+    orderIndex: String(item.orderIndex),
+  }
+}
+
+function rewardTypeLabel(key: string, types: RewardTypeItem[]) {
+  return types.find((type) => type.key === key)?.name ?? defaultRewardCatalogTypeLabels[key] ?? key
 }
 
 async function fetchPlayerPlansForAdmin(): Promise<PlayerPlanItem[]> {
@@ -2149,6 +2400,12 @@ function paymentMethodToForm(method: PaymentMethodItem): PaymentMethodFormState 
     isActive: method.isActive,
     orderIndex: String(method.orderIndex),
   }
+}
+
+function playerKycDocumentLabel(documentType: string): string {
+  if (documentType === 'passport') return 'Passport'
+  if (documentType === 'driver_license') return 'Permis de conduire'
+  return 'Carte Nationale d’Identité'
 }
 
 const defaultLegalForms: Record<'terms' | 'privacy', LegalPageFormState> = {
@@ -2379,6 +2636,35 @@ async function fetchPaymentMethodsForAdmin(): Promise<PaymentMethodItem[]> {
   }))
 }
 
+async function fetchPlayerKycRequestsForAdmin(): Promise<PlayerKycRequestItem[]> {
+  const { data, error } = await supabase
+    .from('player_kyc_requests')
+    .select(
+      'id, user_id, document_type, document_front_url, document_back_url, status, rejection_reason, created_at, reviewed_at, users:user_id(username, phone)',
+    )
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) throw error
+
+  return (data ?? []).map((request) => {
+    const player = (request.users as { username?: string | null; phone?: string | null } | null) ?? null
+    return {
+      id: request.id as string,
+      userId: request.user_id as string,
+      playerName: player?.username ?? 'Joueur',
+      playerPhone: player?.phone ?? '',
+      documentType: (request.document_type as string | null) ?? 'national_id',
+      documentFrontUrl: (request.document_front_url as string | null) ?? '',
+      documentBackUrl: (request.document_back_url as string | null) ?? '',
+      status: ((request.status as string | null) ?? 'pending') as PlayerKycRequestItem['status'],
+      rejectionReason: (request.rejection_reason as string | null) ?? '',
+      createdAt: (request.created_at as string | null) ?? '',
+      reviewedAt: (request.reviewed_at as string | null) ?? '',
+    }
+  })
+}
+
 async function fetchPlayersData({
   page,
   pageSize,
@@ -2395,7 +2681,7 @@ async function fetchPlayersData({
   let usersQuery = supabase
     .from('users')
     .select(
-      'id, phone, username, avatar_url, role, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
+      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
       { count: 'exact' },
     )
     .neq('role', 'admin')
@@ -2466,6 +2752,11 @@ async function fetchPlayersData({
       username: (user.username as string | null) ?? '',
       avatarUrl: (user.avatar_url as string | null) ?? '',
       role: (user.role as string | null) ?? 'player',
+      fcmToken: (user.fcm_token as string | null) ?? '',
+      fcmTokenPlatform: (user.fcm_token_platform as string | null) ?? '',
+      fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
+      fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
+      fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
       isPremium: (user.is_premium as boolean | null) ?? false,
       premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
       pointsTotal: (user.points_total as number | null) ?? 0,
@@ -2481,11 +2772,71 @@ async function fetchPlayersData({
   }
 }
 
+async function fetchUserForAdmin(userId: string): Promise<{
+  user: PlayerUserItem
+  plans: PlayerPlanItem[]
+}> {
+  const [userResponse, playersData] = await Promise.all([
+    supabase
+      .from('users')
+      .select(
+        'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
+      )
+      .eq('id', userId)
+      .maybeSingle(),
+    fetchPlayersData({
+      page: 0,
+      pageSize: 1,
+      search: '',
+      roleFilter: 'all_non_admin',
+    }),
+  ])
+
+  if (userResponse.error) throw userResponse.error
+  if (!userResponse.data) throw new Error('Utilisateur introuvable.')
+
+  const user = userResponse.data
+  return {
+    plans: playersData.plans,
+    user: {
+      id: user.id as string,
+      phone: (user.phone as string | null) ?? '',
+      username: (user.username as string | null) ?? '',
+      avatarUrl: (user.avatar_url as string | null) ?? '',
+      role: (user.role as string | null) ?? 'player',
+      fcmToken: (user.fcm_token as string | null) ?? '',
+      fcmTokenPlatform: (user.fcm_token_platform as string | null) ?? '',
+      fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
+      fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
+      fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
+      isPremium: (user.is_premium as boolean | null) ?? false,
+      premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
+      pointsTotal: (user.points_total as number | null) ?? 0,
+      participationsToday: (user.participations_today as number | null) ?? 0,
+      lastParticipationDate:
+        (user.last_participation_date as string | null) ?? '',
+      deviceInfo: ((user.device_info as Record<string, unknown> | null) ?? {}),
+      locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
+      deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
+      isActive: (user.is_active as boolean | null) ?? true,
+      createdAt: (user.created_at as string | null) ?? '',
+    },
+  }
+}
+
 async function fetchPlayerDetailData(
   userId: string,
   plans: PlayerPlanItem[],
 ): Promise<PlayerDetailData> {
-  const [participationsResponse, winnersResponse, subscriptionsResponse, badgesResponse, userBadgesResponse] =
+  const [
+    participationsResponse,
+    winnersResponse,
+    subscriptionsResponse,
+    badgesResponse,
+    userBadgesResponse,
+    paymentMethodsResponse,
+    kycRequestsResponse,
+  ] =
     await Promise.all([
       supabase
         .rpc('get_player_participation_history', {
@@ -2512,6 +2863,17 @@ async function fetchPlayerDetailData(
         .select('id, user_id, badge_id, earned_at')
         .eq('user_id', userId)
         .order('earned_at', { ascending: false }),
+      supabase
+        .from('player_payment_methods')
+        .select('id, operator_key, operator_name, phone, label, is_primary, is_whatsapp, status, created_at, updated_at')
+        .eq('user_id', userId)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('player_kyc_requests')
+        .select('id, user_id, document_type, document_front_url, document_back_url, status, rejection_reason, created_at, reviewed_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false }),
     ])
 
   if (participationsResponse.error) throw participationsResponse.error
@@ -2519,6 +2881,18 @@ async function fetchPlayerDetailData(
   if (subscriptionsResponse.error) throw subscriptionsResponse.error
   if (badgesResponse.error) throw badgesResponse.error
   if (userBadgesResponse.error) throw userBadgesResponse.error
+  if (
+    paymentMethodsResponse.error &&
+    !isMissingTableError(paymentMethodsResponse.error, 'player_payment_methods')
+  ) {
+    throw paymentMethodsResponse.error
+  }
+  if (
+    kycRequestsResponse.error &&
+    !isMissingTableError(kycRequestsResponse.error, 'player_kyc_requests')
+  ) {
+    throw kycRequestsResponse.error
+  }
 
   const contestIds = Array.from(
     new Set(
@@ -2595,6 +2969,31 @@ async function fetchPlayerDetailData(
         earnedAt: (userBadge.earned_at as string | null) ?? '',
       }
     }),
+    paymentMethods: (paymentMethodsResponse.data ?? []).map((method) => ({
+      id: method.id as string,
+      operatorName: (method.operator_name as string | null) ?? 'Mobile Money',
+      operatorKey: (method.operator_key as string | null) ?? '',
+      phone: (method.phone as string | null) ?? '',
+      label: (method.label as string | null) ?? '',
+      isPrimary: (method.is_primary as boolean | null) ?? false,
+      isWhatsapp: (method.is_whatsapp as boolean | null) ?? false,
+      status: (method.status as string | null) ?? 'active',
+      createdAt: (method.created_at as string | null) ?? '',
+      updatedAt: (method.updated_at as string | null) ?? '',
+    })),
+    kycRequests: (kycRequestsResponse.data ?? []).map((request) => ({
+      id: request.id as string,
+      userId: (request.user_id as string | null) ?? userId,
+      playerName: '',
+      playerPhone: '',
+      documentType: (request.document_type as string | null) ?? 'national_id',
+      documentFrontUrl: (request.document_front_url as string | null) ?? '',
+      documentBackUrl: (request.document_back_url as string | null) ?? '',
+      status: ((request.status as string | null) ?? 'pending') as PlayerKycRequestItem['status'],
+      rejectionReason: (request.rejection_reason as string | null) ?? '',
+      createdAt: (request.created_at as string | null) ?? '',
+      reviewedAt: (request.reviewed_at as string | null) ?? '',
+    })),
   }
 }
 
@@ -2604,12 +3003,13 @@ async function fetchContestsData(): Promise<ContestsData> {
     categoriesResponse,
     partnersResponse,
     typesResponse,
+    rewardsResponse,
     participationsResponse,
   ] = await Promise.all([
       supabase
         .from('contests')
         .select(
-          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index, created_at',
+          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, reward_catalog_id, reward_type, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index, created_at',
         )
         .order('created_at', { ascending: false }),
       supabase
@@ -2627,6 +3027,13 @@ async function fetchContestsData(): Promise<ContestsData> {
         .select('key, name, description')
         .eq('is_active', true)
         .order('order_index', { ascending: true }),
+      supabase
+        .from('reward_catalog')
+        .select(
+          'id, name, reward_type, description, value_label, estimated_value, partner_id, default_code, default_delivery_instructions, terms, stock_quantity, used_quantity, is_active, created_at',
+        )
+        .eq('is_active', true)
+        .order('name', { ascending: true }),
       supabase.from('participations').select('contest_id'),
     ])
 
@@ -2634,6 +3041,7 @@ async function fetchContestsData(): Promise<ContestsData> {
   if (categoriesResponse.error) throw categoriesResponse.error
   if (partnersResponse.error) throw partnersResponse.error
   if (typesResponse.error) throw typesResponse.error
+  if (rewardsResponse.error) throw rewardsResponse.error
   if (participationsResponse.error) throw participationsResponse.error
 
   const categories = (categoriesResponse.data ?? []).map((category) => ({
@@ -2651,6 +3059,28 @@ async function fetchContestsData(): Promise<ContestsData> {
   }))
   const categoryNames = new Map(categories.map((category) => [category.id, category.name]))
   const partnerNames = new Map(partners.map((partner) => [partner.id, partner.name]))
+  const rewards = (rewardsResponse.data ?? []).map((reward) => ({
+    id: reward.id as string,
+    name: (reward.name as string | null) ?? 'Gain',
+    rewardType: ((reward.reward_type as string | null) ?? 'manual') as RewardCatalogType,
+    description: (reward.description as string | null) ?? '',
+    valueLabel: (reward.value_label as string | null) ?? '',
+    estimatedValue: (reward.estimated_value as number | null) ?? 0,
+    partnerId: (reward.partner_id as string | null) ?? '',
+    partnerName:
+      partnerNames.get((reward.partner_id as string | null) ?? '') ?? 'MegaPromo',
+    defaultCode: (reward.default_code as string | null) ?? '',
+    defaultDeliveryInstructions:
+      (reward.default_delivery_instructions as string | null) ?? '',
+    terms: (reward.terms as string | null) ?? '',
+    stockQuantity: (reward.stock_quantity as number | null) ?? null,
+    usedQuantity: (reward.used_quantity as number | null) ?? 0,
+    isActive: (reward.is_active as boolean | null) ?? true,
+    createdAt: (reward.created_at as string | null) ?? '',
+  }))
+  const rewardLabels = new Map(
+    rewards.map((reward) => [reward.id, reward.valueLabel || reward.name]),
+  )
   const participationsByContest = new Map<string, number>()
 
   for (const participation of participationsResponse.data ?? []) {
@@ -2666,6 +3096,7 @@ async function fetchContestsData(): Promise<ContestsData> {
     categories,
     partners,
     types,
+    rewards,
     contests: (contestsResponse.data ?? []).map((contest) => {
       const id = contest.id as string
       const categoryId = contest.category_id as string | null
@@ -2689,6 +3120,12 @@ async function fetchContestsData(): Promise<ContestsData> {
         brandName: (contest.brand_name as string | null) ?? '',
         prizeDescription: (contest.prize_description as string | null) ?? '',
         prizeValue: (contest.prize_value as number | null) ?? 0,
+        rewardCatalogId: (contest.reward_catalog_id as string | null) ?? '',
+        rewardType: (contest.reward_type as string | null) ?? 'manual',
+        rewardLabel:
+          rewardLabels.get((contest.reward_catalog_id as string | null) ?? '') ??
+          (contest.prize_description as string | null) ??
+          'Gain non défini',
         winnersCount: (contest.winners_count as number | null) ?? 1,
         maxParticipants: (contest.max_participants as number | null) ?? null,
         startsAt: (contest.starts_at as string | null) ?? '',
@@ -2711,14 +3148,36 @@ async function fetchContestsData(): Promise<ContestsData> {
 }
 
 async function fetchContestHistory(contest: ContestItem): Promise<ContestHistoryData> {
-  const { data: participationsData, error: participationsError } = await supabase
-    .from('participations')
-    .select('id, user_id, score, answers, completed, participated_at')
-    .eq('contest_id', contest.id)
-    .order('participated_at', { ascending: false })
-    .limit(500)
+  if (isContestFinished(contest)) {
+    try {
+      await supabase.rpc('generate_pending_winners_for_contest', {
+        p_contest_id: contest.id,
+      })
+    } catch {
+      // Older databases may not have the auto-winner RPC yet.
+    }
+  }
 
+  const [participationsResponse, questionsResponse] = await Promise.all([
+    supabase
+      .from('participations')
+      .select('id, user_id, score, answers, completed, participated_at')
+      .eq('contest_id', contest.id)
+      .order('participated_at', { ascending: false })
+      .limit(500),
+    supabase
+      .from('questions')
+      .select(
+        'id, question_text, question_image_url, option_a, option_b, option_c, option_d, option_a_image_url, option_b_image_url, option_c_image_url, option_d_image_url, correct_answer, points, time_limit, order_index',
+      )
+      .eq('contest_id', contest.id)
+      .order('order_index', { ascending: true }),
+  ])
+
+  const participationsData = participationsResponse.data ?? []
+  const participationsError = participationsResponse.error
   if (participationsError) throw participationsError
+  if (questionsResponse.error) throw questionsResponse.error
 
   const userIds = Array.from(
     new Set(
@@ -2756,7 +3215,8 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
 
   return {
     contest,
-    participations: (participationsData ?? []).map((participation) => {
+    questions: (questionsResponse.data ?? []).map(questionRowToItem),
+    participations: participationsData.map((participation) => {
       const userId = (participation.user_id as string | null) ?? ''
       const answers = participation.answers
       return {
@@ -2768,6 +3228,7 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
         completed: (participation.completed as boolean | null) ?? false,
         participatedAt: (participation.participated_at as string | null) ?? '',
         answers: formatParticipationAnswers(answers),
+        rawAnswers: answers,
       }
     }),
   }
@@ -2780,7 +3241,7 @@ async function fetchContestGameData(contestId: string): Promise<ContestGameData>
       supabase
         .from('questions')
         .select(
-          'id, question_text, option_a, option_b, option_c, option_d, correct_answer, points, time_limit, order_index',
+          'id, question_text, question_image_url, option_a, option_b, option_c, option_d, option_a_image_url, option_b_image_url, option_c_image_url, option_d_image_url, correct_answer, points, time_limit, order_index',
         )
         .eq('contest_id', contestId)
         .order('order_index', { ascending: true }),
@@ -2812,10 +3273,15 @@ async function fetchContestGameData(contestId: string): Promise<ContestGameData>
     questions: (questionsResponse.data ?? []).map((question) => ({
       id: question.id as string,
       questionText: (question.question_text as string | null) ?? '',
+      questionImageUrl: (question.question_image_url as string | null) ?? '',
       optionA: (question.option_a as string | null) ?? '',
       optionB: (question.option_b as string | null) ?? '',
       optionC: (question.option_c as string | null) ?? '',
       optionD: (question.option_d as string | null) ?? '',
+      optionAImageUrl: (question.option_a_image_url as string | null) ?? '',
+      optionBImageUrl: (question.option_b_image_url as string | null) ?? '',
+      optionCImageUrl: (question.option_c_image_url as string | null) ?? '',
+      optionDImageUrl: (question.option_d_image_url as string | null) ?? '',
       correctAnswer: (question.correct_answer as string | null) ?? 'A',
       points: (question.points as number | null) ?? 10,
       timeLimit: (question.time_limit as number | null) ?? 30,
@@ -2868,12 +3334,38 @@ async function fetchContestGameData(contestId: string): Promise<ContestGameData>
   }
 }
 
+function isContestFinished(contest: ContestItem) {
+  const status = contest.status.toLowerCase()
+  if (['inactive', 'ended', 'completed', 'finished'].includes(status)) return true
+  return contest.endsAt ? new Date(contest.endsAt).getTime() <= Date.now() : false
+}
+
+function questionRowToItem(question: Record<string, unknown>): QuizQuestionItem {
+  return {
+    id: question.id as string,
+    questionText: (question.question_text as string | null) ?? '',
+    questionImageUrl: (question.question_image_url as string | null) ?? '',
+    optionA: (question.option_a as string | null) ?? '',
+    optionB: (question.option_b as string | null) ?? '',
+    optionC: (question.option_c as string | null) ?? '',
+    optionD: (question.option_d as string | null) ?? '',
+    optionAImageUrl: (question.option_a_image_url as string | null) ?? '',
+    optionBImageUrl: (question.option_b_image_url as string | null) ?? '',
+    optionCImageUrl: (question.option_c_image_url as string | null) ?? '',
+    optionDImageUrl: (question.option_d_image_url as string | null) ?? '',
+    correctAnswer: ((question.correct_answer as string | null) ?? 'A').toUpperCase(),
+    points: (question.points as number | null) ?? 0,
+    timeLimit: (question.time_limit as number | null) ?? 0,
+    orderIndex: (question.order_index as number | null) ?? 0,
+  }
+}
+
 async function fetchContestById(contestId: string): Promise<ContestItem> {
   const [contestResponse, participationsResponse] = await Promise.all([
     supabase
       .from('contests')
       .select(
-        'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index',
+        'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, reward_catalog_id, reward_type, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index',
       )
       .eq('id', contestId)
       .single(),
@@ -2902,6 +3394,10 @@ async function fetchContestById(contestId: string): Promise<ContestItem> {
       brandName: (contest.brand_name as string | null) ?? '',
       prizeDescription: (contest.prize_description as string | null) ?? '',
     prizeValue: (contest.prize_value as number | null) ?? 0,
+    rewardCatalogId: (contest.reward_catalog_id as string | null) ?? '',
+    rewardType: (contest.reward_type as string | null) ?? 'manual',
+    rewardLabel:
+      (contest.prize_description as string | null) ?? 'Gain non défini',
     winnersCount: (contest.winners_count as number | null) ?? 1,
     maxParticipants: (contest.max_participants as number | null) ?? null,
     startsAt: (contest.starts_at as string | null) ?? '',
@@ -2958,7 +3454,11 @@ function formatParticipationAnswers(answers: unknown) {
   }
 
   if (type === 'quiz') {
-    const totalAnswers = Object.keys(data).filter((key) => key !== 'type').length
+    const totalAnswers = Array.isArray(data.items)
+      ? data.items.length
+      : Object.keys(data).filter(
+          (key) => !['type', 'status', 'started_at', 'completed_at'].includes(key),
+        ).length
     return totalAnswers > 0 ? `Quiz · ${totalAnswers} réponse(s)` : 'Quiz'
   }
 
@@ -3057,6 +3557,8 @@ function createDefaultContestForm(): ContestFormState {
     brandName: '',
     prizeDescription: '',
     prizeValue: '',
+    rewardCatalogId: '',
+    rewardType: 'manual',
     winnersCount: '1',
     maxParticipants: '',
     startsAt: toDatetimeLocalValue(now),
@@ -3136,10 +3638,15 @@ function createDefaultWinnerForm(): WinnerFormState {
 function createDefaultQuestionForm(orderIndex = 1): QuizQuestionFormState {
   return {
     questionText: '',
+    questionImageUrl: '',
     optionA: '',
     optionB: '',
     optionC: '',
     optionD: '',
+    optionAImageUrl: '',
+    optionBImageUrl: '',
+    optionCImageUrl: '',
+    optionDImageUrl: '',
     correctAnswer: 'A',
     points: '10',
     timeLimit: '30',
@@ -3174,10 +3681,15 @@ function createDefaultPredictionSettings(): PredictionSettingsState {
 function questionToForm(question: QuizQuestionItem): QuizQuestionFormState {
   return {
     questionText: question.questionText,
+    questionImageUrl: question.questionImageUrl,
     optionA: question.optionA,
     optionB: question.optionB,
     optionC: question.optionC,
     optionD: question.optionD,
+    optionAImageUrl: question.optionAImageUrl,
+    optionBImageUrl: question.optionBImageUrl,
+    optionCImageUrl: question.optionCImageUrl,
+    optionDImageUrl: question.optionDImageUrl,
     correctAnswer: question.correctAnswer,
     points: String(question.points),
     timeLimit: String(question.timeLimit),
@@ -3207,6 +3719,8 @@ function contestToForm(contest: ContestItem): ContestFormState {
     brandName: contest.brandName,
     prizeDescription: contest.prizeDescription,
     prizeValue: String(contest.prizeValue || ''),
+    rewardCatalogId: contest.rewardCatalogId,
+    rewardType: contest.rewardType || 'manual',
     winnersCount: String(contest.winnersCount || 1),
     maxParticipants: contest.maxParticipants ? String(contest.maxParticipants) : '',
     startsAt: isoToDatetimeLocalValue(contest.startsAt),
@@ -3280,9 +3794,15 @@ function winnerToForm(winner: WinnerItem): WinnerFormState {
     prizeValue: String(winner.prizeValue || ''),
     paymentMethod: winner.paymentMethod || 'mobile_money',
     paymentNumber: winner.paymentNumber,
-    status: winner.status,
+    status: winner.status === 'received' ? 'sent' : winner.status,
     sentAt: winner.sentAt ? isoToDatetimeLocalValue(winner.sentAt) : '',
   }
+}
+
+function winnerStatusLabel(status: WinnerStatus) {
+  if (status === 'sent' || status === 'received') return 'payé'
+  if (status === 'cancelled') return 'annulé'
+  return 'en attente'
 }
 
 function App() {
@@ -3335,8 +3855,16 @@ function App() {
         element={<ProtectedSuperAdminRoute page="winners" />}
       />
       <Route
+        path={SUPER_ADMIN_REWARD_CATALOG_ROUTE}
+        element={<ProtectedSuperAdminRoute page="reward-catalog" />}
+      />
+      <Route
         path={SUPER_ADMIN_USERS_ROUTE}
         element={<ProtectedSuperAdminRoute page="users" />}
+      />
+      <Route
+        path={`${SUPER_ADMIN_USERS_ROUTE}/:userId`}
+        element={<ProtectedSuperAdminRoute page="user-detail" />}
       />
       <Route
         path={SUPER_ADMIN_NOTIFICATIONS_ROUTE}
@@ -3552,7 +4080,9 @@ function ProtectedSuperAdminRoute({
     | 'partners'
     | 'plans'
     | 'winners'
+    | 'reward-catalog'
     | 'users'
+    | 'user-detail'
     | 'notifications'
     | 'landing'
     | 'settings'
@@ -3587,7 +4117,9 @@ function ProtectedSuperAdminRoute({
   if (page === 'partners') return <SuperAdminPartnersPage />
   if (page === 'plans') return <SuperAdminPlansPage />
   if (page === 'winners') return <SuperAdminWinnersPage />
+  if (page === 'reward-catalog') return <SuperAdminRewardCatalogPage />
   if (page === 'users') return <SuperAdminUsersPage />
+  if (page === 'user-detail') return <SuperAdminUserDetailPage />
   if (page === 'notifications') return <SuperAdminNotificationsPage />
   if (page === 'landing') return <SuperAdminLandingPage />
   if (page === 'settings') return <SuperAdminSettingsPage />
@@ -3892,6 +4424,7 @@ function SuperAdminCategoriesPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const pageSize = 10
   const [categories, setCategories] = useState<CategoryItem[]>([])
   const [isCategoriesLoading, setIsCategoriesLoading] = useState(true)
   const [categoriesError, setCategoriesError] = useState('')
@@ -3908,6 +4441,58 @@ function SuperAdminCategoriesPage() {
   })
   const [categoryError, setCategoryError] = useState('')
   const [isSavingCategory, setIsSavingCategory] = useState(false)
+  const [categoryPage, setCategoryPage] = useState(0)
+  const [categorySearch, setCategorySearch] = useState('')
+  const [categoryStatusFilter, setCategoryStatusFilter] = useState<
+    'all' | 'active' | 'inactive'
+  >('all')
+
+  const filteredCategories = useMemo(() => {
+    const normalizedSearch = categorySearch.trim().toLowerCase()
+
+    return categories.filter((category) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        [category.name, category.description]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedSearch)
+      const matchesStatus =
+        categoryStatusFilter === 'all' ||
+        (categoryStatusFilter === 'active' && category.isActive) ||
+        (categoryStatusFilter === 'inactive' && !category.isActive)
+
+      return matchesSearch && matchesStatus
+    })
+  }, [categories, categorySearch, categoryStatusFilter])
+
+  const totalCategoryPages = Math.max(
+    1,
+    Math.ceil(filteredCategories.length / pageSize),
+  )
+  const paginatedCategories = useMemo(() => {
+    const startIndex = categoryPage * pageSize
+    return filteredCategories.slice(startIndex, startIndex + pageSize)
+  }, [categoryPage, filteredCategories])
+  const categoryResultsStart =
+    filteredCategories.length === 0 ? 0 : categoryPage * pageSize + 1
+  const categoryResultsEnd = Math.min(
+    filteredCategories.length,
+    categoryPage * pageSize + paginatedCategories.length,
+  )
+  const categoryPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, categoryPage - 2)
+    const lastPage = Math.min(totalCategoryPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [categoryPage, totalCategoryPages])
+
+  useEffect(() => {
+    setCategoryPage(0)
+  }, [categorySearch, categoryStatusFilter])
 
   const loadCategories = useCallback(async () => {
     setIsCategoriesLoading(true)
@@ -4043,6 +4628,54 @@ function SuperAdminCategoriesPage() {
     }
   }
 
+  async function handleDeleteCategory(category: CategoryItem) {
+    const message =
+      category.contests > 0
+        ? `Supprimer la catégorie "${category.name}" ? Les ${category.contests} concours liés seront dissociés de cette catégorie.`
+        : `Supprimer la catégorie "${category.name}" ?`
+    const confirmed = window.confirm(message)
+    if (!confirmed) return
+
+    setCategoriesError('')
+
+    try {
+      if (category.contests > 0) {
+        const { error: unlinkError } = await supabase
+          .from('contests')
+          .update({ category_id: null })
+          .eq('category_id', category.id)
+
+        if (unlinkError) throw unlinkError
+      }
+
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', category.id)
+
+      if (error) throw error
+
+      await loadCategories()
+    } catch (error) {
+      setCategoriesError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de supprimer cette catégorie.',
+      )
+    }
+  }
+
+  function handleCategoryTableAction(category: CategoryItem, action: string) {
+    if (action === 'edit') {
+      openEditCategory(category)
+      return
+    }
+
+    if (action === 'delete') {
+      void handleDeleteCategory(category)
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -4132,14 +4765,46 @@ function SuperAdminCategoriesPage() {
               <h2>Liste des catégories</h2>
             </div>
             <span className="pill">
-              {isCategoriesLoading ? 'Chargement' : `${categories.length} entrées`}
+              {isCategoriesLoading
+                ? 'Chargement'
+                : `${paginatedCategories.length} / ${filteredCategories.length}`}
             </span>
           </div>
 
-          <div className="category-table">
-            {categories.length > 0 ? (
-              categories.map((category) => (
-                <article className="category-table-row" key={category.id}>
+          <div className="contest-filter-bar compact">
+            <input
+              className="search-input"
+              onChange={(event) => setCategorySearch(event.target.value)}
+              placeholder="Rechercher une catégorie"
+              type="search"
+              value={categorySearch}
+            />
+            <select
+              aria-label="Filtrer les catégories par statut"
+              onChange={(event) =>
+                setCategoryStatusFilter(
+                  event.target.value as 'all' | 'active' | 'inactive',
+                )
+              }
+              value={categoryStatusFilter}
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="active">Actives</option>
+              <option value="inactive">Inactives</option>
+            </select>
+          </div>
+
+          <div className="premium-category-table">
+            <div className="premium-category-head">
+              <span></span>
+              <span>Catégorie</span>
+              <span>Concours</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {paginatedCategories.length > 0 ? (
+              paginatedCategories.map((category) => (
+                <div className="premium-category-row" key={category.id}>
                   <span
                     className="category-color-dot"
                     style={{ background: category.color }}
@@ -4149,18 +4814,89 @@ function SuperAdminCategoriesPage() {
                     <p>{category.description || 'Aucune description'}</p>
                   </div>
                   <small>{category.contests} concours</small>
-                  <button onClick={() => openEditCategory(category)} type="button">
-                    Modifier
-                  </button>
-                </article>
+                  <span className={`status-pill ${category.isActive ? 'active' : 'inactive'}`}>
+                    {category.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                  <div className="table-actions compact">
+                    <select
+                      aria-label={`Actions pour ${category.name}`}
+                      className="table-action-select"
+                      onChange={(event) => {
+                        handleCategoryTableAction(category, event.target.value)
+                        event.currentTarget.value = ''
+                      }}
+                      value=""
+                    >
+                      <option value="">Actions</option>
+                      <option value="edit">Modifier</option>
+                      <option value="delete">Supprimer</option>
+                    </select>
+                  </div>
+                </div>
               ))
             ) : (
               <p className="empty-panel-text">
                 {isCategoriesLoading
                   ? 'Chargement des catégories...'
-                  : 'Aucune catégorie créée pour le moment.'}
+                  : 'Aucune catégorie ne correspond aux filtres.'}
               </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(categoryResultsStart)}-{formatNumber(categoryResultsEnd)} sur{' '}
+              {formatNumber(filteredCategories.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={categoryPage === 0 || isCategoriesLoading}
+                onClick={() => setCategoryPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={categoryPage === 0 || isCategoriesLoading}
+                onClick={() => setCategoryPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {categoryPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === categoryPage ? 'active' : ''}`}
+                    disabled={isCategoriesLoading}
+                    key={page}
+                    onClick={() => setCategoryPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={categoryPage + 1 >= totalCategoryPages || isCategoriesLoading}
+                onClick={() =>
+                  setCategoryPage((page) => Math.min(totalCategoryPages - 1, page + 1))
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={categoryPage + 1 >= totalCategoryPages || isCategoriesLoading}
+                onClick={() => setCategoryPage(totalCategoryPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
       </section>
@@ -4506,6 +5242,7 @@ function SuperAdminPartnerSectorsPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const pageSize = 10
   const [sectors, setSectors] = useState<PartnerSectorItem[]>([])
   const [isSectorsLoading, setIsSectorsLoading] = useState(true)
   const [sectorsError, setSectorsError] = useState('')
@@ -4521,6 +5258,58 @@ function SuperAdminPartnerSectorsPage() {
   })
   const [sectorError, setSectorError] = useState('')
   const [isSavingSector, setIsSavingSector] = useState(false)
+  const [sectorPage, setSectorPage] = useState(0)
+  const [sectorSearch, setSectorSearch] = useState('')
+  const [sectorStatusFilter, setSectorStatusFilter] = useState<
+    'all' | 'active' | 'inactive'
+  >('all')
+
+  const filteredSectors = useMemo(() => {
+    const normalizedSearch = sectorSearch.trim().toLowerCase()
+
+    return sectors.filter((sector) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        [sector.name, sector.description]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedSearch)
+      const matchesStatus =
+        sectorStatusFilter === 'all' ||
+        (sectorStatusFilter === 'active' && sector.isActive) ||
+        (sectorStatusFilter === 'inactive' && !sector.isActive)
+
+      return matchesSearch && matchesStatus
+    })
+  }, [sectors, sectorSearch, sectorStatusFilter])
+
+  const totalSectorPages = Math.max(
+    1,
+    Math.ceil(filteredSectors.length / pageSize),
+  )
+  const paginatedSectors = useMemo(() => {
+    const startIndex = sectorPage * pageSize
+    return filteredSectors.slice(startIndex, startIndex + pageSize)
+  }, [filteredSectors, sectorPage])
+  const sectorResultsStart =
+    filteredSectors.length === 0 ? 0 : sectorPage * pageSize + 1
+  const sectorResultsEnd = Math.min(
+    filteredSectors.length,
+    sectorPage * pageSize + paginatedSectors.length,
+  )
+  const sectorPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, sectorPage - 2)
+    const lastPage = Math.min(totalSectorPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [sectorPage, totalSectorPages])
+
+  useEffect(() => {
+    setSectorPage(0)
+  }, [sectorSearch, sectorStatusFilter])
 
   const loadSectors = useCallback(async () => {
     setIsSectorsLoading(true)
@@ -4675,6 +5464,22 @@ function SuperAdminPartnerSectorsPage() {
     await loadSectors()
   }
 
+  function handleSectorTableAction(sector: PartnerSectorItem, action: string) {
+    if (action === 'edit') {
+      openEditSector(sector)
+      return
+    }
+
+    if (action === 'status') {
+      void handleToggleSector(sector)
+      return
+    }
+
+    if (action === 'delete') {
+      void handleDeleteSector(sector)
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -4760,14 +5565,46 @@ function SuperAdminPartnerSectorsPage() {
               <h2>Liste des secteurs</h2>
             </div>
             <span className="pill">
-              {isSectorsLoading ? 'Chargement' : `${sectors.length} entrées`}
+              {isSectorsLoading
+                ? 'Chargement'
+                : `${paginatedSectors.length} / ${filteredSectors.length}`}
             </span>
           </div>
 
-          <div className="category-table">
-            {sectors.length > 0 ? (
-              sectors.map((sector) => (
-                <article className="category-table-row" key={sector.id}>
+          <div className="contest-filter-bar compact">
+            <input
+              className="search-input"
+              onChange={(event) => setSectorSearch(event.target.value)}
+              placeholder="Rechercher un secteur"
+              type="search"
+              value={sectorSearch}
+            />
+            <select
+              aria-label="Filtrer les secteurs par statut"
+              onChange={(event) =>
+                setSectorStatusFilter(
+                  event.target.value as 'all' | 'active' | 'inactive',
+                )
+              }
+              value={sectorStatusFilter}
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="active">Actifs</option>
+              <option value="inactive">Inactifs</option>
+            </select>
+          </div>
+
+          <div className="premium-sector-table">
+            <div className="premium-sector-head">
+              <span></span>
+              <span>Secteur</span>
+              <span>Ordre</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {paginatedSectors.length > 0 ? (
+              paginatedSectors.map((sector) => (
+                <div className="premium-sector-row" key={sector.id}>
                   <span className="settings-module-icon">T</span>
                   <div>
                     <strong>{sector.name}</strong>
@@ -4777,30 +5614,89 @@ function SuperAdminPartnerSectorsPage() {
                   <span className={`status-pill ${sector.isActive ? 'active' : 'inactive'}`}>
                     {sector.isActive ? 'Actif' : 'Inactif'}
                   </span>
-                  <div className="table-action-row">
-                    <button onClick={() => openEditSector(sector)} type="button">
-                      Modifier
-                    </button>
-                    <button onClick={() => handleToggleSector(sector)} type="button">
-                      {sector.isActive ? 'Désactiver' : 'Activer'}
-                    </button>
-                    <button
-                      className="table-action-button danger"
-                      onClick={() => handleDeleteSector(sector)}
-                      type="button"
+                  <div className="table-actions compact">
+                    <select
+                      aria-label={`Actions pour ${sector.name}`}
+                      className="table-action-select"
+                      onChange={(event) => {
+                        handleSectorTableAction(sector, event.target.value)
+                        event.currentTarget.value = ''
+                      }}
+                      value=""
                     >
-                      Supprimer
-                    </button>
+                      <option value="">Actions</option>
+                      <option value="edit">Modifier</option>
+                      <option value="status">
+                        {sector.isActive ? 'Désactiver' : 'Activer'}
+                      </option>
+                      <option value="delete">Supprimer</option>
+                    </select>
                   </div>
-                </article>
+                </div>
               ))
             ) : (
               <p className="empty-panel-text">
                 {isSectorsLoading
                   ? 'Chargement des secteurs...'
-                  : 'Aucun secteur créé.'}
+                  : 'Aucun secteur ne correspond aux filtres.'}
               </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(sectorResultsStart)}-{formatNumber(sectorResultsEnd)} sur{' '}
+              {formatNumber(filteredSectors.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={sectorPage === 0 || isSectorsLoading}
+                onClick={() => setSectorPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={sectorPage === 0 || isSectorsLoading}
+                onClick={() => setSectorPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {sectorPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === sectorPage ? 'active' : ''}`}
+                    disabled={isSectorsLoading}
+                    key={page}
+                    onClick={() => setSectorPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={sectorPage + 1 >= totalSectorPages || isSectorsLoading}
+                onClick={() =>
+                  setSectorPage((page) => Math.min(totalSectorPages - 1, page + 1))
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={sectorPage + 1 >= totalSectorPages || isSectorsLoading}
+                onClick={() => setSectorPage(totalSectorPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
       </section>
@@ -4824,6 +5720,7 @@ function SuperAdminPartnersPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const pageSize = 10
   const [partners, setPartners] = useState<PartnerItem[]>([])
   const [partnerSectors, setPartnerSectors] = useState<PartnerSectorItem[]>([])
   const [isPartnersLoading, setIsPartnersLoading] = useState(true)
@@ -4842,6 +5739,85 @@ function SuperAdminPartnersPage() {
   )
   const [partnerError, setPartnerError] = useState('')
   const [isSavingPartner, setIsSavingPartner] = useState(false)
+  const [partnerPage, setPartnerPage] = useState(0)
+  const [partnerSearch, setPartnerSearch] = useState('')
+  const [partnerSectorFilter, setPartnerSectorFilter] = useState('all')
+  const [partnerValidationFilter, setPartnerValidationFilter] = useState<
+    'all' | 'validated' | 'pending'
+  >('all')
+  const [partnerStatusFilter, setPartnerStatusFilter] = useState<
+    'all' | 'active' | 'inactive'
+  >('all')
+
+  const filteredPartners = useMemo(() => {
+    const normalizedSearch = partnerSearch.trim().toLowerCase()
+
+    return partners.filter((partner) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        [
+          partner.companyName,
+          partner.email,
+          partner.phone,
+          partner.sector,
+          partner.subscriptionPlan,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedSearch)
+      const matchesSector =
+        partnerSectorFilter === 'all' || partner.sector === partnerSectorFilter
+      const matchesValidation =
+        partnerValidationFilter === 'all' ||
+        (partnerValidationFilter === 'validated' && partner.isValidated) ||
+        (partnerValidationFilter === 'pending' && !partner.isValidated)
+      const matchesStatus =
+        partnerStatusFilter === 'all' ||
+        (partnerStatusFilter === 'active' && partner.isActive) ||
+        (partnerStatusFilter === 'inactive' && !partner.isActive)
+
+      return matchesSearch && matchesSector && matchesValidation && matchesStatus
+    })
+  }, [
+    partners,
+    partnerSearch,
+    partnerSectorFilter,
+    partnerStatusFilter,
+    partnerValidationFilter,
+  ])
+
+  const totalPartnerPages = Math.max(
+    1,
+    Math.ceil(filteredPartners.length / pageSize),
+  )
+  const paginatedPartners = useMemo(() => {
+    const startIndex = partnerPage * pageSize
+    return filteredPartners.slice(startIndex, startIndex + pageSize)
+  }, [filteredPartners, partnerPage])
+  const partnerResultsStart =
+    filteredPartners.length === 0 ? 0 : partnerPage * pageSize + 1
+  const partnerResultsEnd = Math.min(
+    filteredPartners.length,
+    partnerPage * pageSize + paginatedPartners.length,
+  )
+  const partnerPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, partnerPage - 2)
+    const lastPage = Math.min(totalPartnerPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [partnerPage, totalPartnerPages])
+
+  useEffect(() => {
+    setPartnerPage(0)
+  }, [
+    partnerSearch,
+    partnerSectorFilter,
+    partnerStatusFilter,
+    partnerValidationFilter,
+  ])
 
   const loadPartners = useCallback(async () => {
     setIsPartnersLoading(true)
@@ -5127,6 +6103,32 @@ function SuperAdminPartnersPage() {
     await loadPartners()
   }
 
+  function handlePartnerTableAction(partner: PartnerItem, action: string) {
+    if (action === 'edit') {
+      openEditPartnerModal(partner)
+      return
+    }
+
+    if (action === 'validate') {
+      void handleValidatePartner(partner)
+      return
+    }
+
+    if (action === 'status') {
+      void handleTogglePartnerStatus(partner)
+      return
+    }
+
+    if (action === 'access') {
+      openAccessModal(partner)
+      return
+    }
+
+    if (action === 'delete') {
+      void handleDeletePartner(partner)
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -5221,14 +6223,72 @@ function SuperAdminPartnersPage() {
               <h2>Liste des partenaires</h2>
             </div>
             <span className="pill">
-              {isPartnersLoading ? 'Chargement' : `${partners.length} entrées`}
+              {isPartnersLoading
+                ? 'Chargement'
+                : `${paginatedPartners.length} / ${filteredPartners.length}`}
             </span>
           </div>
 
-          <div className="partner-table">
-            {partners.length > 0 ? (
-              partners.map((partner) => (
-                <article className="partner-table-row" key={partner.id}>
+          <div className="contest-filter-bar">
+            <input
+              className="search-input"
+              onChange={(event) => setPartnerSearch(event.target.value)}
+              placeholder="Rechercher un partenaire"
+              type="search"
+              value={partnerSearch}
+            />
+            <select
+              aria-label="Filtrer les partenaires par secteur"
+              onChange={(event) => setPartnerSectorFilter(event.target.value)}
+              value={partnerSectorFilter}
+            >
+              <option value="all">Tous les secteurs</option>
+              {partnerSectors.map((sector) => (
+                <option key={sector.id} value={sector.name}>
+                  {sector.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filtrer les partenaires par validation"
+              onChange={(event) =>
+                setPartnerValidationFilter(
+                  event.target.value as 'all' | 'validated' | 'pending',
+                )
+              }
+              value={partnerValidationFilter}
+            >
+              <option value="all">Toutes validations</option>
+              <option value="validated">Validés</option>
+              <option value="pending">À valider</option>
+            </select>
+            <select
+              aria-label="Filtrer les partenaires par statut"
+              onChange={(event) =>
+                setPartnerStatusFilter(
+                  event.target.value as 'all' | 'active' | 'inactive',
+                )
+              }
+              value={partnerStatusFilter}
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="active">Actifs</option>
+              <option value="inactive">Inactifs</option>
+            </select>
+          </div>
+
+          <div className="premium-partner-table">
+            <div className="premium-partner-head">
+              <span>Partenaire</span>
+              <span>Secteur</span>
+              <span>Forfait</span>
+              <span>Validation</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {paginatedPartners.length > 0 ? (
+              paginatedPartners.map((partner) => (
+                <div className="premium-partner-row" key={partner.id}>
                   <div>
                     <strong>{partner.companyName}</strong>
                     <p>{partner.email}</p>
@@ -5242,51 +6302,92 @@ function SuperAdminPartnersPage() {
                     {partner.isActive ? 'Actif' : 'Inactif'}
                   </span>
                   <div className="contest-actions">
-                    <button
-                      className="table-action-button"
-                      onClick={() => openEditPartnerModal(partner)}
-                      type="button"
+                    <select
+                      aria-label={`Actions pour ${partner.companyName}`}
+                      className="table-action-select"
+                      onChange={(event) => {
+                        handlePartnerTableAction(partner, event.target.value)
+                        event.currentTarget.value = ''
+                      }}
+                      value=""
                     >
-                      Modifier
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() => handleValidatePartner(partner)}
-                      type="button"
-                    >
-                      {partner.isValidated ? 'Dévalider' : 'Valider'}
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() => handleTogglePartnerStatus(partner)}
-                      type="button"
-                    >
-                      {partner.isActive ? 'Désactiver' : 'Activer'}
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() => openAccessModal(partner)}
-                      type="button"
-                    >
-                      Envoyer accès
-                    </button>
-                    <button
-                      className="table-action-button danger"
-                      onClick={() => handleDeletePartner(partner)}
-                      type="button"
-                    >
-                      Supprimer
-                    </button>
+                      <option value="">Actions</option>
+                      <option value="edit">Modifier</option>
+                      <option value="validate">
+                        {partner.isValidated ? 'Dévalider' : 'Valider'}
+                      </option>
+                      <option value="status">
+                        {partner.isActive ? 'Désactiver' : 'Activer'}
+                      </option>
+                      <option value="access">Envoyer accès</option>
+                      <option value="delete">Supprimer</option>
+                    </select>
                   </div>
-                </article>
+                </div>
               ))
             ) : (
               <p className="empty-panel-text">
                 {isPartnersLoading
                   ? 'Chargement des partenaires...'
-                  : 'Aucun partenaire créé pour le moment.'}
+                  : 'Aucun partenaire ne correspond aux filtres.'}
               </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(partnerResultsStart)}-{formatNumber(partnerResultsEnd)} sur{' '}
+              {formatNumber(filteredPartners.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={partnerPage === 0 || isPartnersLoading}
+                onClick={() => setPartnerPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={partnerPage === 0 || isPartnersLoading}
+                onClick={() => setPartnerPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {partnerPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === partnerPage ? 'active' : ''}`}
+                    disabled={isPartnersLoading}
+                    key={page}
+                    onClick={() => setPartnerPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={partnerPage + 1 >= totalPartnerPages || isPartnersLoading}
+                onClick={() =>
+                  setPartnerPage((page) => Math.min(totalPartnerPages - 1, page + 1))
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={partnerPage + 1 >= totalPartnerPages || isPartnersLoading}
+                onClick={() => setPartnerPage(totalPartnerPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
       </section>
@@ -6003,41 +7104,43 @@ function SuperAdminUsersPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
-  const pageSize = 25
+  const pageSize = 10
   const [playersData, setPlayersData] = useState<PlayersData>({
     users: [],
     plans: [],
     totalCount: 0,
   })
-  const [playerDetail, setPlayerDetail] = useState<PlayerDetailData>({
-    subscriptions: [],
-    participations: [],
-    rewards: [],
-    badges: [],
-  })
-  const [selectedUserId, setSelectedUserId] = useState('')
   const [usersSearch, setUsersSearch] = useState('')
   const [debouncedUsersSearch, setDebouncedUsersSearch] = useState('')
   const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('player')
+  const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>('all')
+  const [userPlanFilter, setUserPlanFilter] = useState<UserPlanFilter>('all')
   const [usersPage, setUsersPage] = useState(0)
-  const [selectedPlanId, setSelectedPlanId] = useState('')
   const [isUsersLoading, setIsUsersLoading] = useState(true)
-  const [isPlayerDetailLoading, setIsPlayerDetailLoading] = useState(false)
   const [usersError, setUsersError] = useState('')
   const [usersNotice, setUsersNotice] = useState('')
 
-  const selectedUser = useMemo(() => {
-    return playersData.users.find((user) => user.id === selectedUserId) ?? null
-  }, [playersData.users, selectedUserId])
-  const selectedParticipations = playerDetail.participations
-  const selectedRewards = playerDetail.rewards
-  const selectedBadges = playerDetail.badges
-  const selectedSubscriptions = playerDetail.subscriptions
-  const activeSubscription =
-    selectedSubscriptions.find((subscription) => subscription.status === 'active') ??
-    selectedSubscriptions[0] ??
-    null
   const totalPages = Math.max(1, Math.ceil(playersData.totalCount / pageSize))
+  const resultsStart = playersData.totalCount === 0 ? 0 : usersPage * pageSize + 1
+  const resultsEnd = Math.min(playersData.totalCount, usersPage * pageSize + playersData.users.length)
+  const paginationPages = useMemo(() => {
+    const firstPage = Math.max(0, usersPage - 2)
+    const lastPage = Math.min(totalPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [totalPages, usersPage])
+  const filteredUsers = useMemo(() => {
+    return playersData.users.filter((user) => {
+      if (userStatusFilter === 'active' && !user.isActive) return false
+      if (userStatusFilter === 'inactive' && user.isActive) return false
+      if (userPlanFilter === 'premium' && !user.isPremium) return false
+      if (userPlanFilter === 'standard' && user.isPremium) return false
+      return true
+    })
+  }, [playersData.users, userPlanFilter, userStatusFilter])
 
   const loadUsers = useCallback(async (nextPage = usersPage) => {
     setIsUsersLoading(true)
@@ -6051,12 +7154,6 @@ function SuperAdminUsersPage() {
         roleFilter: userRoleFilter,
       })
       setPlayersData(nextPlayersData)
-      setSelectedUserId((currentUserId) => {
-        if (currentUserId && nextPlayersData.users.some((user) => user.id === currentUserId)) {
-          return currentUserId
-        }
-        return nextPlayersData.users[0]?.id ?? ''
-      })
     } catch (error) {
       setUsersError(
         error instanceof Error
@@ -6080,8 +7177,11 @@ function SuperAdminUsersPage() {
 
   useEffect(() => {
     setUsersPage(0)
-    setSelectedUserId('')
   }, [userRoleFilter])
+
+  useEffect(() => {
+    setUsersPage(0)
+  }, [userPlanFilter, userStatusFilter])
 
   useEffect(() => {
     let isMounted = true
@@ -6095,12 +7195,6 @@ function SuperAdminUsersPage() {
       .then((nextPlayersData) => {
         if (!isMounted) return
         setPlayersData(nextPlayersData)
-        setSelectedUserId((currentUserId) => {
-          if (currentUserId && nextPlayersData.users.some((user) => user.id === currentUserId)) {
-            return currentUserId
-          }
-          return nextPlayersData.users[0]?.id ?? ''
-        })
       })
       .catch((error) => {
         if (!isMounted) return
@@ -6119,45 +7213,9 @@ function SuperAdminUsersPage() {
     }
   }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
 
-  useEffect(() => {
-    if (!selectedUserId) return
-
-    let isMounted = true
-    void fetchPlayerDetailData(selectedUserId, playersData.plans)
-      .then((nextDetail) => {
-        if (isMounted) setPlayerDetail(nextDetail)
-      })
-      .catch((error) => {
-        if (!isMounted) return
-        setUsersError(
-          error instanceof Error
-            ? error.message
-            : 'Impossible de charger la fiche joueur.',
-        )
-      })
-      .finally(() => {
-        if (isMounted) setIsPlayerDetailLoading(false)
-      })
-
-    return () => {
-      isMounted = false
-    }
-  }, [playersData.plans, selectedUserId])
-
   const refreshUsersRealtime = useCallback(async () => {
     await loadUsers()
-    if (!selectedUserId) return
-
-    try {
-      setPlayerDetail(await fetchPlayerDetailData(selectedUserId, playersData.plans))
-    } catch (error) {
-      setUsersError(
-        error instanceof Error
-          ? error.message
-          : 'Impossible de charger la fiche joueur.',
-      )
-    }
-  }, [loadUsers, playersData.plans, selectedUserId])
+  }, [loadUsers])
 
   useRealtimeRefresh(
     'sa-users-realtime',
@@ -6219,120 +7277,6 @@ function SuperAdminUsersPage() {
     )
   }
 
-  async function handleAssignPlan() {
-    setUsersError('')
-    setUsersNotice('')
-
-    if (!selectedUser) {
-      setUsersError('Choisis un joueur.')
-      return
-    }
-
-    const plan = playersData.plans.find((item) => item.id === selectedPlanId)
-    if (!plan) {
-      setUsersError('Choisis un forfait joueur.')
-      return
-    }
-
-    const startsAt = new Date()
-    const expiresAt = new Date(startsAt)
-    expiresAt.setDate(expiresAt.getDate() + plan.durationDays)
-
-    const { error: subscriptionError } = await supabase
-      .from('player_subscriptions')
-      .insert({
-        id: createClientUuid(),
-        user_id: selectedUser.id,
-        plan_id: plan.id,
-        amount: plan.price,
-        status: 'active',
-        starts_at: startsAt.toISOString(),
-        expires_at: expiresAt.toISOString(),
-        payment_method: 'manual_admin',
-        payment_reference: `SA-${Date.now()}`,
-        created_at: new Date().toISOString(),
-      })
-
-    if (subscriptionError) {
-      setUsersError(subscriptionError.message)
-      return
-    }
-
-    const { error: userError } = await supabase
-      .from('users')
-      .update({
-        is_premium: plan.key !== 'free',
-        premium_expires_at: plan.key !== 'free' ? expiresAt.toISOString() : null,
-      })
-      .eq('id', selectedUser.id)
-
-    if (userError) {
-      setUsersError(userError.message)
-      return
-    }
-
-    await loadUsers()
-    setUsersNotice(`Forfait ${plan.name} attribué à ${selectedUser.username || selectedUser.phone}.`)
-  }
-
-  async function handleApproveSubscription(subscription: PlayerSubscriptionItem) {
-    setUsersError('')
-    setUsersNotice('')
-
-    if (!selectedUser) {
-      setUsersError('Choisis un joueur.')
-      return
-    }
-
-    const plan = playersData.plans.find((item) => item.id === subscription.planId)
-    if (!plan) {
-      setUsersError('Forfait introuvable.')
-      return
-    }
-
-    const startsAt = new Date()
-    const expiresAt = new Date(startsAt)
-    expiresAt.setDate(expiresAt.getDate() + plan.durationDays)
-
-    const { error: subscriptionError } = await supabase
-      .from('player_subscriptions')
-      .update({
-        status: 'active',
-        starts_at: startsAt.toISOString(),
-        expires_at: expiresAt.toISOString(),
-      })
-      .eq('id', subscription.id)
-
-    if (subscriptionError) {
-      setUsersError(subscriptionError.message)
-      return
-    }
-
-    const { error: userError } = await supabase
-      .from('users')
-      .update({
-        is_premium: plan.key !== 'free',
-        premium_expires_at: plan.key !== 'free' ? expiresAt.toISOString() : null,
-      })
-      .eq('id', selectedUser.id)
-
-    if (userError) {
-      setUsersError(userError.message)
-      return
-    }
-
-    await loadUsers()
-    setIsPlayerDetailLoading(true)
-    try {
-      setPlayerDetail(await fetchPlayerDetailData(selectedUser.id, playersData.plans))
-    } finally {
-      setIsPlayerDetailLoading(false)
-    }
-    setUsersNotice(
-      `Abonnement ${plan.name} validé pour ${selectedUser.username || selectedUser.phone}.`,
-    )
-  }
-
   async function handleClearPlayerHistory(user: PlayerUserItem) {
     const confirmed = window.confirm(
       `Vider l’historique de jeux de "${user.username || user.phone}" ? Le joueur pourra participer de nouveau aux concours concernés.`,
@@ -6341,7 +7285,6 @@ function SuperAdminUsersPage() {
 
     setUsersError('')
     setUsersNotice('')
-    setIsPlayerDetailLoading(true)
 
     try {
       const { error: deleteError } = await supabase
@@ -6362,10 +7305,6 @@ function SuperAdminUsersPage() {
       if (updateError) throw updateError
 
       await loadUsers()
-      setPlayerDetail((currentDetail) => ({
-        ...currentDetail,
-        participations: [],
-      }))
       setUsersNotice('Historique de jeux vidé. Le joueur peut rejouer.')
     } catch (error) {
       setUsersError(
@@ -6373,8 +7312,29 @@ function SuperAdminUsersPage() {
           ? error.message
           : 'Impossible de vider l’historique du joueur.',
       )
-    } finally {
-      setIsPlayerDetailLoading(false)
+    }
+  }
+
+  function handleUserTableAction(user: PlayerUserItem, action: string) {
+    if (!action) return
+
+    if (action === 'detail') {
+      navigate(`${SUPER_ADMIN_USERS_ROUTE}/${user.id}`)
+      return
+    }
+
+    if (action === 'status') {
+      void handleToggleUserStatus(user)
+      return
+    }
+
+    if (action === 'premium') {
+      void handleTogglePremium(user)
+      return
+    }
+
+    if (action === 'clear_history') {
+      void handleClearPlayerHistory(user)
     }
   }
 
@@ -6462,12 +7422,11 @@ function SuperAdminUsersPage() {
           </div>
         ) : null}
 
-        <section className="players-layout">
-          <div className="panel players-list-panel">
+        <section className="panel users-table-panel">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Base {userRoleFilterLabels[userRoleFilter]}</p>
-                <h2>Liste des utilisateurs</h2>
+                <h2>Tableau des utilisateurs</h2>
               </div>
               <span className="pill">
                 {isUsersLoading
@@ -6476,344 +7435,640 @@ function SuperAdminUsersPage() {
               </span>
             </div>
 
-            <input
-              className="search-input"
-              onChange={(event) => setUsersSearch(event.target.value)}
-              placeholder="Rechercher pseudo, téléphone, rôle..."
-              value={usersSearch}
-            />
-            <select
-              className="search-input"
-              onChange={(event) => setUserRoleFilter(event.target.value as UserRoleFilter)}
-              value={userRoleFilter}
-            >
-              <option value="player">Joueurs</option>
-              <option value="partner">Partenaires</option>
-              <option value="all_non_admin">Tous hors SA</option>
-            </select>
+            <div className="user-filters">
+              <input
+                onChange={(event) => setUsersSearch(event.target.value)}
+                placeholder="Rechercher pseudo, téléphone, rôle..."
+                value={usersSearch}
+              />
+              <select
+                onChange={(event) => setUserRoleFilter(event.target.value as UserRoleFilter)}
+                value={userRoleFilter}
+              >
+                <option value="player">Joueurs</option>
+                <option value="partner">Partenaires</option>
+                <option value="all_non_admin">Tous hors SA</option>
+              </select>
+              <select
+                onChange={(event) => setUserStatusFilter(event.target.value as UserStatusFilter)}
+                value={userStatusFilter}
+              >
+                <option value="all">Tous statuts</option>
+                <option value="active">Actifs</option>
+                <option value="inactive">Inactifs</option>
+              </select>
+              <select
+                onChange={(event) => setUserPlanFilter(event.target.value as UserPlanFilter)}
+                value={userPlanFilter}
+              >
+                <option value="all">Tous forfaits</option>
+                <option value="premium">Premium</option>
+                <option value="standard">Standard</option>
+              </select>
+            </div>
 
-            <div className="player-list">
-              {playersData.users.length > 0 ? (
-                playersData.users.map((user) => (
+            <div className="premium-user-table">
+              <div className="premium-user-head">
+                <span>Utilisateur</span>
+                <span>Rôle</span>
+                <span>Activité</span>
+                <span>Forfait</span>
+                <span>Création</span>
+                <span>Actions</span>
+              </div>
+              {filteredUsers.length > 0 ? (
+                filteredUsers.map((user) => (
+                  <div
+                    className="premium-user-row"
+                    key={user.id}
+                  >
                     <button
-                      className={`player-row ${selectedUserId === user.id ? 'selected' : ''}`}
-                      key={user.id}
-                      onClick={() => {
-                        setIsPlayerDetailLoading(true)
-                        setSelectedUserId(user.id)
-                      }}
+                      className="user-table-identity"
+                      onClick={() => navigate(`${SUPER_ADMIN_USERS_ROUTE}/${user.id}`)}
                       type="button"
                     >
                       <span className="player-avatar">
                         {(user.username || user.phone || 'J').slice(0, 1).toUpperCase()}
                       </span>
-                      <div>
+                      <span>
                         <strong>{user.username || 'Pseudo non défini'}</strong>
                         <p>{user.phone || 'Téléphone non défini'}</p>
-                      </div>
-                      <small>{formatNumber(user.pointsTotal)} pts</small>
+                        {user.fcmToken ? (
+                          <span className="status-pill sent push-token-pill">
+                            Push {user.fcmTokenPlatform || 'mobile'}
+                          </span>
+                        ) : (
+                          <span className="status-pill inactive push-token-pill">
+                            Push absent
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    <div>
+                      <strong>{user.role}</strong>
+                      <p>{formatNumber(user.pointsTotal)} pts</p>
+                    </div>
+                    <div>
                       <span className={`status-pill ${user.isActive ? 'active' : 'inactive'}`}>
                         {user.isActive ? 'Actif' : 'Inactif'}
                       </span>
-                      <p>
-                        {user.isPremium ? 'Premium' : 'Standard'} · créé le {formatDate(user.createdAt)}
-                      </p>
-                    </button>
-                  ))
+                      <p>{user.participationsToday} aujourd’hui</p>
+                    </div>
+                    <div>
+                      <span className={`status-pill ${user.isPremium ? 'sent' : 'inactive'}`}>
+                        {user.isPremium ? 'Premium' : 'Standard'}
+                      </span>
+                      <p>{user.premiumExpiresAt ? formatDate(user.premiumExpiresAt) : 'Sans échéance'}</p>
+                    </div>
+                    <div>
+                      <strong>{formatDate(user.createdAt)}</strong>
+                      <p>Vu {formatDate(user.deviceLastSeenAt)}</p>
+                      {user.fcmTokenLastError ? (
+                        <p className="push-token-error" title={user.fcmTokenLastError}>
+                          Push erreur {formatDate(user.fcmTokenLastErrorAt)}
+                        </p>
+                      ) : user.fcmTokenUpdatedAt ? (
+                        <p>Push sync {formatDate(user.fcmTokenUpdatedAt)}</p>
+                      ) : null}
+                    </div>
+                    <div className="table-actions compact">
+                      <select
+                        aria-label={`Actions pour ${user.username || user.phone || 'utilisateur'}`}
+                        className="table-action-select"
+                        onChange={(event) => {
+                          handleUserTableAction(user, event.target.value)
+                          event.currentTarget.value = ''
+                        }}
+                        value=""
+                      >
+                        <option value="">Actions</option>
+                        <option value="detail">Voir détails</option>
+                        <option value="status">
+                          {user.isActive ? 'Désactiver' : 'Activer'}
+                        </option>
+                        <option value="premium">
+                          {user.isPremium ? 'Retirer premium' : 'Activer premium'}
+                        </option>
+                        <option value="clear_history">Vider historique</option>
+                      </select>
+                    </div>
+                  </div>
+                ))
               ) : (
                 <p className="empty-panel-text">
                   {isUsersLoading
                     ? `Chargement des ${userRoleFilterLabels[userRoleFilter]}...`
-                    : `Aucun ${userRoleFilterLabels[userRoleFilter]} trouvé.`}
+                  : `Aucun ${userRoleFilterLabels[userRoleFilter]} trouvé.`}
                 </p>
               )}
             </div>
 
             <div className="pagination-row">
-              <button
-                className="table-action-button"
-                disabled={usersPage === 0 || isUsersLoading}
-                onClick={() => setUsersPage((page) => Math.max(0, page - 1))}
-                type="button"
-              >
-                Précédent
-              </button>
               <span>
-                Page {usersPage + 1} / {totalPages}
+                {formatNumber(resultsStart)}-{formatNumber(resultsEnd)} sur{' '}
+                {formatNumber(playersData.totalCount)}
               </span>
-              <button
-                className="table-action-button"
-                disabled={usersPage + 1 >= totalPages || isUsersLoading}
-                onClick={() => setUsersPage((page) => page + 1)}
-                type="button"
-              >
-                Suivant
-              </button>
-            </div>
-          </div>
-
-          <aside className="panel player-detail-panel">
-            {selectedUser && !isPlayerDetailLoading ? (
-              <>
-                <div className="player-detail-header">
-                  <span className="player-avatar large">
-                    {(selectedUser.username || selectedUser.phone || 'J')
-                      .slice(0, 1)
-                      .toUpperCase()}
-                  </span>
-                  <div>
-                    <p className="eyebrow">Fiche {selectedUser.role === 'partner' ? 'partenaire' : 'utilisateur'}</p>
-                    <h2>{selectedUser.username || 'Pseudo non défini'}</h2>
-                    <p>{selectedUser.phone || 'Téléphone non défini'}</p>
-                  </div>
-                  <span className={`status-pill ${selectedUser.isPremium ? 'sent' : 'inactive'}`}>
-                    {selectedUser.isPremium ? 'Premium' : 'Standard'}
-                  </span>
-                </div>
-
-                <div className="player-metrics">
-                  <div>
-                    <span>Points</span>
-                    <strong>{formatNumber(selectedUser.pointsTotal)}</strong>
-                  </div>
-                  <div>
-                    <span>Aujourd’hui</span>
-                    <strong>{selectedUser.participationsToday}</strong>
-                  </div>
-                  <div>
-                    <span>Gains</span>
-                    <strong>{selectedRewards.length}</strong>
-                  </div>
-                </div>
-
-                <div className="contest-actions player-actions">
-                  <button
-                    className="table-action-button"
-                    onClick={() => handleToggleUserStatus(selectedUser)}
-                    type="button"
-                  >
-                    {selectedUser.isActive ? 'Désactiver' : 'Activer'}
-                  </button>
-                  <button
-                    className="table-action-button"
-                    onClick={() => handleTogglePremium(selectedUser)}
-                    type="button"
-                  >
-                    {selectedUser.isPremium ? 'Retirer premium' : 'Activer premium'}
-                  </button>
-                  <button
-                    className="table-action-button danger"
-                    disabled={selectedParticipations.length === 0}
-                    onClick={() => handleClearPlayerHistory(selectedUser)}
-                    type="button"
-                  >
-                    Vider historique
-                  </button>
-                </div>
-
-                <div className="player-telemetry-box">
-                  <div className="telemetry-box-header">
-                    <div>
-                      <span>Device & localisation</span>
-                      <strong>Dernière synchro : {formatDate(selectedUser.deviceLastSeenAt)}</strong>
-                    </div>
-                    <span className="status-pill active">
-                      {telemetryTextValue(selectedUser.locationInfo, ['permission'], 'inconnu')}
-                    </span>
-                  </div>
-                  <div className="telemetry-grid">
-                    <div>
-                      <span>Appareil</span>
-                      <strong>
-                        {telemetryTextValue(selectedUser.deviceInfo, ['brand', 'name'])}{' '}
-                        {telemetryTextValue(selectedUser.deviceInfo, ['model'], '')}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Système</span>
-                      <strong>
-                        {telemetryTextValue(selectedUser.deviceInfo, ['os', 'platform'])}{' '}
-                        {telemetryTextValue(selectedUser.deviceInfo, ['os_version'], '')}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Application</span>
-                      <strong>
-                        v{telemetryTextValue(selectedUser.deviceInfo, ['app_version'])} (
-                        {telemetryTextValue(selectedUser.deviceInfo, ['app_build'])})
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Position</span>
-                      <strong>
-                        {formatTelemetryCoordinate(
-                          telemetryNumberValue(selectedUser.locationInfo, 'latitude'),
-                        )}
-                        ,{' '}
-                        {formatTelemetryCoordinate(
-                          telemetryNumberValue(selectedUser.locationInfo, 'longitude'),
-                        )}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Précision</span>
-                      <strong>
-                        {telemetryNumberValue(selectedUser.locationInfo, 'accuracy') !== null
-                          ? `${Math.round(
-                              telemetryNumberValue(selectedUser.locationInfo, 'accuracy') ?? 0,
-                            )} m`
-                          : 'Non défini'}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Capture</span>
-                      <strong>
-                        {formatDate(
-                          telemetryTextValue(selectedUser.locationInfo, ['captured_at'], ''),
-                        )}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="player-subscription-box">
-                  <div>
-                    <span>Abonnement actuel</span>
-                    <strong>{activeSubscription?.planName ?? 'Aucun forfait actif'}</strong>
-                    <p>
-                      {activeSubscription
-                        ? `Expire le ${formatDate(activeSubscription.expiresAt)}`
-                        : 'Attribue un forfait pour activer les avantages.'}
-                    </p>
-                  </div>
-                  <div className="subscription-assign-row">
-                    <select
-                      onChange={(event) => setSelectedPlanId(event.target.value)}
-                      value={selectedPlanId}
-                    >
-                      <option value="">Choisir un forfait</option>
-                      {playersData.plans.map((plan) => (
-                        <option key={plan.id} value={plan.id}>
-                          {plan.name} · {formatMoney(plan.price)}
-                        </option>
-                      ))}
-                    </select>
+              <div className="pagination-controls">
+                <button
+                  className="table-action-button"
+                  disabled={usersPage === 0 || isUsersLoading}
+                  onClick={() => setUsersPage(0)}
+                  type="button"
+                >
+                  Première
+                </button>
+                <button
+                  className="table-action-button"
+                  disabled={usersPage === 0 || isUsersLoading}
+                  onClick={() => setUsersPage((page) => Math.max(0, page - 1))}
+                  type="button"
+                >
+                  Précédent
+                </button>
+                <div className="pagination-pages">
+                  {paginationPages.map((page) => (
                     <button
-                      className="inline-action-button"
-                      onClick={handleAssignPlan}
+                      className={`pagination-page-button ${page === usersPage ? 'active' : ''}`}
+                      disabled={isUsersLoading}
+                      key={page}
+                      onClick={() => setUsersPage(page)}
                       type="button"
                     >
-                      Attribuer
+                      {page + 1}
                     </button>
-                  </div>
+                  ))}
                 </div>
-
-                <div className="player-sections">
-                  <section>
-                    <div className="section-inline-heading">
-                      <h3>Historique concours</h3>
-                      <button
-                        className="table-action-button danger"
-                        disabled={selectedParticipations.length === 0}
-                        onClick={() => handleClearPlayerHistory(selectedUser)}
-                        type="button"
-                      >
-                        Vider l’historique de jeux
-                      </button>
-                    </div>
-                    <div className="compact-list">
-                      {selectedParticipations.slice(0, 6).map((participation) => (
-                        <article key={participation.id}>
-                          <div>
-                            <strong>{participation.contestTitle}</strong>
-                            <p>{formatDate(participation.participatedAt)}</p>
-                          </div>
-                          <span>
-                            #{participation.rank ?? '-'} · {participation.score} pts
-                          </span>
-                        </article>
-                      ))}
-                      {selectedParticipations.length === 0 ? (
-                        <p className="empty-panel-text">Aucune participation.</p>
-                      ) : null}
-                    </div>
-                  </section>
-
-                  <section>
-                    <h3>Gains</h3>
-                    <div className="compact-list">
-                      {selectedRewards.slice(0, 5).map((reward) => (
-                        <article key={reward.id}>
-                          <div>
-                            <strong>{reward.contestTitle}</strong>
-                            <p>{reward.prizeDescription || 'Gain MegaPromo'}</p>
-                          </div>
-                          <span>{formatMoney(reward.prizeValue)}</span>
-                        </article>
-                      ))}
-                      {selectedRewards.length === 0 ? (
-                        <p className="empty-panel-text">Aucun gain enregistré.</p>
-                      ) : null}
-                    </div>
-                  </section>
-
-                  <section>
-                    <h3>Badges</h3>
-                    <div className="badge-list">
-                      {selectedBadges.length > 0 ? (
-                        selectedBadges.map((badge) => (
-                          <span key={badge.id}>{badge.name}</span>
-                        ))
-                      ) : (
-                        <p className="empty-panel-text">Aucun badge obtenu.</p>
-                      )}
-                    </div>
-                  </section>
-
-                  <section>
-                    <h3>Abonnements</h3>
-                    <div className="compact-list">
-                      {selectedSubscriptions.slice(0, 5).map((subscription) => (
-                        <article key={subscription.id}>
-                          <div>
-                            <strong>{subscription.planName}</strong>
-                            <p>
-                              {subscription.paymentMethod || 'Paiement'} ·{' '}
-                              {subscription.paymentReference || 'Référence non définie'}
-                            </p>
-                          </div>
-                          <div className="table-actions compact">
-                            <span className={`status-pill ${subscription.status}`}>
-                              {subscription.status}
-                            </span>
-                            {subscription.status === 'pending' ? (
-                              <button
-                                className="table-action-button"
-                                onClick={() => handleApproveSubscription(subscription)}
-                                type="button"
-                              >
-                                Valider
-                              </button>
-                            ) : null}
-                          </div>
-                        </article>
-                      ))}
-                      {selectedSubscriptions.length === 0 ? (
-                        <p className="empty-panel-text">Aucun abonnement.</p>
-                      ) : null}
-                    </div>
-                  </section>
-                </div>
-              </>
-            ) : (
-              <p className="empty-panel-text">
-                {isUsersLoading || isPlayerDetailLoading
-                  ? 'Chargement de la fiche joueur...'
-                  : 'Sélectionne un joueur.'}
-              </p>
-            )}
-          </aside>
+                <button
+                  className="table-action-button"
+                  disabled={usersPage + 1 >= totalPages || isUsersLoading}
+                  onClick={() => setUsersPage((page) => Math.min(totalPages - 1, page + 1))}
+                  type="button"
+                >
+                  Suivant
+                </button>
+                <button
+                  className="table-action-button"
+                  disabled={usersPage + 1 >= totalPages || isUsersLoading}
+                  onClick={() => setUsersPage(totalPages - 1)}
+                  type="button"
+                >
+                  Dernière
+                </button>
+              </div>
+            </div>
         </section>
+      </section>
+    </main>
+  )
+}
+
+function SuperAdminUserDetailPage() {
+  const adminAuth = useAdminAuth()
+  const navigate = useNavigate()
+  const { userId = '' } = useParams()
+  const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const [user, setUser] = useState<PlayerUserItem | null>(null)
+  const [plans, setPlans] = useState<PlayerPlanItem[]>([])
+  const [detail, setDetail] = useState<PlayerDetailData>({
+    subscriptions: [],
+    participations: [],
+    rewards: [],
+    badges: [],
+    paymentMethods: [],
+    kycRequests: [],
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const loadUserDetail = useCallback(async () => {
+    if (!userId) return
+    setIsLoading(true)
+    setError('')
+
+    try {
+      const nextUser = await fetchUserForAdmin(userId)
+      const nextDetail = await fetchPlayerDetailData(userId, nextUser.plans)
+      setUser(nextUser.user)
+      setPlans(nextUser.plans)
+      setDetail(nextDetail)
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Impossible de charger le détail utilisateur.',
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }, [userId])
+
+  useEffect(() => {
+    void loadUserDetail()
+  }, [loadUserDetail])
+
+  useRealtimeRefresh(
+    'sa-user-detail-realtime',
+    ['users', 'participations', 'winners', 'player_subscriptions', 'user_badges'],
+    loadUserDetail,
+  )
+
+  async function handleLogout() {
+    await adminAuth.logout()
+    navigate(SUPER_ADMIN_AUTH_ROUTE, { replace: true })
+  }
+
+  const activeSubscription =
+    detail.subscriptions.find((subscription) => subscription.status === 'active') ??
+    detail.subscriptions[0] ??
+    null
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">M</span>
+          <div>
+            <strong>MegaPromo</strong>
+            <small>Super Admin</small>
+          </div>
+        </div>
+
+        <nav className="nav-list" aria-label="Navigation super admin">
+          <span className="nav-section-label">Pilotage</span>
+          {navItems.slice(0, 6).map((item) => (
+            <NavLink
+              end={item.href === SUPER_ADMIN_ROUTE}
+              key={item.label}
+              to={item.href}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+          <span className="nav-section-label">Système</span>
+          {navItems.slice(6).map((item) => (
+            <NavLink key={item.label} to={item.href}>
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="sidebar-card">
+          <span>Détail utilisateur</span>
+          <strong>{user?.username || user?.phone || 'Chargement'}</strong>
+          <p>Toutes les informations joueur, activité, gains et forfaits.</p>
+        </div>
+      </aside>
+
+      <section className="workspace">
+        <header className="dashboard-topbar">
+          <div>
+            <p className="eyebrow">Communauté</p>
+            <h1>Détails utilisateur</h1>
+            <p className="page-subtitle">
+              Consultation complète du compte sélectionné depuis la liste des utilisateurs.
+            </p>
+          </div>
+
+          <div className="topbar-actions">
+            <button
+              className="secondary-action-button"
+              onClick={() => navigate(SUPER_ADMIN_USERS_ROUTE)}
+              type="button"
+            >
+              Retour utilisateurs
+            </button>
+            <div className="admin-chip">
+              <span>{adminName.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{adminName}</strong>
+                <small>Session vérifiée</small>
+              </div>
+            </div>
+            <button className="logout-button" onClick={handleLogout} type="button">
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        {error ? (
+          <div className="dashboard-alert" role="alert">
+            <div>
+              <strong>Détail indisponible</strong>
+              <p>{error}</p>
+            </div>
+            <button onClick={() => loadUserDetail()} type="button">
+              Réessayer
+            </button>
+          </div>
+        ) : null}
+
+        {isLoading || !user ? (
+          <section className="panel users-page-panel">
+            <p className="empty-panel-text">Chargement du détail utilisateur...</p>
+          </section>
+        ) : (
+          <section className="users-detail-page">
+            <article className="panel">
+              <div className="player-detail-header">
+                <span className="player-avatar large">
+                  {(user.username || user.phone || 'J').slice(0, 1).toUpperCase()}
+                </span>
+                <div>
+                  <p className="eyebrow">{user.role}</p>
+                  <h2>{user.username || 'Pseudo non défini'}</h2>
+                  <p>{user.phone || 'Téléphone non défini'}</p>
+                </div>
+                <span className={`status-pill ${user.isActive ? 'active' : 'inactive'}`}>
+                  {user.isActive ? 'Actif' : 'Inactif'}
+                </span>
+              </div>
+
+              <div className="player-metrics">
+                <div>
+                  <span>Points</span>
+                  <strong>{formatNumber(user.pointsTotal)}</strong>
+                </div>
+                <div>
+                  <span>Participations</span>
+                  <strong>{detail.participations.length}</strong>
+                </div>
+                <div>
+                  <span>Gains</span>
+                  <strong>{detail.rewards.length}</strong>
+                </div>
+                <div>
+                  <span>Badges</span>
+                  <strong>{detail.badges.length}</strong>
+                </div>
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Compte</p>
+                  <h2>Informations générales</h2>
+                </div>
+                <span className={`status-pill ${user.isPremium ? 'sent' : 'inactive'}`}>
+                  {user.isPremium ? 'Premium' : 'Standard'}
+                </span>
+              </div>
+              <div className="telemetry-grid">
+                <div>
+                  <span>ID</span>
+                  <strong>{user.id}</strong>
+                </div>
+                <div>
+                  <span>Création</span>
+                  <strong>{formatDate(user.createdAt)}</strong>
+                </div>
+                <div>
+                  <span>Dernière participation</span>
+                  <strong>{formatDate(user.lastParticipationDate)}</strong>
+                </div>
+                <div>
+                  <span>Participations aujourd’hui</span>
+                  <strong>{user.participationsToday}</strong>
+                </div>
+                <div>
+                  <span>Forfait actif</span>
+                  <strong>{activeSubscription?.planName ?? 'Aucun'}</strong>
+                </div>
+                <div>
+                  <span>Expire le</span>
+                  <strong>
+                    {activeSubscription ? formatDate(activeSubscription.expiresAt) : 'Non défini'}
+                  </strong>
+                </div>
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Device</p>
+                  <h2>Appareil & localisation</h2>
+                </div>
+                <span className="status-pill active">
+                  {formatDate(user.deviceLastSeenAt)}
+                </span>
+              </div>
+              <div className="telemetry-grid">
+                <div>
+                  <span>Appareil</span>
+                  <strong>
+                    {telemetryTextValue(user.deviceInfo, ['brand', 'name'])}{' '}
+                    {telemetryTextValue(user.deviceInfo, ['model'], '')}
+                  </strong>
+                </div>
+                <div>
+                  <span>Système</span>
+                  <strong>
+                    {telemetryTextValue(user.deviceInfo, ['os', 'platform'])}{' '}
+                    {telemetryTextValue(user.deviceInfo, ['os_version'], '')}
+                  </strong>
+                </div>
+                <div>
+                  <span>App</span>
+                  <strong>
+                    v{telemetryTextValue(user.deviceInfo, ['app_version'])} (
+                    {telemetryTextValue(user.deviceInfo, ['app_build'])})
+                  </strong>
+                </div>
+                <div>
+                  <span>Position</span>
+                  <strong>
+                    {formatTelemetryCoordinate(
+                      telemetryNumberValue(user.locationInfo, 'latitude'),
+                    )}
+                    ,{' '}
+                    {formatTelemetryCoordinate(
+                      telemetryNumberValue(user.locationInfo, 'longitude'),
+                    )}
+                  </strong>
+                </div>
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Paiement joueur</p>
+                  <h2>Mobile Money enregistrés</h2>
+                </div>
+                <span className="pill">{detail.paymentMethods.length}/2</span>
+              </div>
+              <div className="premium-mini-table">
+                {detail.paymentMethods.map((method) => (
+                  <article key={method.id}>
+                    <div>
+                      <strong>{method.operatorName}</strong>
+                      <p>
+                        {method.phone || 'Numéro non défini'}
+                        {method.isWhatsapp ? ' · WhatsApp' : ''}
+                      </p>
+                    </div>
+                    <span className={`status-pill ${method.status === 'active' ? 'active' : 'inactive'}`}>
+                      {method.isPrimary ? 'Principal' : method.status}
+                    </span>
+                    <small>{formatDate(method.updatedAt || method.createdAt)}</small>
+                  </article>
+                ))}
+                {detail.paymentMethods.length === 0 ? (
+                  <p className="empty-panel-text">Aucun numéro Mobile Money enregistré.</p>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Identité</p>
+                  <h2>Documents envoyés</h2>
+                </div>
+                <span className="pill">{detail.kycRequests.length}</span>
+              </div>
+              <div className="premium-mini-table">
+                {detail.kycRequests.map((request) => (
+                  <article key={request.id}>
+                    <div>
+                      <strong>{playerKycDocumentLabel(request.documentType)}</strong>
+                      <p>
+                        Envoyé le {formatDate(request.createdAt)}
+                        {request.rejectionReason ? ` · ${request.rejectionReason}` : ''}
+                      </p>
+                    </div>
+                    <span className={`status-pill ${request.status}`}>
+                      {request.status}
+                    </span>
+                    <div className="table-actions compact">
+                      {request.documentFrontUrl ? (
+                        <a
+                          className="table-action-button"
+                          href={request.documentFrontUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Recto
+                        </a>
+                      ) : null}
+                      {request.documentBackUrl ? (
+                        <a
+                          className="table-action-button"
+                          href={request.documentBackUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Verso
+                        </a>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+                {detail.kycRequests.length === 0 ? (
+                  <p className="empty-panel-text">Aucun document envoyé.</p>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Historique</p>
+                  <h2>Participations</h2>
+                </div>
+                <span className="pill">{detail.participations.length}</span>
+              </div>
+              <div className="compact-list">
+                {detail.participations.map((participation) => (
+                  <article key={participation.id}>
+                    <div>
+                      <strong>{participation.contestTitle}</strong>
+                      <p>{formatDate(participation.participatedAt)}</p>
+                    </div>
+                    <span>
+                      #{participation.rank ?? '-'} · {participation.score} pts
+                    </span>
+                  </article>
+                ))}
+                {detail.participations.length === 0 ? (
+                  <p className="empty-panel-text">Aucune participation.</p>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Paiements</p>
+                  <h2>Gains et abonnements</h2>
+                </div>
+              </div>
+              <div className="dashboard-grid">
+                <section>
+                  <h3>Gains</h3>
+                  <div className="compact-list">
+                    {detail.rewards.map((reward) => (
+                      <article key={reward.id}>
+                        <div>
+                          <strong>{reward.contestTitle}</strong>
+                          <p>{reward.prizeDescription || 'Gain MegaPromo'}</p>
+                        </div>
+                        <span>{formatMoney(reward.prizeValue)}</span>
+                      </article>
+                    ))}
+                    {detail.rewards.length === 0 ? (
+                      <p className="empty-panel-text">Aucun gain.</p>
+                    ) : null}
+                  </div>
+                </section>
+                <section>
+                  <h3>Abonnements</h3>
+                  <div className="compact-list">
+                    {detail.subscriptions.map((subscription) => (
+                      <article key={subscription.id}>
+                        <div>
+                          <strong>{subscription.planName}</strong>
+                          <p>
+                            {subscription.paymentMethod || 'Paiement'} ·{' '}
+                            {subscription.paymentReference || 'Référence non définie'}
+                          </p>
+                        </div>
+                        <span className={`status-pill ${subscription.status}`}>
+                          {subscription.status}
+                        </span>
+                      </article>
+                    ))}
+                    {detail.subscriptions.length === 0 ? (
+                      <p className="empty-panel-text">Aucun abonnement.</p>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Badges</p>
+                  <h2>Récompenses profil</h2>
+                </div>
+              </div>
+              <div className="badge-list">
+                {detail.badges.length > 0 ? (
+                  detail.badges.map((badge) => <span key={badge.id}>{badge.name}</span>)
+                ) : (
+                  <p className="empty-panel-text">Aucun badge obtenu.</p>
+                )}
+              </div>
+              <div className="user-detail-plan-count">
+                {plans.length} forfait(s) joueur configuré(s)
+              </div>
+            </article>
+          </section>
+        )}
       </section>
     </main>
   )
@@ -7166,6 +8421,8 @@ function SuperAdminSettingsPage() {
     createDefaultPaymentMethodForm(),
   )
   const [isPaymentMethodSaving, setIsPaymentMethodSaving] = useState(false)
+  const [playerKycRequests, setPlayerKycRequests] = useState<PlayerKycRequestItem[]>([])
+  const [isKycReviewSaving, setIsKycReviewSaving] = useState(false)
   const [legalPages, setLegalPages] = useState<LegalPageItem[]>([])
   const [legalForms, setLegalForms] =
     useState<Record<'terms' | 'privacy', LegalPageFormState>>(defaultLegalForms)
@@ -7214,6 +8471,20 @@ function SuperAdminSettingsPage() {
       }
       setSettingsError(
         formatUnknownError(error, 'Impossible de charger les méthodes de paiement.'),
+      )
+    }
+  }
+
+  async function loadPlayerKycRequests() {
+    try {
+      setPlayerKycRequests(await fetchPlayerKycRequestsForAdmin())
+    } catch (error) {
+      if (isMissingTableError(error, 'player_kyc_requests')) {
+        setPlayerKycRequests([])
+        return
+      }
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de charger les vérifications joueur.'),
       )
     }
   }
@@ -7301,6 +8572,7 @@ function SuperAdminSettingsPage() {
     void (async () => {
       await Promise.all([
         loadPaymentMethods(),
+        loadPlayerKycRequests(),
         loadLegalPages(),
         loadLandingContact(),
         loadMobileInfoMessages(),
@@ -7455,6 +8727,53 @@ function SuperAdminSettingsPage() {
       )
     } finally {
       setIsPaymentMethodSaving(false)
+    }
+  }
+
+  async function handleReviewPlayerKyc(
+    request: PlayerKycRequestItem,
+    nextStatus: 'approved' | 'rejected',
+  ) {
+    setNotice('')
+    setSettingsError('')
+
+    const rejectionReason =
+      nextStatus === 'rejected'
+        ? window.prompt('Motif du rejet à afficher au joueur')?.trim() ?? ''
+        : ''
+
+    if (nextStatus === 'rejected' && !rejectionReason) {
+      setSettingsError('Le motif est obligatoire pour rejeter une pièce.')
+      return
+    }
+
+    setIsKycReviewSaving(true)
+    try {
+      const { error } = await supabase
+        .from('player_kyc_requests')
+        .update({
+          status: nextStatus,
+          rejection_reason: nextStatus === 'rejected' ? rejectionReason : null,
+          reviewed_by: adminAuth.user?.id ?? null,
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', request.id)
+
+      if (error) throw error
+
+      await loadPlayerKycRequests()
+      setNotice(
+        nextStatus === 'approved'
+          ? 'Identité joueur validée.'
+          : 'Identité joueur rejetée avec motif.',
+      )
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de mettre à jour la vérification.'),
+      )
+    } finally {
+      setIsKycReviewSaving(false)
     }
   }
 
@@ -8104,6 +9423,104 @@ function SuperAdminSettingsPage() {
                   </div>
                 </article>
               ))}
+            </div>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Joueurs</p>
+                <h2>Vérifications d’identité</h2>
+              </div>
+              <span className="status-pill active">
+                {
+                  playerKycRequests.filter((request) => request.status === 'pending')
+                    .length
+                }{' '}
+                en attente
+              </span>
+            </div>
+            <div className="compact-list">
+              {playerKycRequests.length === 0 ? (
+                <article>
+                  <div>
+                    <strong>Aucune demande</strong>
+                    <p>Les pièces envoyées par les joueurs apparaîtront ici.</p>
+                  </div>
+                </article>
+              ) : (
+                playerKycRequests.map((request) => (
+                  <article key={request.id}>
+                    <div>
+                      <strong>{request.playerName}</strong>
+                      <p>
+                        {request.playerPhone || request.userId} ·{' '}
+                        {playerKycDocumentLabel(request.documentType)}
+                      </p>
+                      {request.rejectionReason ? (
+                        <p>Motif : {request.rejectionReason}</p>
+                      ) : null}
+                    </div>
+                    <div className="table-actions compact">
+                      <span
+                        className={`status-pill ${
+                          request.status === 'approved'
+                            ? 'active'
+                            : request.status === 'rejected'
+                              ? 'inactive'
+                              : 'pending'
+                        }`}
+                      >
+                        {request.status === 'approved'
+                          ? 'Validée'
+                          : request.status === 'rejected'
+                            ? 'Rejetée'
+                            : 'En attente'}
+                      </span>
+                      {request.documentFrontUrl ? (
+                        <a
+                          className="table-action-button"
+                          href={request.documentFrontUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Recto
+                        </a>
+                      ) : null}
+                      {request.documentBackUrl ? (
+                        <a
+                          className="table-action-button"
+                          href={request.documentBackUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Verso
+                        </a>
+                      ) : null}
+                      {request.status === 'pending' ? (
+                        <>
+                          <button
+                            className="table-action-button"
+                            disabled={isKycReviewSaving}
+                            onClick={() => handleReviewPlayerKyc(request, 'approved')}
+                            type="button"
+                          >
+                            Valider
+                          </button>
+                          <button
+                            className="table-action-button danger"
+                            disabled={isKycReviewSaving}
+                            onClick={() => handleReviewPlayerKyc(request, 'rejected')}
+                            type="button"
+                          >
+                            Rejeter
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </article>
 
@@ -9011,6 +10428,708 @@ function MaintenanceConfirmModal({
   )
 }
 
+
+function DeleteAllContestsConfirmModal({
+  confirmation,
+  contestsCount,
+  isDeleting,
+  onChangeConfirmation,
+  onClose,
+  onConfirm,
+}: {
+  confirmation: string
+  contestsCount: number
+  isDeleting: boolean
+  onChangeConfirmation: (value: string) => void
+  onClose: () => void
+  onConfirm: () => void | Promise<void>
+}) {
+  const canConfirm =
+    confirmation.trim().toUpperCase() === 'SUPPRIMER' && contestsCount > 0 && !isDeleting
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        aria-label="Supprimer tous les jeux concours et Quiz Live"
+        aria-modal="true"
+        className="category-modal maintenance-confirm-modal delete-contests-confirm-modal"
+        role="dialog"
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Suppression globale</p>
+            <h2>Supprimer les concours</h2>
+          </div>
+          <button disabled={isDeleting} onClick={onClose} type="button">
+            Fermer
+          </button>
+        </div>
+
+        <div className="maintenance-confirm-body">
+          <span className="status-pill cancelled">Action irréversible</span>
+          <p>
+            Cette action supprimera tous les jeux concours et Quiz Live visibles dans
+            l'administration. Les données liées peuvent aussi être retirées selon les
+            règles de cascade de la base.
+          </p>
+
+          <div className="delete-confirm-summary">
+            <span>
+              <strong>{contestsCount}</strong>
+              <small>Concours / QL</small>
+            </span>
+            <span>
+              <strong>Jeux</strong>
+              <small>Standards inclus</small>
+            </span>
+            <span>
+              <strong>QL</strong>
+              <small>Lives inclus</small>
+            </span>
+          </div>
+
+          <div className="maintenance-confirm-code">
+            <strong>Écris SUPPRIMER pour confirmer</strong>
+            <input
+              autoFocus
+              disabled={isDeleting}
+              onChange={(event) => onChangeConfirmation(event.target.value)}
+              placeholder="SUPPRIMER"
+              value={confirmation}
+            />
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          <button disabled={isDeleting} onClick={onClose} type="button">
+            Annuler
+          </button>
+          <button
+            className="danger-action-button"
+            disabled={!canConfirm}
+            onClick={onConfirm}
+            type="button"
+          >
+            {isDeleting ? 'Suppression...' : 'Supprimer définitivement'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+
+function SuperAdminRewardCatalogPage() {
+  const adminAuth = useAdminAuth()
+  const navigate = useNavigate()
+  const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const [catalogData, setCatalogData] = useState<RewardCatalogData>({
+    rewards: [],
+    partners: [],
+    rewardTypes: [],
+  })
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
+  const [catalogNotice, setCatalogNotice] = useState('')
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogTypeFilter, setCatalogTypeFilter] = useState<'all' | RewardCatalogType>('all')
+  const [catalogStatusFilter, setCatalogStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false)
+  const [editingCatalogItemId, setEditingCatalogItemId] = useState<string | null>(null)
+  const [catalogForm, setCatalogForm] = useState<RewardCatalogFormState>(
+    createDefaultRewardCatalogForm,
+  )
+  const [catalogFormError, setCatalogFormError] = useState('')
+  const [isSavingCatalogItem, setIsSavingCatalogItem] = useState(false)
+  const [isRewardTypeModalOpen, setIsRewardTypeModalOpen] = useState(false)
+  const [rewardTypeForm, setRewardTypeForm] = useState<RewardTypeFormState>(
+    createDefaultRewardTypeForm,
+  )
+  const [rewardTypeFormError, setRewardTypeFormError] = useState('')
+  const [isSavingRewardType, setIsSavingRewardType] = useState(false)
+
+  const filteredRewards = useMemo(() => {
+    const search = catalogSearch.trim().toLowerCase()
+    return catalogData.rewards.filter((reward) => {
+      const matchesSearch =
+        !search ||
+        [reward.name, reward.description, reward.valueLabel, reward.partnerName, reward.defaultCode]
+          .join(' ')
+          .toLowerCase()
+          .includes(search)
+      const matchesType =
+        catalogTypeFilter === 'all' || reward.rewardType === catalogTypeFilter
+      const matchesStatus =
+        catalogStatusFilter === 'all' ||
+        (catalogStatusFilter === 'active' ? reward.isActive : !reward.isActive)
+      return matchesSearch && matchesType && matchesStatus
+    })
+  }, [catalogData.rewards, catalogSearch, catalogStatusFilter, catalogTypeFilter])
+
+  const loadCatalog = useCallback(async () => {
+    setIsCatalogLoading(true)
+    setCatalogError('')
+    try {
+      setCatalogData(await fetchRewardCatalogData())
+    } catch (error) {
+      setCatalogError(
+        formatUnknownError(error, 'Impossible de charger le catalogue des gains.'),
+      )
+    } finally {
+      setIsCatalogLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCatalog()
+  }, [loadCatalog])
+
+  useRealtimeRefresh('sa-reward-catalog-realtime', ['reward_catalog', 'partners'], loadCatalog)
+
+  async function handleLogout() {
+    await adminAuth.logout()
+    navigate(SUPER_ADMIN_AUTH_ROUTE, { replace: true })
+  }
+
+  function openCatalogModal(item?: RewardCatalogItem) {
+    setCatalogFormError('')
+    setEditingCatalogItemId(item?.id ?? null)
+    setCatalogForm(item ? rewardCatalogItemToForm(item) : createDefaultRewardCatalogForm())
+    setIsCatalogModalOpen(true)
+  }
+
+  function closeCatalogModal() {
+    if (isSavingCatalogItem) return
+    setCatalogFormError('')
+    setEditingCatalogItemId(null)
+    setIsCatalogModalOpen(false)
+  }
+
+  async function handleCatalogSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setCatalogFormError('')
+    setCatalogNotice('')
+
+    const estimatedValue = Number(catalogForm.estimatedValue || 0)
+    const stockQuantity = catalogForm.stockQuantity.trim()
+      ? Number(catalogForm.stockQuantity)
+      : null
+
+    if (!catalogForm.name.trim()) {
+      setCatalogFormError('Le nom du gain est obligatoire.')
+      return
+    }
+
+    if (!Number.isFinite(estimatedValue) || estimatedValue < 0) {
+      setCatalogFormError('La valeur estimée doit être supérieure ou égale à 0.')
+      return
+    }
+
+    if (stockQuantity !== null && (!Number.isInteger(stockQuantity) || stockQuantity < 0)) {
+      setCatalogFormError('Le stock doit être un nombre entier positif.')
+      return
+    }
+
+    setIsSavingCatalogItem(true)
+    try {
+      const rpcName = editingCatalogItemId
+        ? 'update_reward_catalog_item'
+        : 'create_reward_catalog_item'
+      const payload = {
+        ...(editingCatalogItemId ? { p_item_id: editingCatalogItemId } : {}),
+        p_name: catalogForm.name.trim(),
+        p_reward_type: catalogForm.rewardType,
+        p_description: catalogForm.description.trim() || null,
+        p_value_label: catalogForm.valueLabel.trim() || null,
+        p_estimated_value: estimatedValue,
+        p_partner_id: catalogForm.partnerId || null,
+        p_default_code: catalogForm.defaultCode.trim() || null,
+        p_default_delivery_instructions:
+          catalogForm.defaultDeliveryInstructions.trim() || null,
+        p_terms: catalogForm.terms.trim() || null,
+        p_stock_quantity: stockQuantity,
+        p_is_active: catalogForm.isActive,
+      }
+      const { error } = await supabase.rpc(rpcName, payload)
+      if (error) throw error
+
+      setCatalogNotice(
+        editingCatalogItemId
+          ? 'Gain mis à jour dans le catalogue.'
+          : 'Gain ajouté au catalogue.',
+      )
+      await loadCatalog()
+      closeCatalogModal()
+    } catch (error) {
+      setCatalogFormError(
+        formatUnknownError(error, 'Impossible d’enregistrer ce gain.'),
+      )
+    } finally {
+      setIsSavingCatalogItem(false)
+    }
+  }
+
+
+  function openRewardTypeModal(item?: RewardTypeItem) {
+    setRewardTypeFormError('')
+    setRewardTypeForm(item ? rewardTypeItemToForm(item) : createDefaultRewardTypeForm())
+    setIsRewardTypeModalOpen(true)
+  }
+
+  function closeRewardTypeModal() {
+    if (isSavingRewardType) return
+    setRewardTypeFormError('')
+    setIsRewardTypeModalOpen(false)
+  }
+
+  async function handleRewardTypeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setRewardTypeFormError('')
+    setCatalogNotice('')
+
+    const orderIndex = Number(rewardTypeForm.orderIndex || 0)
+    if (!rewardTypeForm.key.trim()) {
+      setRewardTypeFormError('La clé du type est obligatoire.')
+      return
+    }
+    if (!rewardTypeForm.name.trim()) {
+      setRewardTypeFormError('Le nom du type est obligatoire.')
+      return
+    }
+    if (!Number.isInteger(orderIndex)) {
+      setRewardTypeFormError('L’ordre doit être un nombre entier.')
+      return
+    }
+
+    setIsSavingRewardType(true)
+    try {
+      const { error } = await supabase.rpc('upsert_reward_type', {
+        p_key: rewardTypeForm.key.trim(),
+        p_name: rewardTypeForm.name.trim(),
+        p_description: rewardTypeForm.description.trim() || null,
+        p_icon: rewardTypeForm.icon.trim() || null,
+        p_color: rewardTypeForm.color.trim() || null,
+        p_is_active: rewardTypeForm.isActive,
+        p_order_index: orderIndex,
+      })
+      if (error) throw error
+
+      setCatalogNotice('Type de gain enregistré.')
+      await loadCatalog()
+      closeRewardTypeModal()
+    } catch (error) {
+      setRewardTypeFormError(
+        formatUnknownError(error, 'Impossible d’enregistrer ce type de gain.'),
+      )
+    } finally {
+      setIsSavingRewardType(false)
+    }
+  }
+
+  async function handleDisableRewardType(item: RewardTypeItem) {
+    const confirmed = window.confirm(
+      `Désactiver le type "${item.name}" ? Il restera disponible dans l’historique mais ne sera plus proposé pour les nouveaux gains.`,
+    )
+    if (!confirmed) return
+
+    setCatalogError('')
+    setCatalogNotice('')
+    const { error } = await supabase.rpc('disable_reward_type', {
+      p_key: item.key,
+    })
+
+    if (error) {
+      setCatalogError(formatUnknownError(error, 'Impossible de désactiver ce type.'))
+      return
+    }
+
+    setCatalogNotice('Type de gain désactivé.')
+    await loadCatalog()
+  }
+
+  async function handleDeleteRewardType(item: RewardTypeItem) {
+    const confirmed = window.confirm(
+      `Supprimer définitivement le type "${item.name}" ? Cette action est possible uniquement si aucun gain, concours ou gagnant ne l’utilise.`,
+    )
+    if (!confirmed) return
+
+    setCatalogError('')
+    setCatalogNotice('')
+    const { error } = await supabase.rpc('delete_reward_type', {
+      p_key: item.key,
+    })
+
+    if (error) {
+      setCatalogError(formatUnknownError(error, 'Impossible de supprimer ce type.'))
+      return
+    }
+
+    setCatalogNotice('Type de gain supprimé.')
+    await loadCatalog()
+  }
+
+  async function handleDisableCatalogItem(item: RewardCatalogItem) {
+    const confirmed = window.confirm(
+      `Désactiver le gain "${item.name}" ? Il ne sera plus proposé lors de la création des prochains concours.`,
+    )
+    if (!confirmed) return
+
+    setCatalogError('')
+    setCatalogNotice('')
+    const { error } = await supabase.rpc('disable_reward_catalog_item', {
+      p_item_id: item.id,
+    })
+
+    if (error) {
+      setCatalogError(formatUnknownError(error, 'Impossible de désactiver ce gain.'))
+      return
+    }
+
+    setCatalogNotice('Gain désactivé dans le catalogue.')
+    await loadCatalog()
+  }
+
+  async function handleDeleteCatalogItem(item: RewardCatalogItem) {
+    const confirmed = window.confirm(
+      `Supprimer définitivement le gain "${item.name}" ? Cette action est possible uniquement si aucun concours ou gagnant ne l’utilise.`,
+    )
+    if (!confirmed) return
+
+    setCatalogError('')
+    setCatalogNotice('')
+    const { error } = await supabase.rpc('delete_reward_catalog_item', {
+      p_item_id: item.id,
+    })
+
+    if (error) {
+      setCatalogError(formatUnknownError(error, 'Impossible de supprimer ce gain.'))
+      return
+    }
+
+    setCatalogNotice('Gain supprimé du catalogue.')
+    await loadCatalog()
+  }
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">M</span>
+          <div>
+            <strong>MegaPromo</strong>
+            <small>Super Admin</small>
+          </div>
+        </div>
+
+        <nav className="nav-list" aria-label="Navigation super admin">
+          <span className="nav-section-label">Pilotage</span>
+          {navItems.slice(0, 6).map((item) => (
+            <NavLink
+              end={item.href === SUPER_ADMIN_ROUTE}
+              to={item.href}
+              key={item.label}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+          <span className="nav-section-label">Système</span>
+          {navItems.slice(6).map((item) => (
+            <NavLink to={item.href} key={item.label}>
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="sidebar-card">
+          <span>Catalogue</span>
+          <strong>{catalogData.rewards.length} gains</strong>
+          <p>Enregistre les codes, bons, tickets et lots réutilisables.</p>
+        </div>
+      </aside>
+
+      <section className="workspace">
+        <header className="dashboard-topbar">
+          <div>
+            <p className="eyebrow">Récompenses</p>
+            <h1>Catalogue des gains</h1>
+            <p className="page-subtitle">
+              Crée les gains que le SA pourra rattacher aux concours et aux gagnants.
+            </p>
+          </div>
+
+          <div className="topbar-actions">
+            <div className="admin-chip">
+              <span>{adminName.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{adminName}</strong>
+                <small>Session vérifiée</small>
+              </div>
+            </div>
+            <button
+              className="primary-button"
+              onClick={() => openCatalogModal()}
+              type="button"
+            >
+              Nouveau gain
+            </button>
+            <button
+              className="secondary-action-button"
+              onClick={() => openRewardTypeModal()}
+              type="button"
+            >
+              Nouveau type
+            </button>
+            <button className="logout-button" onClick={handleLogout} type="button">
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        {catalogError ? (
+          <div className="dashboard-alert" role="alert">
+            <div>
+              <strong>Catalogue indisponible</strong>
+              <p>{catalogError}</p>
+            </div>
+            <button onClick={loadCatalog} type="button">
+              Réessayer
+            </button>
+          </div>
+        ) : null}
+
+        {catalogNotice ? (
+          <div className="dashboard-alert success" role="status">
+            <div>
+              <strong>Catalogue mis à jour</strong>
+              <p>{catalogNotice}</p>
+            </div>
+          </div>
+        ) : null}
+
+        <section className="panel categories-page-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Catalogue</p>
+              <h2>Liste des gains</h2>
+            </div>
+            <span className="pill">
+              {isCatalogLoading
+                ? 'Chargement'
+                : `${filteredRewards.length}/${catalogData.rewards.length} entrées`}
+            </span>
+          </div>
+
+          <div className="winner-filters">
+            <input
+              aria-label="Rechercher un gain"
+              onChange={(event) => setCatalogSearch(event.target.value)}
+              placeholder="Rechercher nom, partenaire, code..."
+              type="search"
+              value={catalogSearch}
+            />
+            <select
+              aria-label="Filtrer par type"
+              onChange={(event) =>
+                setCatalogTypeFilter(event.target.value as 'all' | RewardCatalogType)
+              }
+              value={catalogTypeFilter}
+            >
+              <option value="all">Tous les types</option>
+              {catalogData.rewardTypes.map((type) => (
+                <option key={type.key} value={type.key}>
+                  {type.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filtrer par statut"
+              onChange={(event) =>
+                setCatalogStatusFilter(event.target.value as 'all' | 'active' | 'inactive')
+              }
+              value={catalogStatusFilter}
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="active">Actifs</option>
+              <option value="inactive">Inactifs</option>
+            </select>
+          </div>
+
+          <div className="premium-winner-table" role="table" aria-label="Catalogue des gains">
+            <div className="premium-winner-head" role="row">
+              <span>Gain</span>
+              <span>Type</span>
+              <span>Partenaire</span>
+              <span>Valeur / Stock</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {filteredRewards.length > 0 ? (
+              filteredRewards.map((reward) => (
+                <article className="premium-winner-row" key={reward.id} role="row">
+                  <div>
+                    <strong>{reward.name}</strong>
+                    <p>{reward.description || reward.valueLabel || 'Gain catalogue'}</p>
+                  </div>
+                  <div>
+                    <strong>{rewardTypeLabel(reward.rewardType, catalogData.rewardTypes)}</strong>
+                    <p>{reward.defaultCode ? `Code: ${reward.defaultCode}` : 'Sans code par défaut'}</p>
+                  </div>
+                  <div>
+                    <strong>{reward.partnerName}</strong>
+                    <p>{formatDate(reward.createdAt)}</p>
+                  </div>
+                  <div>
+                    <strong>{formatMoney(reward.estimatedValue)}</strong>
+                    <p>
+                      {reward.stockQuantity == null
+                        ? 'Stock illimité'
+                        : `${reward.usedQuantity}/${reward.stockQuantity} utilisés`}
+                    </p>
+                  </div>
+                  <span className={`status-pill ${reward.isActive ? 'sent' : 'cancelled'}`}>
+                    {reward.isActive ? 'Actif' : 'Inactif'}
+                  </span>
+                  <div className="contest-actions">
+                    <button
+                      className="table-action-button"
+                      onClick={() => openCatalogModal(reward)}
+                      type="button"
+                    >
+                      Modifier
+                    </button>
+                    {reward.isActive ? (
+                      <button
+                        className="table-action-button danger"
+                        onClick={() => handleDisableCatalogItem(reward)}
+                        type="button"
+                      >
+                        Désactiver
+                      </button>
+                    ) : null}
+                    <button
+                      className="table-action-button danger"
+                      onClick={() => handleDeleteCatalogItem(reward)}
+                      type="button"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="empty-panel-text">
+                {isCatalogLoading
+                  ? 'Chargement du catalogue...'
+                  : 'Aucun gain ne correspond aux filtres.'}
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="panel categories-page-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Types</p>
+              <h2>Types de gains</h2>
+            </div>
+            <button
+              className="inline-action-button"
+              onClick={() => openRewardTypeModal()}
+              type="button"
+            >
+              Nouveau type
+            </button>
+          </div>
+
+          <div className="premium-winner-table" role="table" aria-label="Types de gains">
+            <div className="premium-winner-head" role="row">
+              <span>Type</span>
+              <span>Clé</span>
+              <span>Style</span>
+              <span>Ordre</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {catalogData.rewardTypes.length > 0 ? (
+              catalogData.rewardTypes.map((type) => (
+                <article className="premium-winner-row" key={type.key} role="row">
+                  <div>
+                    <strong>{type.name}</strong>
+                    <p>{type.description || 'Type de gain'}</p>
+                  </div>
+                  <strong>{type.key}</strong>
+                  <div>
+                    <strong>{type.icon || 'gift'}</strong>
+                    <p>{type.color || 'Couleur non définie'}</p>
+                  </div>
+                  <strong>{type.orderIndex}</strong>
+                  <span className={`status-pill ${type.isActive ? 'sent' : 'cancelled'}`}>
+                    {type.isActive ? 'Actif' : 'Inactif'}
+                  </span>
+                  <div className="contest-actions">
+                    <button
+                      className="table-action-button"
+                      onClick={() => openRewardTypeModal(type)}
+                      type="button"
+                    >
+                      Modifier
+                    </button>
+                    {type.isActive ? (
+                      <button
+                        className="table-action-button danger"
+                        onClick={() => handleDisableRewardType(type)}
+                        type="button"
+                      >
+                        Désactiver
+                      </button>
+                    ) : null}
+                    <button
+                      className="table-action-button danger"
+                      onClick={() => handleDeleteRewardType(type)}
+                      type="button"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="empty-panel-text">Aucun type de gain enregistré.</p>
+            )}
+          </div>
+        </section>
+      </section>
+
+      {isCatalogModalOpen ? (
+        <RewardCatalogModal
+          error={catalogFormError}
+          form={catalogForm}
+          isSaving={isSavingCatalogItem}
+          mode={editingCatalogItemId ? 'edit' : 'create'}
+          onChange={setCatalogForm}
+          onClose={closeCatalogModal}
+          onSubmit={handleCatalogSubmit}
+          partners={catalogData.partners}
+          rewardTypes={catalogData.rewardTypes.filter((type) => type.isActive)}
+        />
+      ) : null}
+
+      {isRewardTypeModalOpen ? (
+        <RewardTypeModal
+          error={rewardTypeFormError}
+          form={rewardTypeForm}
+          isSaving={isSavingRewardType}
+          onChange={setRewardTypeForm}
+          onClose={closeRewardTypeModal}
+          onSubmit={handleRewardTypeSubmit}
+        />
+      ) : null}
+    </main>
+  )
+}
+
 function SuperAdminWinnersPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
@@ -9029,6 +11148,26 @@ function SuperAdminWinnersPage() {
   )
   const [winnerError, setWinnerError] = useState('')
   const [isSavingWinner, setIsSavingWinner] = useState(false)
+  const [winnerSearch, setWinnerSearch] = useState('')
+  const [winnerStatusFilter, setWinnerStatusFilter] = useState<'all' | WinnerStatus>('all')
+  const [winnerTypeFilter, setWinnerTypeFilter] = useState<'all' | 'contest' | 'live'>('all')
+
+  const filteredWinners = useMemo(() => {
+    const search = winnerSearch.trim().toLowerCase()
+    return winnersData.winners.filter((winner) => {
+      const matchesSearch =
+        !search ||
+        winner.userLabel.toLowerCase().includes(search) ||
+        winner.contestTitle.toLowerCase().includes(search) ||
+        winner.paymentNumber.toLowerCase().includes(search)
+      const matchesStatus =
+        winnerStatusFilter === 'all' || winner.status === winnerStatusFilter
+      const matchesType =
+        winnerTypeFilter === 'all' ||
+        (winnerTypeFilter === 'live' ? winner.isLiveContest : !winner.isLiveContest)
+      return matchesSearch && matchesStatus && matchesType
+    })
+  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnersData.winners])
 
   const loadWinners = useCallback(async () => {
     setIsWinnersLoading(true)
@@ -9174,6 +11313,27 @@ function SuperAdminWinnersPage() {
 
       if (error) throw error
 
+      const previousWinner = editingWinnerId
+        ? winnersData.winners.find((winner) => winner.id === editingWinnerId)
+        : null
+      const shouldNotifyWinnerStatus =
+        winnerForm.status === 'sent' &&
+        previousWinner?.status !== winnerForm.status
+
+      if (shouldNotifyWinnerStatus) {
+        const selectedUser = winnersData.users.find(
+          (user) => user.id === winnerForm.userId,
+        )
+        await sendWinnerStatusPush({
+          userId: winnerForm.userId,
+          userLabel: selectedUser?.label ?? 'Joueur',
+          contestTitle: selectedContest?.title ?? 'un concours',
+          prizeDescription:
+            winnerForm.prizeDescription.trim() || 'un gain MegaPromo',
+          status: winnerForm.status,
+        })
+      }
+
       await loadWinners()
       closeWinnerModal()
     } catch (error) {
@@ -9188,6 +11348,8 @@ function SuperAdminWinnersPage() {
   }
 
   async function handleWinnerStatus(winner: WinnerItem, status: WinnerStatus) {
+    setWinnersError('')
+
     const { error } = await supabase
       .from('winners')
       .update({
@@ -9204,7 +11366,66 @@ function SuperAdminWinnersPage() {
       return
     }
 
+    if (
+      status === 'sent' &&
+      winner.status !== status
+    ) {
+      await sendWinnerStatusPush({
+        userId: winner.userId,
+        userLabel: winner.userLabel,
+        contestTitle: winner.contestTitle,
+        prizeDescription: winner.prizeDescription || 'un gain MegaPromo',
+        status,
+      })
+    }
+
     await loadWinners()
+  }
+
+  async function sendWinnerStatusPush({
+    userId,
+    userLabel,
+    contestTitle,
+    prizeDescription,
+    status,
+  }: {
+    userId: string
+    userLabel: string
+    contestTitle: string
+    prizeDescription: string
+    status: WinnerStatus
+  }) {
+    if (!userId) return
+
+    const pushPayload = {
+      userIds: [userId],
+      title: 'Gain payé',
+      body: `${userLabel}, ton gain "${prizeDescription}" pour "${contestTitle}" vient d’être payé.`,
+      type: 'winner',
+      data: {
+        type: 'winner',
+        source: 'winner_paid',
+        contestTitle,
+        prizeDescription,
+        status,
+      },
+    }
+
+    try {
+      console.info('[MegaPromo][winnerPush][payload]', pushPayload)
+      const pushResponse = await supabase.functions.invoke(
+        'send-push-notifications',
+        { body: pushPayload },
+      )
+      console.info('[MegaPromo][winnerPush][response]', pushResponse)
+    } catch (pushError) {
+      console.warn('[MegaPromo][winnerPush][error]', pushError)
+      setWinnersError(
+        `Statut mis à jour, mais push non envoyé: ${
+          pushError instanceof Error ? pushError.message : 'Edge Function indisponible.'
+        }`,
+      )
+    }
   }
 
   async function handleDeleteWinner(winner: WinnerItem) {
@@ -9310,58 +11531,105 @@ function SuperAdminWinnersPage() {
             <span className="pill">
               {isWinnersLoading
                 ? 'Chargement'
-                : `${winnersData.winners.length} entrées`}
+                : `${filteredWinners.length}/${winnersData.winners.length} entrées`}
             </span>
           </div>
 
-          <div className="winner-table">
-            {winnersData.winners.length > 0 ? (
-              winnersData.winners.map((winner) => (
-                <article className="winner-table-row" key={winner.id}>
+          <div className="winner-filters">
+            <input
+              aria-label="Rechercher un gagnant"
+              onChange={(event) => setWinnerSearch(event.target.value)}
+              placeholder="Rechercher joueur, concours, numéro..."
+              type="search"
+              value={winnerSearch}
+            />
+            <select
+              aria-label="Filtrer par statut"
+              onChange={(event) => setWinnerStatusFilter(event.target.value as 'all' | WinnerStatus)}
+              value={winnerStatusFilter}
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="pending">En attente</option>
+              <option value="sent">Payé</option>
+            </select>
+            <select
+              aria-label="Filtrer par type"
+              onChange={(event) => setWinnerTypeFilter(event.target.value as 'all' | 'contest' | 'live')}
+              value={winnerTypeFilter}
+            >
+              <option value="all">Tous les jeux</option>
+              <option value="contest">Concours</option>
+              <option value="live">Quiz Live</option>
+            </select>
+          </div>
+
+          <div className="premium-winner-table" role="table" aria-label="Liste des gagnants">
+            <div className="premium-winner-head" role="row">
+              <span>Joueur</span>
+              <span>Jeu</span>
+              <span>Gain</span>
+              <span>Paiement</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {filteredWinners.length > 0 ? (
+              filteredWinners.map((winner) => (
+                <article className="premium-winner-row" key={winner.id} role="row">
                   <div>
                     <strong>{winner.userLabel}</strong>
-                    <p>{winner.contestTitle}</p>
+                    <p>{winner.isLiveContest ? 'Quiz Live' : 'Concours'}</p>
                   </div>
-                  <small>{formatMoney(winner.prizeValue)}</small>
-                  <span>{winner.paymentMethod || 'Méthode non définie'}</span>
-                  <span>{winner.paymentNumber || 'Numéro non défini'}</span>
+                  <div>
+                    <strong>{winner.contestTitle}</strong>
+                    <p>{formatDate(winner.createdAt)}</p>
+                  </div>
+                  <strong className="winner-amount">{formatMoney(winner.prizeValue)}</strong>
+                  <div>
+                    <strong>
+                      {winner.paymentMethod || (winner.status === 'pending' ? 'À définir' : 'Non renseignée')}
+                    </strong>
+                    <p>{winner.paymentNumber || (winner.status === 'pending' ? 'À définir' : 'Non renseigné')}</p>
+                  </div>
                   <span className={`status-pill ${winner.status}`}>
-                    {winner.status}
+                    {winnerStatusLabel(winner.status)}
                   </span>
                   <div className="contest-actions">
                     <button
+                      aria-label={`Modifier le gain de ${winner.userLabel}`}
                       className="table-action-button"
                       onClick={() => openEditWinnerModal(winner)}
+                      title="Modifier les informations du gain"
                       type="button"
                     >
                       Modifier
                     </button>
                     <button
+                      aria-label={`Voir l'historique du concours ${winner.contestTitle}`}
                       className="table-action-button"
                       onClick={() =>
                         navigate(`${SUPER_ADMIN_CONTESTS_ROUTE}/${winner.contestId}/history`)
                       }
+                      title="Voir l'historique du concours et les réponses des joueurs"
                       type="button"
                     >
                       Historique
                     </button>
+                    {winner.status !== 'sent' ? (
+                      <button
+                        aria-label={`Marquer le gain de ${winner.userLabel} comme payé`}
+                        className="table-action-button"
+                        onClick={() => handleWinnerStatus(winner, 'sent')}
+                        title="Marquer ce gain comme payé et envoyer un push au joueur"
+                        type="button"
+                      >
+                        Payé
+                      </button>
+                    ) : null}
                     <button
-                      className="table-action-button"
-                      onClick={() => handleWinnerStatus(winner, 'sent')}
-                      type="button"
-                    >
-                      Envoyé
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() => handleWinnerStatus(winner, 'received')}
-                      type="button"
-                    >
-                      Reçu
-                    </button>
-                    <button
+                      aria-label={`Supprimer le gain de ${winner.userLabel}`}
                       className="table-action-button danger"
                       onClick={() => handleDeleteWinner(winner)}
+                      title="Supprimer définitivement ce gain"
                       type="button"
                     >
                       Supprimer
@@ -9373,7 +11641,7 @@ function SuperAdminWinnersPage() {
               <p className="empty-panel-text">
                 {isWinnersLoading
                   ? 'Chargement des gagnants...'
-                  : 'Aucun gagnant enregistré pour le moment.'}
+                  : 'Aucun gagnant ne correspond aux filtres.'}
               </p>
             )}
           </div>
@@ -9402,16 +11670,21 @@ function SuperAdminContestsPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const pageSize = 10
   const [contestsData, setContestsData] = useState<ContestsData>({
     contests: [],
     categories: [],
     partners: [],
     types: [],
+    rewards: [],
   })
   const [isContestsLoading, setIsContestsLoading] = useState(true)
   const [contestsError, setContestsError] = useState('')
   const [contestsNotice, setContestsNotice] = useState('')
   const [isContestModalOpen, setIsContestModalOpen] = useState(false)
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false)
+  const [deleteAllConfirmation, setDeleteAllConfirmation] = useState('')
+  const [isDeletingAllContests, setIsDeletingAllContests] = useState(false)
   const [editingContestId, setEditingContestId] = useState<string | null>(null)
   const [contestForm, setContestForm] = useState<ContestFormState>(
     createDefaultContestForm,
@@ -9422,6 +11695,7 @@ function SuperAdminContestsPage() {
   const [contestStatusFilter, setContestStatusFilter] = useState('all')
   const [contestTypeFilter, setContestTypeFilter] = useState('all')
   const [contestCategoryFilter, setContestCategoryFilter] = useState('all')
+  const [contestPage, setContestPage] = useState(0)
 
   const filteredContests = useMemo(() => {
     const cleanedSearch = contestSearch.trim().toLowerCase()
@@ -9449,6 +11723,22 @@ function SuperAdminContestsPage() {
     contestTypeFilter,
     contestsData.contests,
   ])
+  const totalContestPages = Math.max(1, Math.ceil(filteredContests.length / pageSize))
+  const paginatedContests = useMemo(() => {
+    const startIndex = contestPage * pageSize
+    return filteredContests.slice(startIndex, startIndex + pageSize)
+  }, [contestPage, filteredContests])
+  const contestResultsStart = filteredContests.length === 0 ? 0 : contestPage * pageSize + 1
+  const contestResultsEnd = Math.min(filteredContests.length, contestPage * pageSize + paginatedContests.length)
+  const contestPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, contestPage - 2)
+    const lastPage = Math.min(totalContestPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [contestPage, totalContestPages])
 
   const loadContests = useCallback(async () => {
     setIsContestsLoading(true)
@@ -9492,9 +11782,21 @@ function SuperAdminContestsPage() {
     }
   }, [])
 
+  useEffect(() => {
+    setContestPage(0)
+  }, [contestCategoryFilter, contestSearch, contestStatusFilter, contestTypeFilter])
+
   useRealtimeRefresh(
     'sa-contests-realtime',
-    ['contests', 'participations', 'winners', 'categories', 'partners', 'contest_types'],
+    [
+      'contests',
+      'participations',
+      'winners',
+      'categories',
+      'partners',
+      'contest_types',
+      'reward_catalog',
+    ],
     loadContests,
   )
 
@@ -9524,6 +11826,54 @@ function SuperAdminContestsPage() {
     setIsContestModalOpen(false)
   }
 
+  async function sendContestPlayersPush({
+    contestId,
+    title,
+    isLive,
+    isUpdate,
+  }: {
+    contestId: string
+    title: string
+    isLive: boolean
+    isUpdate: boolean
+  }) {
+    const notificationType = isLive ? 'live_quiz' : 'contest'
+    const pushPayload = {
+      audience: 'players' as const,
+      title: isUpdate
+        ? isLive
+          ? 'Quiz Live mis à jour'
+          : 'Jeu mis à jour'
+        : isLive
+          ? 'Nouveau Quiz Live'
+          : 'Nouveau jeu disponible',
+      body: isUpdate
+        ? `Le jeu "${title}" a été mis à jour.`
+        : isLive
+          ? `Un nouveau Quiz Live est disponible : ${title}`
+          : `Un nouveau concours est disponible : ${title}`,
+      type: notificationType,
+      data: {
+        contest_id: contestId,
+        contestId,
+        type: notificationType,
+        source: isUpdate ? 'contest_auto_update' : 'contest_auto_publish',
+        is_live: isLive,
+      },
+    }
+
+    try {
+      console.info('[MegaPromo][contestPlayers][pushPayload]', pushPayload)
+      const pushResponse = await supabase.functions.invoke(
+        'send-push-notifications',
+        { body: pushPayload },
+      )
+      console.info('[MegaPromo][contestPlayers][pushResponse]', pushResponse)
+    } catch (pushError) {
+      console.warn('[MegaPromo][contestPlayers][pushError]', pushError)
+    }
+  }
+
   async function handleContestSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setContestError('')
@@ -9547,6 +11897,9 @@ function SuperAdminContestsPage() {
     const selectedType = contestsData.types.find(
       (type) => type.key === contestForm.type,
     )
+    const selectedReward = contestsData.rewards.find(
+      (reward) => reward.id === contestForm.rewardCatalogId,
+    )
 
     if (title.length < 3) {
       setContestError('Le titre doit contenir au moins 3 caractères.')
@@ -9563,8 +11916,13 @@ function SuperAdminContestsPage() {
       return
     }
 
-    if (!Number.isFinite(prizeValue) || prizeValue <= 0) {
-      setContestError('La valeur du prix doit être supérieure à 0.')
+    if (!contestForm.rewardCatalogId || !selectedReward) {
+      setContestError('Choisis un gain du catalogue.')
+      return
+    }
+
+    if (!Number.isFinite(prizeValue) || prizeValue < 0) {
+      setContestError('La valeur du prix doit être supérieure ou égale à 0.')
       return
     }
 
@@ -9624,7 +11982,14 @@ function SuperAdminContestsPage() {
         category: selectedCategory.name,
         category_id: contestForm.categoryId,
         status: contestForm.status,
-        prize_description: prizeDescription || null,
+        prize_description:
+          prizeDescription || selectedReward.valueLabel || selectedReward.name,
+        reward_catalog_id: selectedReward.id,
+        reward_type: selectedReward.rewardType,
+        reward_delivery_mode: 'manual',
+        reward_delivery_instructions:
+          selectedReward.defaultDeliveryInstructions || null,
+        reward_terms: selectedReward.terms || null,
         brand_logo_url: contestForm.brandLogoUrl.trim() || null,
         brand_name: contestForm.brandName.trim() || null,
         prize_value: prizeValue,
@@ -9638,17 +12003,27 @@ function SuperAdminContestsPage() {
         live_starts_at: contestForm.isLive ? liveStartsAt.toISOString() : null,
         live_status: contestForm.isLive ? contestForm.liveStatus : 'scheduled',
       }
+      const savedContestId = editingContestId || createClientUuid()
       const { error } = editingContestId
         ? await supabase.from('contests').update(payload).eq('id', editingContestId)
         : await supabase.from('contests').insert({
             ...payload,
-            id: createClientUuid(),
+            id: savedContestId,
             views_count: 0,
             shares_count: 0,
             created_at: new Date().toISOString(),
           })
 
       if (error) throw error
+
+      if (payload.status === 'active') {
+        await sendContestPlayersPush({
+          contestId: savedContestId,
+          title,
+          isLive: contestForm.isLive,
+          isUpdate: Boolean(editingContestId),
+        })
+      }
 
       await loadContests()
       closeContestModal()
@@ -9713,6 +12088,15 @@ function SuperAdminContestsPage() {
       }
     }
 
+    if (nextStatus === 'active') {
+      await sendContestPlayersPush({
+        contestId: contest.id,
+        title: contest.title,
+        isLive: contest.isLive,
+        isUpdate: false,
+      })
+    }
+
     await loadContests()
   }
 
@@ -9733,6 +12117,43 @@ function SuperAdminContestsPage() {
     await loadContests()
   }
 
+  async function handleDeleteAllContests() {
+    setContestsError('')
+    setContestsNotice('')
+
+    const totalContests = contestsData.contests.length
+    if (totalContests === 0) {
+      setContestsNotice('Aucun concours à supprimer.')
+      setIsDeleteAllModalOpen(false)
+      setDeleteAllConfirmation('')
+      return
+    }
+
+    if (deleteAllConfirmation.trim().toUpperCase() !== 'SUPPRIMER') {
+      setContestsError('Tape SUPPRIMER pour confirmer la suppression globale.')
+      return
+    }
+
+    setIsDeletingAllContests(true)
+
+    const { error } = await supabase
+      .from('contests')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000')
+
+    if (error) {
+      setContestsError(error.message)
+      setIsDeletingAllContests(false)
+      return
+    }
+
+    setContestsNotice(`${totalContests} concours/QL supprimé(s).`)
+    setIsDeleteAllModalOpen(false)
+    setDeleteAllConfirmation('')
+    setIsDeletingAllContests(false)
+    await loadContests()
+  }
+
   async function handleGenerateWinners(contest: ContestItem) {
     setContestsError('')
     setContestsNotice('')
@@ -9745,76 +12166,66 @@ function SuperAdminContestsPage() {
     }
 
     try {
-      const [participationsResponse, existingWinnersResponse] = await Promise.all([
-        supabase
-          .from('participations')
-          .select('user_id, score, participated_at')
-          .eq('contest_id', contest.id)
-          .eq('completed', true),
-        supabase.from('winners').select('user_id').eq('contest_id', contest.id),
-      ])
-
-      if (participationsResponse.error) throw participationsResponse.error
-      if (existingWinnersResponse.error) throw existingWinnersResponse.error
-
-      const existingUserIds = new Set(
-        (existingWinnersResponse.data ?? [])
-          .map((winner) => winner.user_id as string | null)
-          .filter(Boolean),
+      const { data, error } = await supabase.rpc(
+        'generate_pending_winners_for_contest',
+        {
+          p_contest_id: contest.id,
+        },
       )
-      const candidates = ((participationsResponse.data ??
-        []) as ContestParticipationCandidate[]).filter(
-        (participation) =>
-          participation.user_id && !existingUserIds.has(participation.user_id),
-      )
-
-      if (candidates.length === 0) {
-        setContestsNotice(
-          'Aucun nouveau participant éligible à proposer pour ce concours.',
-        )
-        return
-      }
-
-      const winnerLimit = Math.max(1, contest.winnersCount || 1)
-      const rankedCandidates =
-        isDrawContestType(contest.type)
-          ? [...candidates].sort(() => Math.random() - 0.5)
-          : [...candidates].sort((first, second) => {
-              const scoreDiff = (second.score ?? 0) - (first.score ?? 0)
-              if (scoreDiff !== 0) return scoreDiff
-              return (
-                new Date(first.participated_at ?? 0).getTime() -
-                new Date(second.participated_at ?? 0).getTime()
-              )
-            })
-      const selectedCandidates = rankedCandidates.slice(0, winnerLimit)
-      const now = new Date().toISOString()
-      const payload = selectedCandidates.map((candidate) => ({
-        id: createClientUuid(),
-        user_id: candidate.user_id,
-        contest_id: contest.id,
-        prize_description: contest.prizeDescription || contest.title,
-        prize_value: contest.prizeValue,
-        payment_method: null,
-        payment_number: null,
-        status: 'pending',
-        sent_at: null,
-        created_at: now,
-      }))
-
-      const { error } = await supabase.from('winners').insert(payload)
       if (error) throw error
 
+      const generatedCount = Number(data ?? 0)
+      const winnerLimit = Math.max(1, contest.winnersCount || 1)
+
       await loadContests()
-      setContestsNotice(
-        `${payload.length} gagnant(s) candidat(s) généré(s). Valide-les dans l’onglet Gagnants.`,
-      )
+      if (generatedCount > 0) {
+        setContestsNotice(
+          `${generatedCount} gagnant(s) candidat(s) généré(s). Valide-les dans l’onglet Gagnants.`,
+        )
+      } else {
+        setContestsNotice(
+          `Aucun gagnant ajouté. La limite de ${winnerLimit} gagnant(s) est peut-être déjà atteinte ou aucun participant n’est éligible.`,
+        )
+      }
     } catch (error) {
       setContestsError(
         error instanceof Error
           ? error.message
           : 'Impossible de générer les gagnants.',
       )
+    }
+  }
+
+  function handleContestTableAction(contest: ContestItem, action: string) {
+    if (!action) return
+
+    if (action === 'edit') {
+      openEditContestModal(contest)
+      return
+    }
+
+    if (action === 'game') {
+      navigate(`${SUPER_ADMIN_CONTESTS_ROUTE}/${contest.id}/game`)
+      return
+    }
+
+    if (action === 'history') {
+      navigate(`${SUPER_ADMIN_CONTESTS_ROUTE}/${contest.id}/history`)
+      return
+    }
+
+    if (action === 'generate') {
+      void handleGenerateWinners(contest)
+      return
+    }
+
+    if (action === 'status') {
+      void handleToggleContestStatus(contest)
+      return
+    }
+
+    if (action === 'delete') {
+      void handleDeleteContest(contest)
     }
   }
 
@@ -9875,6 +12286,19 @@ function SuperAdminContestsPage() {
                 <small>Session vérifiée</small>
               </div>
             </div>
+            <button
+              className="logout-button"
+              disabled={isContestsLoading || contestsData.contests.length === 0}
+              onClick={() => {
+                setDeleteAllConfirmation('')
+                setContestsError('')
+                setContestsNotice('')
+                setIsDeleteAllModalOpen(true)
+              }}
+              type="button"
+            >
+              Tout supprimer
+            </button>
             <button className="primary-button" onClick={openContestModal} type="button">
               Nouveau concours
             </button>
@@ -9912,7 +12336,7 @@ function SuperAdminContestsPage() {
               <h2>Liste des concours</h2>
             </div>
             <span className="pill">
-              {isContestsLoading ? 'Chargement' : `${filteredContests.length} / ${contestsData.contests.length}`}
+              {isContestsLoading ? 'Chargement' : `${paginatedContests.length} / ${filteredContests.length}`}
             </span>
           </div>
 
@@ -9957,10 +12381,21 @@ function SuperAdminContestsPage() {
             </select>
           </div>
 
-          <div className="contest-table">
-            {filteredContests.length > 0 ? (
-              filteredContests.map((contest) => (
-                <article className="contest-table-row" key={contest.id}>
+          <div className="premium-contest-table">
+            <div className="premium-contest-head">
+              <span>Concours</span>
+              <span>Type</span>
+              <span>Live</span>
+              <span>Gain</span>
+              <span>Accès</span>
+              <span>Participants</span>
+              <span>Fin</span>
+              <span>Statut</span>
+              <span>Actions</span>
+            </div>
+            {paginatedContests.length > 0 ? (
+              paginatedContests.map((contest) => (
+                <div className="premium-contest-row" key={contest.id}>
                   <div>
                     <strong>{contest.title}</strong>
                     <p>
@@ -9968,10 +12403,13 @@ function SuperAdminContestsPage() {
                     </p>
                   </div>
                   <span className="contest-type-pill">{contest.type}</span>
-                  {contest.isLive ? (
-                    <span className="contest-type-pill live">LIVE</span>
-                  ) : null}
-                  <small>{formatMoney(contest.prizeValue)}</small>
+                  <span className={`contest-type-pill ${contest.isLive ? 'live' : 'muted'}`}>
+                    {contest.isLive ? 'LIVE' : '-'}
+                  </span>
+                  <div>
+                    <strong>{contest.rewardLabel}</strong>
+                    <p>{formatMoney(contest.prizeValue)}</p>
+                  </div>
                   <p>{formatPlayerPlanAccess(contest.allowedPlayerPlanKeys)}</p>
                   <p>
                     {contest.isLive
@@ -9983,54 +12421,27 @@ function SuperAdminContestsPage() {
                     {contest.status}
                   </span>
                   <div className="contest-actions">
-                    <button
-                      className="table-action-button"
-                      onClick={() => openEditContestModal(contest)}
-                      type="button"
+                    <select
+                      aria-label={`Actions pour ${contest.title}`}
+                      className="table-action-select"
+                      onChange={(event) => {
+                        handleContestTableAction(contest, event.target.value)
+                        event.currentTarget.value = ''
+                      }}
+                      value=""
                     >
-                      Modifier
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() =>
-                        navigate(`${SUPER_ADMIN_CONTESTS_ROUTE}/${contest.id}/game`)
-                      }
-                      type="button"
-                    >
-                      Configurer
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() =>
-                        navigate(`${SUPER_ADMIN_CONTESTS_ROUTE}/${contest.id}/history`)
-                      }
-                      type="button"
-                    >
-                      Historique
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() => handleGenerateWinners(contest)}
-                      type="button"
-                    >
-                      Générer
-                    </button>
-                    <button
-                      className="table-action-button"
-                      onClick={() => handleToggleContestStatus(contest)}
-                      type="button"
-                    >
-                      {contest.status === 'active' ? 'Désactiver' : 'Activer'}
-                    </button>
-                    <button
-                      className="table-action-button danger"
-                      onClick={() => handleDeleteContest(contest)}
-                      type="button"
-                    >
-                      Supprimer
-                    </button>
+                      <option value="">Actions</option>
+                      <option value="edit">Modifier</option>
+                      <option value="game">Configurer</option>
+                      <option value="history">Historique</option>
+                      <option value="generate">Générer gagnants</option>
+                      <option value="status">
+                        {contest.status === 'active' ? 'Désactiver' : 'Activer'}
+                      </option>
+                      <option value="delete">Supprimer</option>
+                    </select>
                   </div>
-                </article>
+                </div>
               ))
             ) : (
               <p className="empty-panel-text">
@@ -10039,8 +12450,64 @@ function SuperAdminContestsPage() {
                   : contestsData.contests.length > 0
                     ? 'Aucun concours ne correspond aux filtres.'
                     : 'Aucun concours créé pour le moment.'}
-              </p>
+                </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(contestResultsStart)}-{formatNumber(contestResultsEnd)} sur{' '}
+              {formatNumber(filteredContests.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={contestPage === 0 || isContestsLoading}
+                onClick={() => setContestPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={contestPage === 0 || isContestsLoading}
+                onClick={() => setContestPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {contestPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === contestPage ? 'active' : ''}`}
+                    disabled={isContestsLoading}
+                    key={page}
+                    onClick={() => setContestPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={contestPage + 1 >= totalContestPages || isContestsLoading}
+                onClick={() =>
+                  setContestPage((page) => Math.min(totalContestPages - 1, page + 1))
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={contestPage + 1 >= totalContestPages || isContestsLoading}
+                onClick={() => setContestPage(totalContestPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
       </section>
@@ -10054,10 +12521,26 @@ function SuperAdminContestsPage() {
           mode={editingContestId ? 'edit' : 'create'}
           onChange={setContestForm}
           onClose={closeContestModal}
-        onSubmit={handleContestSubmit}
-        partners={contestsData.partners}
-        types={contestsData.types}
-      />
+          onSubmit={handleContestSubmit}
+          partners={contestsData.partners}
+          rewards={contestsData.rewards}
+          types={contestsData.types}
+        />
+      ) : null}
+
+      {isDeleteAllModalOpen ? (
+        <DeleteAllContestsConfirmModal
+          confirmation={deleteAllConfirmation}
+          contestsCount={contestsData.contests.length}
+          isDeleting={isDeletingAllContests}
+          onChangeConfirmation={setDeleteAllConfirmation}
+          onClose={() => {
+            if (isDeletingAllContests) return
+            setIsDeleteAllModalOpen(false)
+            setDeleteAllConfirmation('')
+          }}
+          onConfirm={handleDeleteAllContests}
+        />
       ) : null}
 
     </main>
@@ -10151,20 +12634,31 @@ function SuperAdminContestGamePage() {
     if (!gameData) return
 
     const questionText = questionForm.questionText.trim()
+    const questionImageUrl = questionForm.questionImageUrl.trim()
+    const optionImageUrls = [
+      questionForm.optionAImageUrl.trim(),
+      questionForm.optionBImageUrl.trim(),
+      questionForm.optionCImageUrl.trim(),
+      questionForm.optionDImageUrl.trim(),
+    ]
     const points = Number(questionForm.points)
     const timeLimit = Number(questionForm.timeLimit)
     const orderIndex = Number(questionForm.orderIndex)
+    const hasTextOptions = [
+      questionForm.optionA,
+      questionForm.optionB,
+      questionForm.optionC,
+      questionForm.optionD,
+    ].every((option) => option.trim().length > 0)
+    const hasImageOptions = optionImageUrls.every((url) => url.length > 0)
 
-    if (questionText.length < 3) {
-      setGameError('La question doit contenir au moins 3 caractères.')
+    if (questionText.length < 3 && questionImageUrl.length < 1) {
+      setGameError('Ajoute un texte de question ou une image de question.')
       return
     }
 
-    if (
-      [questionForm.optionA, questionForm.optionB, questionForm.optionC, questionForm.optionD]
-        .some((option) => option.trim().length < 1)
-    ) {
-      setGameError('Les 4 options doivent être renseignées.')
+    if (!hasTextOptions && !hasImageOptions) {
+      setGameError('Renseigne les 4 réponses en texte ou les 4 images de réponse.')
       return
     }
 
@@ -10185,10 +12679,15 @@ function SuperAdminContestGamePage() {
     const payload = {
       contest_id: gameData.contest.id,
       question_text: questionText,
+      question_image_url: questionImageUrl || null,
       option_a: questionForm.optionA.trim(),
       option_b: questionForm.optionB.trim(),
       option_c: questionForm.optionC.trim(),
       option_d: questionForm.optionD.trim(),
+      option_a_image_url: optionImageUrls[0] || null,
+      option_b_image_url: optionImageUrls[1] || null,
+      option_c_image_url: optionImageUrls[2] || null,
+      option_d_image_url: optionImageUrls[3] || null,
       correct_answer: questionForm.correctAnswer,
       points,
       time_limit: timeLimit,
@@ -10586,7 +13085,7 @@ function SuperAdminContestGamePage() {
                 <div className="game-config-layout">
                   <form className="category-form game-form" onSubmit={handleQuestionSubmit}>
                     <label>
-                      <span>Question</span>
+                      <span>Question texte</span>
                       <textarea
                         onChange={(event) =>
                           setQuestionForm((current) => ({
@@ -10597,6 +13096,21 @@ function SuperAdminContestGamePage() {
                         placeholder="Quelle équipe a remporté... ?"
                         rows={3}
                         value={questionForm.questionText}
+                      />
+                    </label>
+
+                    <label>
+                      <span>Image de question (URL optionnelle)</span>
+                      <input
+                        onChange={(event) =>
+                          setQuestionForm((current) => ({
+                            ...current,
+                            questionImageUrl: event.target.value,
+                          }))
+                        }
+                        placeholder="https://.../question.png"
+                        type="url"
+                        value={questionForm.questionImageUrl}
                       />
                     </label>
 
@@ -10613,6 +13127,28 @@ function SuperAdminContestGamePage() {
                                   [key]: event.target.value,
                                 }))
                               }
+                              value={questionForm[key]}
+                            />
+                          </label>
+                        )
+                      })}
+                    </div>
+
+                    <div className="form-grid two-columns">
+                      {(['A', 'B', 'C', 'D'] as const).map((letter) => {
+                        const key = `option${letter}ImageUrl` as keyof QuizQuestionFormState
+                        return (
+                          <label key={letter}>
+                            <span>Image option {letter} (URL)</span>
+                            <input
+                              onChange={(event) =>
+                                setQuestionForm((current) => ({
+                                  ...current,
+                                  [key]: event.target.value,
+                                }))
+                              }
+                              placeholder="https://.../reponse.png"
+                              type="url"
                               value={questionForm[key]}
                             />
                           </label>
@@ -10715,11 +13251,19 @@ function SuperAdminContestGamePage() {
                           <article className="question-row" key={question.id}>
                             <div>
                               <strong>
-                                #{question.orderIndex} · {question.questionText}
+                                #{question.orderIndex} ·{' '}
+                                {question.questionText || 'Question image'}
                               </strong>
                               <p>
                                 Réponse {question.correctAnswer} · {question.points} pts ·{' '}
                                 {question.timeLimit}s
+                                {question.questionImageUrl ? ' · image question' : ''}
+                                {question.optionAImageUrl &&
+                                question.optionBImageUrl &&
+                                question.optionCImageUrl &&
+                                question.optionDImageUrl
+                                  ? ' · réponses images'
+                                  : ''}
                               </p>
                             </div>
                             <div>
@@ -10989,12 +13533,164 @@ function SuperAdminContestGamePage() {
   )
 }
 
+type ParticipationAnswerRecord = {
+  questionId: string
+  selectedIndex: number | null
+  correctIndex: number | null
+  isCorrect: boolean | null
+  points: number
+  elapsedMs: number
+}
+
+function ParticipationAnswerDetailModal({
+  participation,
+  questions,
+  onClose,
+}: {
+  participation: ContestHistoryItem
+  questions: QuizQuestionItem[]
+  onClose: () => void
+}) {
+  const answers = extractParticipationAnswerRecords(participation.rawAnswers)
+  const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]))
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="history-modal answer-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Détail des réponses"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Réponses joueur</p>
+            <h2>{participation.userLabel}</h2>
+            <p>
+              Rang #{participation.rank} · {participation.score} pts ·{' '}
+              {participation.completed ? 'Terminé' : 'En cours'}
+            </p>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+
+        <div className="answer-detail-list">
+          {questions.length > 0 ? (
+            questions.map((question, index) => {
+              const answer = answersByQuestion.get(question.id)
+              return (
+                <article className="answer-detail-row" key={question.id}>
+                  <div className="answer-detail-question">
+                    <span>Question {index + 1}</span>
+                    <strong>{question.questionText || 'Question image'}</strong>
+                    {question.questionImageUrl ? (
+                      <a href={question.questionImageUrl} target="_blank" rel="noreferrer">
+                        Voir image question
+                      </a>
+                    ) : null}
+                  </div>
+
+                  <div className="answer-detail-grid">
+                    <div>
+                      <span>Réponse joueur</span>
+                      <strong>
+                        {answer?.selectedIndex === null || answer?.selectedIndex === undefined
+                          ? 'Aucune réponse'
+                          : optionTextForIndex(question, answer.selectedIndex)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Réponse système</span>
+                      <strong>{optionTextForIndex(question, correctIndexForQuestion(question))}</strong>
+                    </div>
+                    <div>
+                      <span>Résultat</span>
+                      <strong className={answer?.isCorrect ? 'success-text' : 'danger-text'}>
+                        {answer?.isCorrect ? 'Correct' : 'Incorrect'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Points</span>
+                      <strong>{answer?.points ?? 0} pts</strong>
+                    </div>
+                    <div>
+                      <span>Temps</span>
+                      <strong>{formatDurationMs(answer?.elapsedMs ?? 0)}</strong>
+                    </div>
+                  </div>
+                </article>
+              )
+            })
+          ) : (
+            <p className="empty-panel-text">
+              Aucune question disponible pour détailler les réponses.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function extractParticipationAnswerRecords(rawAnswers: unknown): ParticipationAnswerRecord[] {
+  const payload =
+    rawAnswers && typeof rawAnswers === 'object'
+      ? (rawAnswers as Record<string, unknown>)
+      : null
+  const items = Array.isArray(rawAnswers)
+    ? rawAnswers
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : []
+
+  return items
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      questionId: (item.question_id as string | null) ?? '',
+      selectedIndex:
+        typeof item.selected_index === 'number' ? item.selected_index : null,
+      correctIndex:
+        typeof item.correct_index === 'number' ? item.correct_index : null,
+      isCorrect: typeof item.is_correct === 'boolean' ? item.is_correct : null,
+      points: typeof item.points === 'number' ? item.points : 0,
+      elapsedMs: typeof item.elapsed_ms === 'number' ? item.elapsed_ms : 0,
+    }))
+    .filter((item) => item.questionId)
+}
+
+function correctIndexForQuestion(question: QuizQuestionItem) {
+  return ['A', 'B', 'C', 'D'].indexOf(question.correctAnswer.toUpperCase())
+}
+
+function optionTextForIndex(question: QuizQuestionItem, index: number) {
+  const labels = ['A', 'B', 'C', 'D']
+  const options = [question.optionA, question.optionB, question.optionC, question.optionD]
+  const images = [
+    question.optionAImageUrl,
+    question.optionBImageUrl,
+    question.optionCImageUrl,
+    question.optionDImageUrl,
+  ]
+  if (index < 0 || index >= labels.length) return 'Réponse inconnue'
+  return `${labels[index]} · ${options[index] || images[index] || 'Image réponse'}`
+}
+
+function formatDurationMs(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 'Non mesuré'
+  return `${(value / 1000).toFixed(2)}s`
+}
+
 function SuperAdminContestHistoryPage() {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const { contestId } = useParams()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
   const [historyData, setHistoryData] = useState<ContestHistoryData | null>(null)
+  const [selectedParticipation, setSelectedParticipation] =
+    useState<ContestHistoryItem | null>(null)
   const [isHistoryLoading, setIsHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState('')
   const [historyNotice, setHistoryNotice] = useState('')
@@ -11076,7 +13772,9 @@ function SuperAdminContestHistoryPage() {
       setHistoryData({
         contest: { ...historyData.contest, participants: 0 },
         participations: [],
+        questions: historyData.questions,
       })
+      setSelectedParticipation(null)
       setHistoryNotice('Historique de participation vidé pour ce concours.')
     } catch (error) {
       setHistoryError(
@@ -11239,7 +13937,12 @@ function SuperAdminContestHistoryPage() {
               <div className="history-list page-history-list">
                 {historyData.participations.length > 0 ? (
                   historyData.participations.map((participation) => (
-                    <article className="history-row" key={participation.id}>
+                    <button
+                      className="history-row history-row-button"
+                      key={participation.id}
+                      onClick={() => setSelectedParticipation(participation)}
+                      type="button"
+                    >
                       <div>
                         <strong>
                           #{participation.rank} · {participation.userLabel}
@@ -11251,7 +13954,7 @@ function SuperAdminContestHistoryPage() {
                       <span className={`status-pill ${participation.completed ? 'active' : 'pending'}`}>
                         {participation.completed ? 'Terminé' : 'En cours'}
                       </span>
-                    </article>
+                    </button>
                   ))
                 ) : (
                   <p className="empty-panel-text">
@@ -11270,6 +13973,14 @@ function SuperAdminContestHistoryPage() {
             </p>
           )}
         </section>
+
+        {historyData && selectedParticipation ? (
+          <ParticipationAnswerDetailModal
+            participation={selectedParticipation}
+            questions={historyData.questions}
+            onClose={() => setSelectedParticipation(null)}
+          />
+        ) : null}
       </section>
     </main>
   )
@@ -11396,6 +14107,7 @@ function ContestModal({
   onClose,
   onSubmit,
   partners,
+  rewards,
   types,
 }: {
   categories: CategoryOption[]
@@ -11407,6 +14119,7 @@ function ContestModal({
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
   partners: PartnerOption[]
+  rewards: RewardCatalogItem[]
   types: ContestTypeOption[]
 }) {
   const [logoUploadError, setLogoUploadError] = useState('')
@@ -11458,6 +14171,20 @@ function ContestModal({
     } finally {
       setIsUploadingLogo(false)
     }
+  }
+
+  function handleRewardChange(rewardId: string) {
+    const selectedReward = rewards.find((reward) => reward.id === rewardId)
+
+    onChange({
+      ...form,
+      rewardCatalogId: rewardId,
+      rewardType: selectedReward?.rewardType ?? 'manual',
+      prizeDescription:
+        selectedReward?.valueLabel || selectedReward?.name || form.prizeDescription,
+      prizeValue:
+        selectedReward == null ? form.prizeValue : String(selectedReward.estimatedValue),
+    })
   }
 
   return (
@@ -11704,16 +14431,21 @@ function ContestModal({
 
           <div className="form-grid two-columns">
             <label>
-              <span>Valeur du prix</span>
-              <input
-                inputMode="numeric"
-                onChange={(event) =>
-                  onChange({ ...form, prizeValue: event.target.value })
-                }
-                placeholder="50000"
-                type="number"
-                value={form.prizeValue}
-              />
+              <span>Gain du catalogue</span>
+              <select
+                onChange={(event) => handleRewardChange(event.target.value)}
+                value={form.rewardCatalogId}
+              >
+                <option value="">Choisir un gain</option>
+                {rewards.map((reward) => (
+                  <option key={reward.id} value={reward.id}>
+                    {reward.valueLabel || reward.name}
+                  </option>
+                ))}
+              </select>
+              <small className="form-help">
+                Le type, le libellé et la valeur du lot viennent du catalogue.
+              </small>
             </label>
 
             <label>
@@ -11729,16 +14461,31 @@ function ContestModal({
             </label>
           </div>
 
-          <label>
-            <span>Description du prix</span>
-            <input
-              onChange={(event) =>
-                onChange({ ...form, prizeDescription: event.target.value })
-              }
-              placeholder="Cash, téléphone, bon d’achat..."
-              value={form.prizeDescription}
-            />
-          </label>
+          <div className="form-grid two-columns">
+            <label>
+              <span>Valeur affichée</span>
+              <input
+                inputMode="numeric"
+                onChange={(event) =>
+                  onChange({ ...form, prizeValue: event.target.value })
+                }
+                placeholder="0"
+                type="number"
+                value={form.prizeValue}
+              />
+            </label>
+
+            <label>
+              <span>Description du gain</span>
+              <input
+                onChange={(event) =>
+                  onChange({ ...form, prizeDescription: event.target.value })
+                }
+                placeholder="Choisir un gain du catalogue"
+                value={form.prizeDescription}
+              />
+            </label>
+          </div>
 
           <div className="form-grid three-columns">
             <label>
@@ -12877,6 +15624,336 @@ function PlayerPlanModal({
   )
 }
 
+
+
+function RewardTypeModal({
+  error,
+  form,
+  isSaving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  error: string
+  form: RewardTypeFormState
+  isSaving: boolean
+  onChange: (next: RewardTypeFormState) => void
+  onClose: () => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section aria-label="Type de gain" className="contest-modal">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Types de gains</p>
+            <h2>Manager un type</h2>
+          </div>
+          <button
+            aria-label="Fermer"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+
+        <form className="category-form contest-form" onSubmit={onSubmit}>
+          <div className="form-grid two-columns">
+            <label>
+              <span>Clé technique</span>
+              <input
+                onChange={(event) => onChange({ ...form, key: event.target.value })}
+                placeholder="ex: restaurant_voucher"
+                value={form.key}
+              />
+            </label>
+
+            <label>
+              <span>Nom affiché</span>
+              <input
+                onChange={(event) => onChange({ ...form, name: event.target.value })}
+                placeholder="Ex: Bon restaurant"
+                value={form.name}
+              />
+            </label>
+          </div>
+
+          <label>
+            <span>Description</span>
+            <textarea
+              onChange={(event) => onChange({ ...form, description: event.target.value })}
+              placeholder="Description du type de gain"
+              rows={3}
+              value={form.description}
+            />
+          </label>
+
+          <div className="form-grid three-columns">
+            <label>
+              <span>Icône</span>
+              <input
+                onChange={(event) => onChange({ ...form, icon: event.target.value })}
+                placeholder="gift"
+                value={form.icon}
+              />
+            </label>
+
+            <label>
+              <span>Couleur</span>
+              <input
+                onChange={(event) => onChange({ ...form, color: event.target.value })}
+                placeholder="#475569"
+                value={form.color}
+              />
+            </label>
+
+            <label>
+              <span>Ordre</span>
+              <input
+                inputMode="numeric"
+                onChange={(event) => onChange({ ...form, orderIndex: event.target.value })}
+                type="number"
+                value={form.orderIndex}
+              />
+            </label>
+          </div>
+
+          <label className="check-row">
+            <input
+              checked={form.isActive}
+              onChange={(event) => onChange({ ...form, isActive: event.target.checked })}
+              type="checkbox"
+            />
+            <span>Type actif</span>
+          </label>
+
+          {error ? <p className="form-error">{error}</p> : null}
+
+          <div className="modal-actions">
+            <button
+              className="secondary-action-button"
+              disabled={isSaving}
+              onClick={onClose}
+              type="button"
+            >
+              Annuler
+            </button>
+            <button className="inline-action-button" disabled={isSaving} type="submit">
+              {isSaving ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function RewardCatalogModal({
+  error,
+  form,
+  isSaving,
+  mode,
+  onChange,
+  onClose,
+  onSubmit,
+  partners,
+  rewardTypes,
+}: {
+  error: string
+  form: RewardCatalogFormState
+  isSaving: boolean
+  mode: 'create' | 'edit'
+  onChange: (next: RewardCatalogFormState) => void
+  onClose: () => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
+  partners: PartnerOption[]
+  rewardTypes: RewardTypeItem[]
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section aria-label="Gain catalogue" className="contest-modal">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Catalogue des gains</p>
+            <h2>{mode === 'create' ? 'Nouveau gain' : 'Modifier gain'}</h2>
+          </div>
+          <button
+            aria-label="Fermer"
+            disabled={isSaving}
+            onClick={onClose}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+
+        <form className="category-form contest-form" onSubmit={onSubmit}>
+          <div className="form-grid two-columns">
+            <label>
+              <span>Nom du gain</span>
+              <input
+                onChange={(event) => onChange({ ...form, name: event.target.value })}
+                placeholder="Ex: Code réduction 20%"
+                value={form.name}
+              />
+            </label>
+
+            <label>
+              <span>Type</span>
+              <select
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    rewardType: event.target.value as RewardCatalogType,
+                  })
+                }
+                value={form.rewardType}
+              >
+                {rewardTypes.map((type) => (
+                  <option key={type.key} value={type.key}>
+                    {type.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="form-grid two-columns">
+            <label>
+              <span>Partenaire</span>
+              <select
+                onChange={(event) => onChange({ ...form, partnerId: event.target.value })}
+                value={form.partnerId}
+              >
+                <option value="">MegaPromo</option>
+                {partners.map((partner) => (
+                  <option key={partner.id} value={partner.id}>
+                    {partner.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Valeur estimée</span>
+              <input
+                inputMode="numeric"
+                onChange={(event) =>
+                  onChange({ ...form, estimatedValue: event.target.value })
+                }
+                type="number"
+                value={form.estimatedValue}
+              />
+            </label>
+          </div>
+
+          <label>
+            <span>Libellé affiché</span>
+            <input
+              onChange={(event) => onChange({ ...form, valueLabel: event.target.value })}
+              placeholder="Ex: Bon de réduction 5 000 FCFA"
+              value={form.valueLabel}
+            />
+          </label>
+
+          <label>
+            <span>Description</span>
+            <textarea
+              onChange={(event) => onChange({ ...form, description: event.target.value })}
+              placeholder="Description courte du gain"
+              rows={3}
+              value={form.description}
+            />
+          </label>
+
+          <div className="form-grid two-columns">
+            <label>
+              <span>Code par défaut</span>
+              <input
+                onChange={(event) => onChange({ ...form, defaultCode: event.target.value })}
+                placeholder="PROMO20"
+                value={form.defaultCode}
+              />
+            </label>
+
+            <label>
+              <span>Stock</span>
+              <input
+                inputMode="numeric"
+                onChange={(event) =>
+                  onChange({ ...form, stockQuantity: event.target.value })
+                }
+                placeholder="Vide = illimité"
+                type="number"
+                value={form.stockQuantity}
+              />
+            </label>
+          </div>
+
+          <label>
+            <span>Instructions de remise</span>
+            <textarea
+              onChange={(event) =>
+                onChange({ ...form, defaultDeliveryInstructions: event.target.value })
+              }
+              placeholder="Ex: Présenter le code à la caisse du partenaire."
+              rows={3}
+              value={form.defaultDeliveryInstructions}
+            />
+          </label>
+
+          <label>
+            <span>Conditions</span>
+            <textarea
+              onChange={(event) => onChange({ ...form, terms: event.target.value })}
+              placeholder="Conditions d’utilisation du gain"
+              rows={3}
+              value={form.terms}
+            />
+          </label>
+
+          <label className="check-row">
+            <input
+              checked={form.isActive}
+              onChange={(event) =>
+                onChange({ ...form, isActive: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>Gain actif dans le catalogue</span>
+          </label>
+
+          {error ? <p className="form-error">{error}</p> : null}
+
+          <div className="modal-actions">
+            <button
+              className="secondary-action-button"
+              disabled={isSaving}
+              onClick={onClose}
+              type="button"
+            >
+              Annuler
+            </button>
+            <button
+              className="inline-action-button"
+              disabled={isSaving}
+              type="submit"
+            >
+              {isSaving
+                ? 'Enregistrement...'
+                : mode === 'create'
+                  ? 'Créer le gain'
+                  : 'Enregistrer'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 function WinnerModal({
   contests,
   error,
@@ -12972,10 +16049,9 @@ function WinnerModal({
                 }
                 value={form.status}
               >
-                <option value="pending">Pending</option>
-                <option value="sent">Sent</option>
-                <option value="received">Received</option>
-                <option value="cancelled">Cancelled</option>
+                <option value="pending">En attente</option>
+                <option value="sent">Payé</option>
+                <option value="cancelled">Annulé</option>
               </select>
             </label>
           </div>
@@ -13204,6 +16280,7 @@ function SuperAdminNotificationsPage() {
     body: '',
     type: 'info',
     contestId: '',
+    sendPush: false,
     sendSms: false,
     smsMessage: '',
   })
@@ -13215,7 +16292,9 @@ function SuperAdminNotificationsPage() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, username, phone, is_premium, is_active')
+        .select(
+          'id, username, phone, is_premium, is_active, fcm_token, fcm_token_platform, fcm_token_last_error, fcm_token_last_error_at',
+        )
         .eq('role', 'player')
         .order('created_at', { ascending: false })
         .limit(500)
@@ -13229,6 +16308,10 @@ function SuperAdminNotificationsPage() {
             (user.username as string | null) ??
             (user.phone as string | null) ??
             'Joueur',
+          hasPushToken: Boolean(user.fcm_token),
+          pushPlatform: (user.fcm_token_platform as string | null) ?? '',
+          pushLastError: (user.fcm_token_last_error as string | null) ?? '',
+          pushLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
         })),
       )
     } catch (error) {
@@ -13333,41 +16416,61 @@ function SuperAdminNotificationsPage() {
 
       if (insertError) throw insertError
 
-      let pushSummary = ''
-      try {
-        console.info('[MegaPromo][SA notifications][pushRequest]', {
-          target: form.target,
-          targetCount: targetIds.length,
-          type: form.type,
-          hasContestId: Boolean(form.contestId.trim()),
-        })
-        const { data: pushData, error: pushError } =
-          await supabase.functions.invoke('send-push-notifications', {
-            body: {
-              userIds: targetIds,
-              title,
-              body,
-              type: form.type,
-              data: notificationData,
-            },
+      let pushSummary = ' Push mobile: désactivé.'
+      if (form.sendPush) {
+        try {
+          console.info('[MegaPromo][SA notifications][pushRequest]', {
+            target: form.target,
+            targetCount: targetIds.length,
+            type: form.type,
+            hasContestId: Boolean(form.contestId.trim()),
           })
-        console.info('[MegaPromo][SA notifications][pushResponse]', {
-          data: pushData,
-          error: pushError,
-        })
-        if (pushError) throw pushError
-        const sent = Number((pushData as { sent?: number } | null)?.sent ?? 0)
-        const failed = Number((pushData as { failed?: number } | null)?.failed ?? 0)
-        const targetUsers = Number(
-          (pushData as { targetUsers?: number } | null)?.targetUsers ?? targetIds.length,
-        )
-        pushSummary = ` Push: ${sent}/${targetUsers} envoyé(s), ${failed} échec(s).`
-      } catch (pushError) {
-        console.warn('[MegaPromo][SA notifications][pushError]', pushError)
-        // La ligne Supabase est créée même si l'Edge Function push n'est pas encore déployée.
-        pushSummary = ` Push non envoyé: ${
-          pushError instanceof Error ? pushError.message : 'Edge Function indisponible.'
-        }`
+          const { data: pushData, error: pushError } =
+            await supabase.functions.invoke('send-push-notifications', {
+              body: {
+                userIds: targetIds,
+                title,
+                body,
+                type: form.type,
+                data: notificationData,
+                platforms: ['ios', 'android'],
+              },
+            })
+          console.info('[MegaPromo][SA notifications][pushResponse]', {
+            data: pushData,
+            error: pushError,
+          })
+          if (pushError) throw pushError
+          const sent = Number((pushData as { sent?: number } | null)?.sent ?? 0)
+          const failed = Number((pushData as { failed?: number } | null)?.failed ?? 0)
+          const targetUsers = Number(
+            (pushData as { targetUsers?: number } | null)?.targetUsers ??
+              targetIds.length,
+          )
+          const pushMessage = (pushData as { message?: string } | null)?.message ?? ''
+          const failedSample = (
+            pushData as {
+              failedSamples?: Array<{ summary?: string; response?: unknown }>
+            } | null
+          )?.failedSamples?.[0]
+          const failedDetail =
+            failed > 0 && failedSample
+              ? ` Détail: ${
+                  failedSample.summary ??
+                  JSON.stringify(failedSample.response).slice(0, 180)
+                }`
+              : pushMessage
+                ? ` ${pushMessage}`
+                : ''
+          pushSummary = ` Push mobile: ${sent}/${targetUsers} envoyé(s), ${failed} échec(s).${failedDetail}`
+        } catch (pushError) {
+          console.warn('[MegaPromo][SA notifications][pushError]', pushError)
+          // La ligne Supabase est créée même si l'Edge Function push n'est pas encore déployée.
+          pushSummary = ` Push mobile non envoyé: ${formatUnknownError(
+            pushError,
+            'Edge Function indisponible.',
+          )}`
+        }
       }
 
       let smsSummary = ''
@@ -13406,6 +16509,7 @@ function SuperAdminNotificationsPage() {
         body: '',
         type: 'info',
         contestId: '',
+        sendPush: false,
         sendSms: false,
         smsMessage: '',
       })
@@ -13474,7 +16578,7 @@ function SuperAdminNotificationsPage() {
         <div className="sidebar-card">
           <span>Notifications</span>
           <strong>{users.length} joueurs chargés</strong>
-          <p>Envoi groupé ou individuel vers l’app mobile, push et SMS.</p>
+          <p>Envoi groupé ou individuel vers l’app mobile, push optionnel et SMS.</p>
         </div>
       </aside>
 
@@ -13484,7 +16588,7 @@ function SuperAdminNotificationsPage() {
             <p className="eyebrow">Communication</p>
             <h1>Notifications push</h1>
             <p className="page-subtitle">
-              Crée une notification in-app, déclenche le push et ajoute un SMS mTarget si nécessaire.
+              Crée une notification in-app, puis déclenche le push mobile ou le SMS seulement si tu l’actives.
             </p>
           </div>
 
@@ -13578,7 +16682,7 @@ function SuperAdminNotificationsPage() {
                   <option value="">Choisir un joueur</option>
                   {users.map((user) => (
                     <option key={user.id} value={user.id}>
-                      {user.label}
+                      {user.label} · {user.hasPushToken ? `Push ${user.pushPlatform || 'mobile'}` : 'Push absent'}
                     </option>
                   ))}
                 </select>
@@ -13618,7 +16722,14 @@ function SuperAdminNotificationsPage() {
                         onChange={() => toggleSelectedUser(user.id)}
                         type="checkbox"
                       />
-                      <span>{user.label}</span>
+                      <span>
+                        {user.label}
+                        {user.hasPushToken ? (
+                          <small>Push {user.pushPlatform || 'mobile'}</small>
+                        ) : (
+                          <small>Push absent</small>
+                        )}
+                      </span>
                     </label>
                   ))}
                   {users.length === 0 ? (
@@ -13664,6 +16775,17 @@ function SuperAdminNotificationsPage() {
 
             <label className="notification-recipient-row sms-toggle-row">
               <input
+                checked={form.sendPush}
+                onChange={(event) =>
+                  setForm({ ...form, sendPush: event.target.checked })
+                }
+                type="checkbox"
+              />
+              <span>Envoyer aussi un vrai push mobile iOS/Android</span>
+            </label>
+
+            <label className="notification-recipient-row sms-toggle-row">
+              <input
                 checked={form.sendSms}
                 onChange={(event) =>
                   setForm({ ...form, sendSms: event.target.checked })
@@ -13693,7 +16815,7 @@ function SuperAdminNotificationsPage() {
 
             <div className="modal-actions">
               <button className="inline-action-button" disabled={isSending} type="submit">
-                {isSending ? 'Envoi...' : 'Créer et envoyer'}
+                {isSending ? 'Envoi...' : 'Créer la notification'}
               </button>
             </div>
           </form>
@@ -13973,6 +17095,8 @@ function PartnerPreview() {
       brandName: contest.brandName || partner?.companyName || '',
       prizeDescription: contest.prizeDescription,
       prizeValue: String(contest.prizeValue || ''),
+      rewardCatalogId: '',
+      rewardType: 'manual',
       winnersCount: String(contest.winnersCount || 1),
       maxParticipants:
         contest.maxParticipants === null ? '' : String(contest.maxParticipants),

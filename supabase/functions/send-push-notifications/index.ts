@@ -2,11 +2,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 type PushPayload = {
   userIds?: string[]
-  audience?: 'admins'
+  audience?: 'admins' | 'players'
   title: string
   body: string
   type?: string
   data?: Record<string, unknown>
+  platforms?: Array<'ios' | 'android' | 'web' | 'unknown'>
 }
 
 type ServiceAccount = {
@@ -142,6 +143,28 @@ function tokenPreview(token: string) {
   return `${token.slice(0, 10)}...${token.slice(-6)}`
 }
 
+function firebaseFailureSummary(response: unknown) {
+  if (!response || typeof response !== 'object') return 'Erreur Firebase inconnue.'
+
+  const payload = response as {
+    error?: {
+      code?: number
+      status?: string
+      message?: string
+      details?: Array<{
+        errorCode?: string
+      }>
+    }
+  }
+  const error = payload.error
+  if (!error) return JSON.stringify(response).slice(0, 300)
+
+  const errorCode = error.details?.find((detail) => detail.errorCode)?.errorCode
+  return [errorCode, error.status, error.message]
+    .filter((value): value is string => Boolean(value))
+    .join(' · ')
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -187,16 +210,24 @@ Deno.serve(async (request) => {
     bodyLength: body.length,
     type: payload.type ?? 'info',
     data: payload.data ?? {},
+    platforms: payload.platforms ?? ['ios', 'android'],
   })
 
   let targetQuery = supabaseAdmin
     .from('users')
-    .select('id, fcm_token, role, is_active')
+    .select('id, fcm_token, fcm_token_platform, role, is_active')
     .not('fcm_token', 'is', null)
     .eq('is_active', true)
 
+  const targetPlatforms = Array.from(
+    new Set(payload.platforms?.length ? payload.platforms : ['ios', 'android']),
+  )
+  targetQuery = targetQuery.in('fcm_token_platform', targetPlatforms)
+
   if (payload.audience === 'admins') {
     targetQuery = targetQuery.in('role', ['admin', 'super-admin', 'super_admin'])
+  } else if (payload.audience === 'players') {
+    targetQuery = targetQuery.eq('role', 'player')
   } else {
     const userIds = Array.from(new Set(payload.userIds ?? [])).filter(Boolean)
     if (userIds.length === 0) {
@@ -221,6 +252,7 @@ Deno.serve(async (request) => {
   console.log('[MegaPromo][push] targets', {
     users: users?.length ?? 0,
     tokens: tokens.length,
+    platforms: targetPlatforms,
     tokenSamples: tokens.slice(0, 5).map(tokenPreview),
   })
 
@@ -230,7 +262,10 @@ Deno.serve(async (request) => {
       sent: 0,
       failed: 0,
       targetUsers: users?.length ?? 0,
-      message: 'Aucun fcm_token trouvé pour la cible.',
+      message:
+        users?.length === 0
+          ? `Aucun joueur actif avec fcm_token mobile (${targetPlatforms.join(', ')}).`
+          : 'Aucun fcm_token trouvé pour la cible.',
     }
     console.log('[MegaPromo][push] response', response)
     return jsonResponse(response)
@@ -249,6 +284,13 @@ Deno.serve(async (request) => {
       title,
       body,
     })
+    const tokenOwners = new Map<string, string[]>()
+    for (const user of users ?? []) {
+      const fcmToken = user.fcm_token as string | null
+      if (!fcmToken) continue
+      tokenOwners.set(fcmToken, [...(tokenOwners.get(fcmToken) ?? []), user.id as string])
+    }
+
     const results = await Promise.all(
       tokens.map(async (fcmToken) => {
         const response = await fetch(
@@ -287,10 +329,27 @@ Deno.serve(async (request) => {
           },
         )
         const responsePayload = await response.json()
+        if (!response.ok) {
+          const ownerIds = tokenOwners.get(fcmToken) ?? []
+          await Promise.all(
+            ownerIds.map((userId) =>
+              supabaseAdmin
+                .from('users')
+                .update({
+                  fcm_token_last_error: JSON.stringify(responsePayload).slice(0, 1000),
+                  fcm_token_last_error_at: new Date().toISOString(),
+                })
+                .eq('id', userId),
+            ),
+          )
+        }
         return {
           ok: response.ok,
           status: response.status,
           token: tokenPreview(fcmToken),
+          summary: response.ok
+            ? 'Envoyé'
+            : firebaseFailureSummary(responsePayload),
           response: responsePayload,
         }
       }),
@@ -306,7 +365,7 @@ Deno.serve(async (request) => {
       results,
     }
     console.log('[MegaPromo][push] response', response)
-    return jsonResponse(response, failed === 0 ? 200 : 207)
+    return jsonResponse(response)
   } catch (error) {
     const response = {
       ok: false,
