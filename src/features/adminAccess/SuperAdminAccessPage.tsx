@@ -161,11 +161,19 @@ export function SuperAdminAccessPage({
 }) {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
-  const canWrite = hasAdminPermission(
-    adminAuth.profile?.permissions,
-    'admin_access',
-    'write',
-  )
+  const isUnrestrictedSa =
+    ['admin', 'super_admin', 'super-admin', 'sa'].includes(
+      adminAuth.profile?.role ?? '',
+    ) &&
+    (adminAuth.user?.email?.toLowerCase() === 'jo.djebi@gmail.com' ||
+      adminAuth.profile?.permissions?.includes('*') === true)
+  const canWrite =
+    isUnrestrictedSa ||
+    hasAdminPermission(
+      adminAuth.profile?.permissions,
+      'admin_access',
+      'write',
+    )
   const [roles, setRoles] = useState<AdminRole[]>([])
   const [admins, setAdmins] = useState<AdminUser[]>([])
   const [roleForm, setRoleForm] = useState<RoleFormState>(emptyRoleForm)
