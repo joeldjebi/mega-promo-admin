@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { useAdminAuth } from './auth/useAdminAuth'
+import { SuperAdminAccessPage } from './features/adminAccess/SuperAdminAccessPage'
+import { hasAdminPermission } from './features/adminAccess/permissions'
 import { LandingPage as PublicLandingPage } from './features/landing/LandingPage'
 import { LegalPage as PublicLegalPage } from './features/landing/LegalPage'
 import {
@@ -876,6 +878,7 @@ const SUPER_ADMIN_WINNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/winners`
 const SUPER_ADMIN_REWARD_CATALOG_ROUTE = `${SUPER_ADMIN_ROUTE}/reward-catalog`
 const SUPER_ADMIN_USERS_ROUTE = `${SUPER_ADMIN_ROUTE}/users`
 const SUPER_ADMIN_NOTIFICATIONS_ROUTE = `${SUPER_ADMIN_ROUTE}/notifications`
+const SUPER_ADMIN_ACCESS_ROUTE = `${SUPER_ADMIN_ROUTE}/admin-access`
 const SUPER_ADMIN_LANDING_ROUTE = `${SUPER_ADMIN_ROUTE}/landing`
 const SUPER_ADMIN_SETTINGS_ROUTE = `${SUPER_ADMIN_ROUTE}/settings`
 const SUPER_ADMIN_MAINTENANCE_ROUTE = `${SUPER_ADMIN_ROUTE}/maintenance`
@@ -1002,21 +1005,28 @@ const quickActions = [
 ]
 
 const navItems = [
-  { label: 'Dashboard', href: SUPER_ADMIN_ROUTE, icon: 'D' },
-  { label: 'Joueurs', href: SUPER_ADMIN_USERS_ROUTE, icon: 'J' },
-  { label: 'Partenaires', href: SUPER_ADMIN_PARTNERS_ROUTE, icon: 'P' },
-  { label: 'Concours', href: SUPER_ADMIN_CONTESTS_ROUTE, icon: 'C' },
-  { label: 'Catégories', href: SUPER_ADMIN_CATEGORIES_ROUTE, icon: 'G' },
-  { label: 'Pays', href: SUPER_ADMIN_COUNTRIES_ROUTE, icon: 'Y' },
-  { label: 'Secteurs', href: SUPER_ADMIN_SECTORS_ROUTE, icon: 'T' },
-  { label: 'Forfaits', href: SUPER_ADMIN_PLANS_ROUTE, icon: 'F' },
-  { label: 'Gagnants', href: SUPER_ADMIN_WINNERS_ROUTE, icon: 'W' },
-  { label: 'Catalogue des gains', href: SUPER_ADMIN_REWARD_CATALOG_ROUTE, icon: 'R' },
-  { label: 'Notifications', href: SUPER_ADMIN_NOTIFICATIONS_ROUTE, icon: 'N' },
-  { label: 'Landing', href: SUPER_ADMIN_LANDING_ROUTE, icon: 'L' },
-  { label: 'Paramètres', href: SUPER_ADMIN_SETTINGS_ROUTE, icon: 'S' },
-  { label: 'Maintenance', href: SUPER_ADMIN_MAINTENANCE_ROUTE, icon: 'M' },
+  { label: 'Dashboard', href: SUPER_ADMIN_ROUTE, icon: 'D', permission: 'dashboard' },
+  { label: 'Joueurs', href: SUPER_ADMIN_USERS_ROUTE, icon: 'J', permission: 'users' },
+  { label: 'Partenaires', href: SUPER_ADMIN_PARTNERS_ROUTE, icon: 'P', permission: 'partners' },
+  { label: 'Concours', href: SUPER_ADMIN_CONTESTS_ROUTE, icon: 'C', permission: 'contests' },
+  { label: 'Catégories', href: SUPER_ADMIN_CATEGORIES_ROUTE, icon: 'G', permission: 'categories' },
+  { label: 'Pays', href: SUPER_ADMIN_COUNTRIES_ROUTE, icon: 'Y', permission: 'countries' },
+  { label: 'Secteurs', href: SUPER_ADMIN_SECTORS_ROUTE, icon: 'T', permission: 'sectors' },
+  { label: 'Forfaits', href: SUPER_ADMIN_PLANS_ROUTE, icon: 'F', permission: 'plans' },
+  { label: 'Gagnants', href: SUPER_ADMIN_WINNERS_ROUTE, icon: 'W', permission: 'winners' },
+  { label: 'Catalogue des gains', href: SUPER_ADMIN_REWARD_CATALOG_ROUTE, icon: 'R', permission: 'reward_catalog' },
+  { label: 'Notifications', href: SUPER_ADMIN_NOTIFICATIONS_ROUTE, icon: 'N', permission: 'notifications' },
+  { label: 'Admins', href: SUPER_ADMIN_ACCESS_ROUTE, icon: 'A', permission: 'admin_access' },
+  { label: 'Landing', href: SUPER_ADMIN_LANDING_ROUTE, icon: 'L', permission: 'landing' },
+  { label: 'Paramètres', href: SUPER_ADMIN_SETTINGS_ROUTE, icon: 'S', permission: 'settings' },
+  { label: 'Maintenance', href: SUPER_ADMIN_MAINTENANCE_ROUTE, icon: 'M', permission: 'maintenance' },
 ]
+
+function getVisibleNavItems(profile: { permissions?: string[] } | null) {
+  return navItems.filter((item) =>
+    hasAdminPermission(profile?.permissions, item.permission, 'read'),
+  )
+}
 
 const defaultRewardCatalogTypeLabels: Record<string, string> = {
   mobile_money: 'Mobile Money',
@@ -3895,6 +3905,10 @@ function App() {
         element={<ProtectedSuperAdminRoute page="notifications" />}
       />
       <Route
+        path={SUPER_ADMIN_ACCESS_ROUTE}
+        element={<ProtectedSuperAdminRoute page="admin-access" />}
+      />
+      <Route
         path={SUPER_ADMIN_LANDING_ROUTE}
         element={<ProtectedSuperAdminRoute page="landing" />}
       />
@@ -4108,6 +4122,7 @@ function ProtectedSuperAdminRoute({
     | 'users'
     | 'user-detail'
     | 'notifications'
+    | 'admin-access'
     | 'landing'
     | 'settings'
     | 'maintenance'
@@ -4132,6 +4147,27 @@ function ProtectedSuperAdminRoute({
     return <Navigate to={SUPER_ADMIN_AUTH_ROUTE} replace />
   }
 
+  const pagePermission =
+    page === 'contest-history' || page === 'contest-game'
+      ? 'contests'
+      : page === 'user-detail'
+        ? 'users'
+        : page === 'reward-catalog'
+          ? 'reward_catalog'
+          : page === 'admin-access'
+            ? 'admin_access'
+            : page
+
+  if (
+    typeof pagePermission === 'string' &&
+    !hasAdminPermission(adminAuth.profile?.permissions, pagePermission, 'read')
+  ) {
+    const fallbackRoute =
+      getVisibleNavItems(adminAuth.profile).find((item) => item.href !== SUPER_ADMIN_ROUTE)
+        ?.href ?? SUPER_ADMIN_AUTH_ROUTE
+    return <Navigate to={fallbackRoute} replace />
+  }
+
   if (page === 'categories') return <SuperAdminCategoriesPage />
   if (page === 'countries') return <SuperAdminCountriesPage />
   if (page === 'sectors') return <SuperAdminPartnerSectorsPage />
@@ -4145,6 +4181,15 @@ function ProtectedSuperAdminRoute({
   if (page === 'users') return <SuperAdminUsersPage />
   if (page === 'user-detail') return <SuperAdminUserDetailPage />
   if (page === 'notifications') return <SuperAdminNotificationsPage />
+  if (page === 'admin-access') {
+    return (
+      <SuperAdminAccessPage
+        authRoute={SUPER_ADMIN_AUTH_ROUTE}
+        navItems={navItems}
+        settingsRoute={SUPER_ADMIN_SETTINGS_ROUTE}
+      />
+    )
+  }
   if (page === 'landing') return <SuperAdminLandingPage />
   if (page === 'settings') return <SuperAdminSettingsPage />
   if (page === 'maintenance') return <SuperAdminMaintenancePage />
@@ -4235,7 +4280,7 @@ function SuperAdminDashboard() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -4246,7 +4291,7 @@ function SuperAdminDashboard() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -4713,7 +4758,7 @@ function SuperAdminCategoriesPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -4724,7 +4769,7 @@ function SuperAdminCategoriesPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -5131,7 +5176,7 @@ function SuperAdminCountriesPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -5142,7 +5187,7 @@ function SuperAdminCountriesPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -5517,7 +5562,7 @@ function SuperAdminPartnerSectorsPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -5528,7 +5573,7 @@ function SuperAdminPartnerSectorsPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -6166,7 +6211,7 @@ function SuperAdminPartnersPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -6177,7 +6222,7 @@ function SuperAdminPartnersPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -6846,7 +6891,7 @@ function SuperAdminPlansPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -6857,7 +6902,7 @@ function SuperAdminPlansPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -7375,7 +7420,7 @@ function SuperAdminUsersPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -7386,7 +7431,7 @@ function SuperAdminUsersPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -7864,7 +7909,7 @@ function SuperAdminUserDetailPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               key={item.label}
@@ -7875,7 +7920,7 @@ function SuperAdminUserDetailPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink key={item.label} to={item.href}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -8741,7 +8786,7 @@ function SuperAdminLandingPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -8752,7 +8797,7 @@ function SuperAdminLandingPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -9475,7 +9520,7 @@ function SuperAdminSettingsPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -9486,7 +9531,7 @@ function SuperAdminSettingsPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -10652,7 +10697,7 @@ function SuperAdminSettingsPage() {
               <p className="eyebrow">Modules</p>
               <h2>Raccourcis de configuration</h2>
             </div>
-            <span className="status-pill pending">6 modules</span>
+            <span className="status-pill pending">7 modules</span>
           </div>
           <article className="panel">
             <div className="section-heading">
@@ -10685,6 +10730,18 @@ function SuperAdminSettingsPage() {
                   <small>Push groupé ou individuel</small>
                 </span>
                 <span className="status-pill pending">FCM</span>
+              </button>
+              <button
+                className="settings-module-card"
+                onClick={() => navigate(SUPER_ADMIN_ACCESS_ROUTE)}
+                type="button"
+              >
+                <span className="settings-module-icon">A</span>
+                <span className="settings-module-content">
+                  <strong>Admins</strong>
+                  <small>Rôles et permissions par module</small>
+                </span>
+                <span className="status-pill active">RBAC</span>
               </button>
               <button
                 className="settings-module-card"
@@ -10806,7 +10863,7 @@ function SuperAdminMaintenancePage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -10817,7 +10874,7 @@ function SuperAdminMaintenancePage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -11413,7 +11470,7 @@ function SuperAdminRewardCatalogPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -11424,7 +11481,7 @@ function SuperAdminRewardCatalogPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -12047,7 +12104,7 @@ function SuperAdminWinnersPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -12058,7 +12115,7 @@ function SuperAdminWinnersPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -12832,7 +12889,7 @@ function SuperAdminContestsPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -12843,7 +12900,7 @@ function SuperAdminContestsPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -13565,7 +13622,7 @@ function SuperAdminContestGamePage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -13576,7 +13633,7 @@ function SuperAdminContestGamePage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -14390,7 +14447,7 @@ function SuperAdminContestHistoryPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -14401,7 +14458,7 @@ function SuperAdminContestHistoryPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -17146,7 +17203,7 @@ function SuperAdminNotificationsPage() {
 
         <nav className="nav-list" aria-label="Navigation super admin">
           <span className="nav-section-label">Pilotage</span>
-          {navItems.slice(0, 6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(0, 6).map((item) => (
             <NavLink
               end={item.href === SUPER_ADMIN_ROUTE}
               to={item.href}
@@ -17157,7 +17214,7 @@ function SuperAdminNotificationsPage() {
             </NavLink>
           ))}
           <span className="nav-section-label">Système</span>
-          {navItems.slice(6).map((item) => (
+          {getVisibleNavItems(adminAuth.profile).slice(6).map((item) => (
             <NavLink to={item.href} key={item.label}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>
