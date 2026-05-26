@@ -188,7 +188,7 @@ async function listAccess(supabaseAdmin: ReturnType<typeof createClient>) {
         .order('name', { ascending: true }),
       supabaseAdmin
         .from('users')
-        .select('id, username, role, is_active, admin_role_id, created_at, admin_roles(name)')
+        .select('id, username, role, is_active, admin_role_id, created_at, admin_roles!users_admin_role_id_fkey(name)')
         .in('role', ['admin', 'super_admin', 'super-admin', 'sa'])
         .order('created_at', { ascending: false }),
     ])
