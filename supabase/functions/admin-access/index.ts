@@ -49,6 +49,28 @@ function badRequest(message: string, status = 400) {
   return jsonResponse({ ok: false, error: message }, status)
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const payload = error as {
+      message?: unknown
+      details?: unknown
+      hint?: unknown
+      code?: unknown
+    }
+    const parts = [
+      payload.message,
+      payload.details,
+      payload.hint,
+      payload.code ? `Code: ${payload.code}` : '',
+    ]
+      .map((part) => String(part ?? '').trim())
+      .filter(Boolean)
+    if (parts.length > 0) return parts.join(' · ')
+  }
+  return fallback
+}
+
 function normalizeEmail(value: unknown) {
   return String(value ?? '').trim().toLowerCase()
 }
@@ -205,6 +227,62 @@ async function listAccess(supabaseAdmin: ReturnType<typeof createClient>) {
   }
 }
 
+async function upsertRoleDirect(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  callerId: string,
+  role: NonNullable<AdminAccessPayload['role']>,
+  name: string,
+  permissions: string[],
+) {
+  let roleId = role.id || ''
+  if (!roleId) {
+    const { data: existingRoles, error: existingRoleError } =
+      await supabaseAdmin
+        .from('admin_roles')
+        .select('id')
+        .ilike('name', name)
+        .order('created_at', { ascending: true })
+        .limit(1)
+    if (existingRoleError) throw existingRoleError
+    roleId = existingRoles?.[0]?.id ?? crypto.randomUUID()
+  }
+
+  const { error: roleError } = await supabaseAdmin
+    .from('admin_roles')
+    .upsert(
+      {
+        id: roleId,
+        name,
+        description: String(role.description ?? '').trim() || null,
+        is_active: role.isActive !== false,
+        created_by: callerId,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' },
+    )
+  if (roleError) throw roleError
+
+  const { error: deleteError } = await supabaseAdmin
+    .from('admin_role_permissions')
+    .delete()
+    .eq('role_id', roleId)
+  if (deleteError) throw deleteError
+
+  if (permissions.length > 0) {
+    const { error: insertError } = await supabaseAdmin
+      .from('admin_role_permissions')
+      .insert(
+        permissions.map((permission) => ({
+          role_id: roleId,
+          permission_key: permission,
+        })),
+      )
+    if (insertError) throw insertError
+  }
+
+  return { ok: true, roleId }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -272,51 +350,37 @@ Deno.serve(async (request) => {
         ),
       )
 
-      let roleId = payload.role?.id || ''
-      if (!roleId) {
-        const { data: existingRole, error: existingRoleError } =
-          await supabaseAdmin
-            .from('admin_roles')
-            .select('id')
-            .ilike('name', name)
-            .maybeSingle()
-        if (existingRoleError) throw existingRoleError
-        roleId = existingRole?.id ?? crypto.randomUUID()
-      }
+      const { data: result, error: roleError } = await supabaseAdmin.rpc(
+        'upsert_admin_role_with_permissions',
+        {
+          p_role_id: payload.role?.id || null,
+          p_name: name,
+          p_description: String(payload.role?.description ?? '').trim() || null,
+          p_permissions: permissions,
+          p_is_active: payload.role?.isActive !== false,
+          p_actor_id: caller.userId,
+        },
+      )
+      if (roleError) {
+        const message = errorMessage(roleError, '')
+        const rpcMissing =
+          message.includes('upsert_admin_role_with_permissions') ||
+          message.includes('PGRST202') ||
+          message.includes('Could not find the function')
+        if (!rpcMissing) throw roleError
 
-      const { error: roleError } = await supabaseAdmin
-        .from('admin_roles')
-        .upsert(
-          {
-            id: roleId,
+        return jsonResponse(
+          await upsertRoleDirect(
+            supabaseAdmin,
+            caller.userId,
+            payload.role ?? {},
             name,
-            description: String(payload.role?.description ?? '').trim() || null,
-            is_active: payload.role?.isActive !== false,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'id' },
+            permissions,
+          ),
         )
-      if (roleError) throw roleError
-
-      const { error: deleteError } = await supabaseAdmin
-        .from('admin_role_permissions')
-        .delete()
-        .eq('role_id', roleId)
-      if (deleteError) throw deleteError
-
-      if (permissions.length > 0) {
-        const { error: insertError } = await supabaseAdmin
-          .from('admin_role_permissions')
-          .insert(
-            permissions.map((permission) => ({
-              role_id: roleId,
-              permission_key: permission,
-            })),
-          )
-        if (insertError) throw insertError
       }
 
-      return jsonResponse({ ok: true, roleId })
+      return jsonResponse(result ?? { ok: true })
     }
 
     if (payload.action === 'create_admin') {
@@ -404,9 +468,6 @@ Deno.serve(async (request) => {
 
     return badRequest('Action inconnue.')
   } catch (error) {
-    return badRequest(
-      error instanceof Error ? error.message : 'Action admin impossible.',
-      500,
-    )
+    return badRequest(errorMessage(error, 'Action admin impossible.'), 500)
   }
 })
