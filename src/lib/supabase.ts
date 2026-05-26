@@ -19,6 +19,8 @@ type AdminPermissionAction = 'read' | 'write'
 
 let currentAdminPermissions: string[] | null = null
 
+export const adminPermissionDeniedEvent = 'megapromo:admin-permission-denied'
+
 const tablePermissionFeatures: Record<string, string> = {
   app_update_config: 'settings',
   badges: 'users',
@@ -74,9 +76,19 @@ function hasPermission(
 
 function assertCanWrite(feature: string, label: string) {
   if (hasPermission(currentAdminPermissions, feature, 'write')) return
-  throw new Error(
-    `Permission ${feature}.write requise pour modifier ${label}.`,
-  )
+  const message = `Permission ${feature}.write requise pour modifier ${label}.`
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(adminPermissionDeniedEvent, {
+        detail: {
+          feature,
+          label,
+          message,
+        },
+      }),
+    )
+  }
+  throw new Error(message)
 }
 
 export function setSupabaseAdminPermissions(permissions: string[] | null) {

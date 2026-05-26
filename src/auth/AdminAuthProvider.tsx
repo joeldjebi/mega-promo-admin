@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useLocation } from 'react-router-dom'
 import {
+  adminPermissionDeniedEvent,
   isSupabaseConfigured,
   setSupabaseAdminPermissions,
   supabase,
@@ -22,6 +23,10 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<AdminProfile | null>(null)
+  const [permissionPopup, setPermissionPopup] = useState<{
+    feature: string
+    label: string
+  } | null>(null)
   const isPartnerArea =
     location.pathname === '/' ||
     location.pathname === '/partner' ||
@@ -100,6 +105,27 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [isPartnerArea, loadSession])
 
+  useEffect(() => {
+    function handlePermissionDenied(event: Event) {
+      const detail = (event as CustomEvent<{
+        feature?: string
+        label?: string
+      }>).detail
+      setPermissionPopup({
+        feature: detail?.feature ?? '',
+        label: detail?.label ?? '',
+      })
+    }
+
+    window.addEventListener(adminPermissionDeniedEvent, handlePermissionDenied)
+    return () => {
+      window.removeEventListener(
+        adminPermissionDeniedEvent,
+        handlePermissionDenied,
+      )
+    }
+  }, [])
+
   const value = useMemo<AdminAuthContextValue>(
     () => ({
       status,
@@ -130,6 +156,47 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   return (
     <AdminAuthContext.Provider value={value}>
       {children}
+      {permissionPopup ? (
+        <div
+          className="modal-backdrop permission-denied-backdrop"
+          role="presentation"
+          onClick={() => setPermissionPopup(null)}
+        >
+          <section
+            aria-labelledby="permission-denied-title"
+            aria-modal="true"
+            className="category-modal permission-denied-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="permission-denied-icon">!</div>
+            <div>
+              <p className="eyebrow">Accès refusé</p>
+              <h2 id="permission-denied-title">
+                Autorisations insuffisantes
+              </h2>
+              <p>
+                Ton rôle permet la consultation, mais pas la création, la
+                modification ou la suppression sur ce module.
+              </p>
+              {permissionPopup.feature ? (
+                <small>
+                  Permission requise: {permissionPopup.feature}.write
+                </small>
+              ) : null}
+            </div>
+            <div className="modal-actions">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => setPermissionPopup(null)}
+              >
+                Compris
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </AdminAuthContext.Provider>
   )
 }

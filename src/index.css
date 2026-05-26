@@ -3617,6 +3617,55 @@ h3 {
   margin: -4px 0 0;
 }
 
+.permission-denied-backdrop {
+  z-index: 80;
+}
+
+.permission-denied-modal {
+  align-items: flex-start;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 48px 1fr;
+  max-width: 520px;
+}
+
+.permission-denied-modal h2 {
+  margin: 2px 0 8px;
+}
+
+.permission-denied-modal p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.permission-denied-modal small {
+  color: var(--hint);
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  margin-top: 12px;
+}
+
+.permission-denied-modal .modal-actions {
+  grid-column: 1 / -1;
+}
+
+.permission-denied-icon {
+  align-items: center;
+  background: rgb(239 68 68 / 12%);
+  border: 1px solid rgb(239 68 68 / 22%);
+  border-radius: 16px;
+  color: var(--red);
+  display: flex;
+  font-size: 22px;
+  font-weight: 900;
+  height: 48px;
+  justify-content: center;
+  width: 48px;
+}
+
 .secondary-action-button {
   background: var(--surface);
   border: 1px solid var(--border);
