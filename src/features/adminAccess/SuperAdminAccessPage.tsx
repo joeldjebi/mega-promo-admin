@@ -77,6 +77,11 @@ const emptyAdminForm: AdminFormState = {
   isActive: true,
 }
 
+const supabaseFunctionUrl = `${String(
+  import.meta.env.VITE_SUPABASE_URL ?? '',
+).replace(/\/$/, '')}/functions/v1/admin-access`
+const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '')
+
 async function resolveAdminAccessError(error: unknown, fallback: string) {
   const maybeContext = (error as { context?: Response } | null)?.context
   if (maybeContext) {
@@ -110,16 +115,39 @@ async function invokeAdminAccess<T>(body: AdminAccessRequest) {
     throw new Error('Session admin expirée. Reconnecte-toi puis réessaie.')
   }
 
-  return supabase.functions.invoke<T>('admin-access', {
-    body: {
-      ...body,
-      adminAccessToken: accessToken,
-    },
+  const response = await fetch(supabaseFunctionUrl, {
+    method: 'POST',
     headers: {
+      apikey: supabaseAnonKey,
       Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
       'x-admin-access-token': accessToken,
     },
+    body: JSON.stringify({
+      ...body,
+      adminAccessToken: accessToken,
+    }),
   })
+
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+
+  if (!response.ok) {
+    const message =
+      (payload as { error?: string; message?: string } | null)?.error ??
+      (payload as { error?: string; message?: string } | null)?.message ??
+      `Erreur admin-access (${response.status}).`
+    throw new Error(message)
+  }
+
+  return {
+    data: payload as T,
+    error: null,
+  }
 }
 
 export function SuperAdminAccessPage({
