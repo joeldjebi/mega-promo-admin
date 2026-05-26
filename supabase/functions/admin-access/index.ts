@@ -54,16 +54,36 @@ function normalizeEmail(value: unknown) {
 }
 
 async function resolveCaller(
+  supabaseUrl: string,
+  anonKey: string,
   supabaseAdmin: ReturnType<typeof createClient>,
   authorization: string,
   fallbackToken: string,
 ) {
   const token = fallbackToken || authorization.replace(/^Bearer\s+/i, '')
+  if (!token) {
+    throw new Error('Unauthorized: token absent')
+  }
+
+  const supabaseUser = createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  })
+
   const { data: authData, error: authError } =
-    await supabaseAdmin.auth.getUser(token)
+    await supabaseUser.auth.getUser()
 
   if (authError || !authData.user) {
-    throw new Error('Unauthorized')
+    throw new Error(
+      `Unauthorized: ${authError?.message ?? 'session invalide'}`,
+    )
   }
 
   const { data: profile, error: profileError } = await supabaseAdmin
@@ -189,7 +209,8 @@ Deno.serve(async (request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  if (!supabaseUrl || !serviceRoleKey) {
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
     return badRequest('Configuration serveur manquante.', 500)
   }
 
@@ -210,6 +231,8 @@ Deno.serve(async (request) => {
   let caller: Awaited<ReturnType<typeof resolveCaller>>
   try {
     caller = await resolveCaller(
+      supabaseUrl,
+      anonKey,
       supabaseAdmin,
       request.headers.get('Authorization') ?? '',
       request.headers.get('x-admin-access-token') ??
