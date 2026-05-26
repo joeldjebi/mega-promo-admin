@@ -15,7 +15,75 @@ if (!isSupabaseConfigured) {
   )
 }
 
-export const supabase = createClient(
+type AdminPermissionAction = 'read' | 'write'
+
+let currentAdminPermissions: string[] | null = null
+
+const tablePermissionFeatures: Record<string, string> = {
+  app_update_config: 'settings',
+  badges: 'users',
+  categories: 'categories',
+  contest_draw_settings: 'contests',
+  contest_predictions: 'contests',
+  contests: 'contests',
+  countries: 'countries',
+  landing_contact_settings: 'landing',
+  landing_page_content: 'landing',
+  legal_pages: 'settings',
+  mobile_info_messages: 'settings',
+  notifications: 'notifications',
+  partner_plan_benefits: 'plans',
+  partner_plans: 'plans',
+  partner_sectors: 'sectors',
+  partner_subscriptions: 'partners',
+  partners: 'partners',
+  participations: 'users',
+  payment_methods: 'settings',
+  player_kyc_requests: 'users',
+  player_plan_benefits: 'plans',
+  player_plans: 'plans',
+  player_subscriptions: 'users',
+  questions: 'contests',
+  reward_catalog: 'reward_catalog',
+  reward_types: 'reward_catalog',
+  user_badges: 'users',
+  users: 'users',
+  winners: 'winners',
+}
+
+const rpcPermissionFeatures: Record<string, string> = {
+  admin_maintenance_clear: 'maintenance',
+  delete_reward_catalog_item: 'reward_catalog',
+  delete_reward_type: 'reward_catalog',
+  disable_reward_catalog_item: 'reward_catalog',
+  disable_reward_type: 'reward_catalog',
+  generate_pending_winners_for_contest: 'winners',
+  upsert_reward_catalog_item: 'reward_catalog',
+  upsert_reward_type: 'reward_catalog',
+}
+
+function hasPermission(
+  permissions: string[] | null,
+  feature: string,
+  action: AdminPermissionAction,
+) {
+  if (!permissions) return true
+  if (permissions.includes('*')) return true
+  return permissions.includes(`${feature}.${action}`)
+}
+
+function assertCanWrite(feature: string, label: string) {
+  if (hasPermission(currentAdminPermissions, feature, 'write')) return
+  throw new Error(
+    `Permission ${feature}.write requise pour modifier ${label}.`,
+  )
+}
+
+export function setSupabaseAdminPermissions(permissions: string[] | null) {
+  currentAdminPermissions = permissions
+}
+
+const rawSupabase = createClient(
   supabaseUrl ?? fallbackSupabaseUrl,
   supabaseAnonKey ?? fallbackSupabaseAnonKey,
   {
@@ -26,3 +94,53 @@ export const supabase = createClient(
     },
   },
 )
+
+export const supabase = new Proxy(rawSupabase, {
+  get(target, property, receiver) {
+    if (property === 'from') {
+      return (table: string) => {
+        const builder = target.from(table)
+        const feature = tablePermissionFeatures[table]
+        if (!feature) return builder
+
+        return new Proxy(builder, {
+          get(builderTarget, builderProperty, builderReceiver) {
+            if (
+              builderProperty === 'insert' ||
+              builderProperty === 'update' ||
+              builderProperty === 'upsert' ||
+              builderProperty === 'delete'
+            ) {
+              const original = Reflect.get(
+                builderTarget,
+                builderProperty,
+                builderReceiver,
+              ) as (...args: unknown[]) => unknown
+              return (...args: unknown[]) => {
+                assertCanWrite(feature, table)
+                return original.apply(builderTarget, args)
+              }
+            }
+
+            return Reflect.get(builderTarget, builderProperty, builderReceiver)
+          },
+        })
+      }
+    }
+
+    if (property === 'rpc') {
+      return (functionName: string, params?: unknown, options?: unknown) => {
+        const feature = rpcPermissionFeatures[functionName]
+        if (feature) assertCanWrite(feature, functionName)
+        const rpc = target.rpc as (
+          name: string,
+          args?: unknown,
+          rpcOptions?: unknown,
+        ) => unknown
+        return rpc.call(target, functionName, params, options)
+      }
+    }
+
+    return Reflect.get(target, property, receiver)
+  },
+})

@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useLocation } from 'react-router-dom'
-import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import {
+  isSupabaseConfigured,
+  setSupabaseAdminPermissions,
+  supabase,
+} from '../lib/supabase'
 import { registerAdminWebPushToken } from '../lib/webPush'
 import {
   resolveSuperAdminSession,
@@ -27,6 +31,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     if (isPartnerArea) {
       setUser(null)
       setProfile(null)
+      setSupabaseAdminPermissions(null)
       setStatus('unauthenticated')
       return
     }
@@ -34,6 +39,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured) {
       setUser(null)
       setProfile(null)
+      setSupabaseAdminPermissions(null)
       setStatus('unauthenticated')
       return
     }
@@ -44,6 +50,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       const resolved = await resolveSuperAdminSession(data.session?.user ?? null)
       setUser(resolved?.user ?? null)
       setProfile(resolved?.profile ?? null)
+      setSupabaseAdminPermissions(resolved?.profile?.permissions ?? null)
       setStatus(resolved ? 'authenticated' : 'unauthenticated')
       if (resolved?.user) {
         void registerAdminWebPushToken(resolved.user.id).catch((error) => {
@@ -54,6 +61,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       console.warn('[MegaPromo][SA Auth] session rejected', error)
       setUser(null)
       setProfile(null)
+      setSupabaseAdminPermissions(null)
       setStatus('unauthenticated')
     }
   }, [isPartnerArea])
@@ -72,6 +80,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           const resolved = await resolveSuperAdminSession(session?.user ?? null)
           setUser(resolved?.user ?? null)
           setProfile(resolved?.profile ?? null)
+          setSupabaseAdminPermissions(resolved?.profile?.permissions ?? null)
           setStatus(resolved ? 'authenticated' : 'unauthenticated')
           if (resolved?.user) {
             void registerAdminWebPushToken(resolved.user.id).catch((error) => {
@@ -82,6 +91,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           console.warn('[MegaPromo][SA Auth] auth state rejected', error)
           setUser(null)
           setProfile(null)
+          setSupabaseAdminPermissions(null)
           setStatus('unauthenticated')
         }
       })()
@@ -99,6 +109,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         const result = await signInSuperAdmin(email, password)
         setUser(result.user)
         setProfile(result.profile)
+        setSupabaseAdminPermissions(result.profile.permissions)
         setStatus('authenticated')
         void registerAdminWebPushToken(result.user.id).catch((error) => {
           console.warn('[MegaPromo][FCM][web] token non enregistré', error)
@@ -108,6 +119,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         await signOutSuperAdmin()
         setUser(null)
         setProfile(null)
+        setSupabaseAdminPermissions(null)
         setStatus('unauthenticated')
       },
       refresh: loadSession,
