@@ -13,9 +13,13 @@ export class AdminAuthError extends Error {
 export async function fetchAdminProfile(userId: string) {
   const { data, error } = await supabase
     .from('users')
-    .select('id, username, role, admin_role_id, is_active, avatar_url')
+    .select('id, username, role, admin_role_id, is_active, avatar_url, admin_roles!users_admin_role_id_fkey(name)')
     .eq('id', userId)
-    .maybeSingle<Omit<AdminProfile, 'permissions'>>()
+    .maybeSingle<
+      Omit<AdminProfile, 'permissions' | 'admin_role_name'> & {
+        admin_roles?: { name?: string | null } | null
+      }
+    >()
 
   if (error) throw error
   if (!data) return null
@@ -23,6 +27,7 @@ export async function fetchAdminProfile(userId: string) {
   if (!data.admin_role_id) {
     return {
       ...data,
+      admin_role_name: 'Super Admin',
       permissions: ['*'],
     }
   }
@@ -40,10 +45,26 @@ export async function fetchAdminProfile(userId: string) {
 
   return {
     ...data,
+    admin_role_name: data.admin_roles?.name ?? null,
     permissions: permissions.includes('*')
       ? ['*', ...allAdminPermissionKeys]
       : permissions,
   }
+}
+
+export function adminRoleLabel(profile: AdminProfile | null) {
+  if (!profile) return 'Admin'
+  if (profile.admin_role_name?.trim()) return profile.admin_role_name.trim()
+  if (profile.permissions.includes('*')) return 'Super Admin'
+  const role = profile.role ?? 'admin'
+  if (role === 'super_admin' || role === 'super-admin' || role === 'sa') {
+    return 'Super Admin'
+  }
+  return role
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 export function assertSuperAdmin(profile: AdminProfile | null) {

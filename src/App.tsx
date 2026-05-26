@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
+import { adminRoleLabel } from './auth/admin-auth'
 import { useAdminAuth } from './auth/useAdminAuth'
 import { SuperAdminAccessPage } from './features/adminAccess/SuperAdminAccessPage'
 import { hasAdminPermission } from './features/adminAccess/permissions'
@@ -4274,7 +4275,7 @@ function SuperAdminDashboard() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -4752,7 +4753,7 @@ function SuperAdminCategoriesPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -5170,7 +5171,7 @@ function SuperAdminCountriesPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -5556,7 +5557,7 @@ function SuperAdminPartnerSectorsPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -6205,7 +6206,7 @@ function SuperAdminPartnersPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -6885,7 +6886,7 @@ function SuperAdminPlansPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -7414,7 +7415,7 @@ function SuperAdminUsersPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -7903,7 +7904,7 @@ function SuperAdminUserDetailPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -8780,7 +8781,7 @@ function SuperAdminLandingPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -9514,7 +9515,7 @@ function SuperAdminSettingsPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -10857,7 +10858,7 @@ function SuperAdminMaintenancePage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -11464,7 +11465,7 @@ function SuperAdminRewardCatalogPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -12098,7 +12099,7 @@ function SuperAdminWinnersPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -12883,7 +12884,7 @@ function SuperAdminContestsPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -13616,7 +13617,7 @@ function SuperAdminContestGamePage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -14441,7 +14442,7 @@ function SuperAdminContestHistoryPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 
@@ -17197,7 +17198,7 @@ function SuperAdminNotificationsPage() {
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
           </div>
         </div>
 

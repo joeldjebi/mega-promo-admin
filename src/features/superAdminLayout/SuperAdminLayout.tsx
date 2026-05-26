@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 
@@ -30,6 +31,7 @@ export function SuperAdminLayout({
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const roleLabel = adminRoleLabel(adminAuth.profile)
   const visibleNavItems = navItems.filter(
     (item) =>
       !item.permission ||
@@ -48,7 +50,7 @@ export function SuperAdminLayout({
           <span className="brand-mark">M</span>
           <div>
             <strong>MegaPromo</strong>
-            <small>Super Admin</small>
+            <small>{roleLabel}</small>
           </div>
         </div>
 
