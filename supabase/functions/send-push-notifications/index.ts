@@ -310,7 +310,7 @@ Deno.serve(async (request) => {
                   priority: 'HIGH',
                   notification: {
                     sound: 'default',
-                    channel_id: 'default',
+                    channel_id: 'mega_promo_push',
                   },
                 },
                 apns: {

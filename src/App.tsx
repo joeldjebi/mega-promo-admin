@@ -463,6 +463,7 @@ type PlayerUserItem = {
   isPremium: boolean
   premiumExpiresAt: string
   pointsTotal: number
+  globalRank: number | null
   participationsToday: number
   lastParticipationDate: string
   deviceInfo: Record<string, unknown>
@@ -649,6 +650,7 @@ type PlayerParticipationItem = {
 }
 type PlayerRewardItem = {
   id: string
+  contestId: string
   contestTitle: string
   prizeDescription: string
   prizeValue: number
@@ -2408,6 +2410,18 @@ function playerKycDocumentLabel(documentType: string): string {
   return 'Carte Nationale d’Identité'
 }
 
+function playerKycStatusLabel(status: PlayerKycRequestItem['status']): string {
+  if (status === 'approved') return 'Validée'
+  if (status === 'rejected') return 'Rejetée'
+  return 'En attente'
+}
+
+function playerKycStatusPillClass(status: PlayerKycRequestItem['status']): string {
+  if (status === 'approved') return 'active'
+  if (status === 'rejected') return 'inactive'
+  return 'pending'
+}
+
 const defaultLegalForms: Record<'terms' | 'privacy', LegalPageFormState> = {
   terms: {
     title: 'Conditions générales d’utilisation',
@@ -2760,6 +2774,7 @@ async function fetchPlayersData({
       isPremium: (user.is_premium as boolean | null) ?? false,
       premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
       pointsTotal: (user.points_total as number | null) ?? 0,
+      globalRank: null,
       participationsToday: (user.participations_today as number | null) ?? 0,
       lastParticipationDate:
         (user.last_participation_date as string | null) ?? '',
@@ -2796,6 +2811,13 @@ async function fetchUserForAdmin(userId: string): Promise<{
   if (!userResponse.data) throw new Error('Utilisateur introuvable.')
 
   const user = userResponse.data
+  const pointsTotal = (user.points_total as number | null) ?? 0
+  const rankResponse = await supabase
+    .from('users')
+    .select('id', { count: 'exact', head: true })
+    .or('role.eq.player,role.is.null')
+    .gt('points_total', pointsTotal)
+
   return {
     plans: playersData.plans,
     user: {
@@ -2811,7 +2833,8 @@ async function fetchUserForAdmin(userId: string): Promise<{
       fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
       isPremium: (user.is_premium as boolean | null) ?? false,
       premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
-      pointsTotal: (user.points_total as number | null) ?? 0,
+      pointsTotal,
+      globalRank: rankResponse.error ? null : (rankResponse.count ?? 0) + 1,
       participationsToday: (user.participations_today as number | null) ?? 0,
       lastParticipationDate:
         (user.last_participation_date as string | null) ?? '',
@@ -2953,6 +2976,7 @@ async function fetchPlayerDetailData(
     })),
     rewards: (winnersResponse.data ?? []).map((winner) => ({
       id: winner.id as string,
+      contestId: (winner.contest_id as string | null) ?? '',
       contestTitle:
         contestTitles.get((winner.contest_id as string | null) ?? '') ?? 'Concours',
       prizeDescription: (winner.prize_description as string | null) ?? '',
@@ -7638,7 +7662,17 @@ function SuperAdminUserDetailPage() {
     kycRequests: [],
   })
   const [isLoading, setIsLoading] = useState(true)
+  const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [savingKycRequestId, setSavingKycRequestId] = useState('')
+  const [previewKycRequest, setPreviewKycRequest] =
+    useState<PlayerKycRequestItem | null>(null)
+  const [showAllParticipations, setShowAllParticipations] = useState(false)
+  const [showAllRewards, setShowAllRewards] = useState(false)
+  const [selectedParticipationDetail, setSelectedParticipationDetail] =
+    useState<PlayerParticipationItem | null>(null)
+  const [selectedRewardDetail, setSelectedRewardDetail] =
+    useState<PlayerRewardItem | null>(null)
 
   const loadUserDetail = useCallback(async () => {
     if (!userId) return
@@ -7668,7 +7702,15 @@ function SuperAdminUserDetailPage() {
 
   useRealtimeRefresh(
     'sa-user-detail-realtime',
-    ['users', 'participations', 'winners', 'player_subscriptions', 'user_badges'],
+    [
+      'users',
+      'participations',
+      'winners',
+      'player_subscriptions',
+      'user_badges',
+      'player_kyc_requests',
+      'player_payment_methods',
+    ],
     loadUserDetail,
   )
 
@@ -7677,10 +7719,137 @@ function SuperAdminUserDetailPage() {
     navigate(SUPER_ADMIN_AUTH_ROUTE, { replace: true })
   }
 
+  async function copyPlayerDetailValue(value: string, message: string) {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setError('')
+      setNotice(message)
+    } catch {
+      setError('Impossible de copier cette valeur.')
+    }
+  }
+
+  async function handleUpdatePlayerKycStatus(
+    request: PlayerKycRequestItem,
+    nextStatus: PlayerKycRequestItem['status'],
+  ) {
+    setNotice('')
+    setError('')
+
+    const rejectionReason =
+      nextStatus === 'rejected'
+        ? window.prompt('Motif du rejet à afficher au joueur', request.rejectionReason)?.trim() ?? ''
+        : ''
+
+    if (nextStatus === 'rejected' && !rejectionReason) {
+      setError('Le motif est obligatoire pour rejeter une pièce KYC.')
+      return
+    }
+
+    setSavingKycRequestId(request.id)
+    try {
+      const { data: rpcData, error: updateError } = await supabase.rpc(
+        'admin_update_player_kyc_status',
+        {
+          p_request_id: request.id,
+          p_status: nextStatus,
+          p_rejection_reason: rejectionReason || null,
+        },
+      )
+
+      if (updateError) throw updateError
+
+      const rpcNotification = (
+        rpcData as {
+          notification?: {
+            user_id?: string
+            title?: string
+            body?: string
+            type?: string
+            data?: Record<string, unknown>
+          }
+        } | null
+      )?.notification
+
+      const notificationTitle = rpcNotification?.title ?? playerKycStatusLabel(nextStatus)
+      const notificationBody =
+        rpcNotification?.body ??
+        (nextStatus === 'approved'
+          ? 'Ta pièce d’identité a été validée.'
+          : nextStatus === 'rejected'
+            ? `Ta pièce d’identité a été rejetée. Motif : ${rejectionReason}`
+            : 'Ta vérification d’identité est repassée en attente.')
+      const notificationData = rpcNotification?.data ?? {
+        type: 'kyc',
+        source: 'kyc_status_update',
+        kyc_request_id: request.id,
+        status: nextStatus,
+      }
+      const targetUserId = rpcNotification?.user_id ?? request.userId
+
+      let pushWarning = ''
+      try {
+        const { data: pushData, error: pushError } = await supabase.functions.invoke(
+          'send-push-notifications',
+          {
+            body: {
+              userIds: [targetUserId],
+              title: notificationTitle,
+              body: notificationBody,
+              type: 'kyc',
+              data: notificationData,
+              platforms: ['ios', 'android'],
+            },
+          },
+        )
+
+        if (pushError) throw pushError
+
+        const sent = Number((pushData as { sent?: number } | null)?.sent ?? 0)
+        const failed = Number((pushData as { failed?: number } | null)?.failed ?? 0)
+        if (sent === 0 || failed > 0) {
+          const failedSample = (
+            pushData as {
+              failedSamples?: Array<{ summary?: string; response?: unknown }>
+              message?: string
+            } | null
+          )?.failedSamples?.[0]
+          const failedDetail =
+            failedSample?.summary ??
+            (pushData as { message?: string } | null)?.message ??
+            'aucun token push utilisable.'
+          pushWarning = ` Push non confirmé: ${failedDetail}`
+        }
+      } catch (pushError) {
+        console.warn('[MegaPromo][kycStatusPush][error]', pushError)
+        pushWarning = ` Push non envoyé: ${formatUnknownError(
+          pushError,
+          'service push indisponible.',
+        )}`
+      }
+
+      await loadUserDetail()
+      setNotice(
+        `Statut KYC mis à jour : ${playerKycStatusLabel(nextStatus)}.${pushWarning}`,
+      )
+    } catch (updateError) {
+      setError(
+        formatUnknownError(updateError, 'Impossible de mettre à jour le statut KYC.'),
+      )
+    } finally {
+      setSavingKycRequestId('')
+    }
+  }
+
   const activeSubscription =
     detail.subscriptions.find((subscription) => subscription.status === 'active') ??
     detail.subscriptions[0] ??
     null
+  const visibleParticipations = showAllParticipations
+    ? detail.participations
+    : detail.participations.slice(0, 5)
+  const visibleRewards = showAllRewards ? detail.rewards : detail.rewards.slice(0, 5)
 
   return (
     <main className="app-shell">
@@ -7764,6 +7933,15 @@ function SuperAdminUserDetailPage() {
           </div>
         ) : null}
 
+        {notice ? (
+          <div className="dashboard-success" role="status">
+            <div>
+              <strong>Joueur mis à jour</strong>
+              <p>{notice}</p>
+            </div>
+          </div>
+        ) : null}
+
         {isLoading || !user ? (
           <section className="panel users-page-panel">
             <p className="empty-panel-text">Chargement du détail utilisateur...</p>
@@ -7789,6 +7967,10 @@ function SuperAdminUserDetailPage() {
                 <div>
                   <span>Points</span>
                   <strong>{formatNumber(user.pointsTotal)}</strong>
+                </div>
+                <div>
+                  <span>Classement global</span>
+                  <strong>{user.globalRank ? `#${user.globalRank}` : '-'}</strong>
                 </div>
                 <div>
                   <span>Participations</span>
@@ -7907,12 +8089,26 @@ function SuperAdminUserDetailPage() {
                       <strong>{method.operatorName}</strong>
                       <p>
                         {method.phone || 'Numéro non défini'}
-                        {method.isWhatsapp ? ' · WhatsApp' : ''}
                       </p>
                     </div>
-                    <span className={`status-pill ${method.status === 'active' ? 'active' : 'inactive'}`}>
-                      {method.isPrimary ? 'Principal' : method.status}
-                    </span>
+                    <div className="table-actions compact">
+                      <span className={`status-pill ${method.status === 'active' ? 'active' : 'inactive'}`}>
+                        {method.isPrimary ? 'Principal' : method.status}
+                      </span>
+                      <button
+                        className="table-action-button"
+                        disabled={!method.phone}
+                        onClick={() =>
+                          copyPlayerDetailValue(
+                            method.phone,
+                            'Numéro Mobile Money copié.',
+                          )
+                        }
+                        type="button"
+                      >
+                        Copier
+                      </button>
+                    </div>
                     <small>{formatDate(method.updatedAt || method.createdAt)}</small>
                   </article>
                 ))}
@@ -7932,7 +8128,7 @@ function SuperAdminUserDetailPage() {
               </div>
               <div className="premium-mini-table">
                 {detail.kycRequests.map((request) => (
-                  <article key={request.id}>
+                  <article className="kyc-request-row" key={request.id}>
                     <div>
                       <strong>{playerKycDocumentLabel(request.documentType)}</strong>
                       <p>
@@ -7940,30 +8136,53 @@ function SuperAdminUserDetailPage() {
                         {request.rejectionReason ? ` · ${request.rejectionReason}` : ''}
                       </p>
                     </div>
-                    <span className={`status-pill ${request.status}`}>
-                      {request.status}
+                    <span className={`status-pill ${playerKycStatusPillClass(request.status)}`}>
+                      {playerKycStatusLabel(request.status)}
                     </span>
                     <div className="table-actions compact">
-                      {request.documentFrontUrl ? (
-                        <a
-                          className="table-action-button"
-                          href={request.documentFrontUrl}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Recto
-                        </a>
-                      ) : null}
-                      {request.documentBackUrl ? (
-                        <a
-                          className="table-action-button"
-                          href={request.documentBackUrl}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Verso
-                        </a>
-                      ) : null}
+                      <button
+                        className="table-action-button"
+                        disabled={
+                          !request.documentFrontUrl && !request.documentBackUrl
+                        }
+                        onClick={() => setPreviewKycRequest(request)}
+                        type="button"
+                      >
+                        Voir pièce
+                      </button>
+                      <button
+                        className="table-action-button"
+                        disabled={
+                          savingKycRequestId === request.id ||
+                          request.status === 'approved'
+                        }
+                        onClick={() => handleUpdatePlayerKycStatus(request, 'approved')}
+                        type="button"
+                      >
+                        Valider
+                      </button>
+                      <button
+                        className="table-action-button"
+                        disabled={
+                          savingKycRequestId === request.id ||
+                          request.status === 'pending'
+                        }
+                        onClick={() => handleUpdatePlayerKycStatus(request, 'pending')}
+                        type="button"
+                      >
+                        En attente
+                      </button>
+                      <button
+                        className="table-action-button danger"
+                        disabled={
+                          savingKycRequestId === request.id ||
+                          request.status === 'rejected'
+                        }
+                        onClick={() => handleUpdatePlayerKycStatus(request, 'rejected')}
+                        type="button"
+                      >
+                        Rejeter
+                      </button>
                     </div>
                   </article>
                 ))}
@@ -7982,19 +8201,53 @@ function SuperAdminUserDetailPage() {
                 <span className="pill">{detail.participations.length}</span>
               </div>
               <div className="compact-list">
-                {detail.participations.map((participation) => (
+                {visibleParticipations.map((participation) => (
                   <article key={participation.id}>
                     <div>
                       <strong>{participation.contestTitle}</strong>
-                      <p>{formatDate(participation.participatedAt)}</p>
+                      <p>
+                        {formatDate(participation.participatedAt)} ·{' '}
+                        {participation.completed ? 'Terminé' : 'En cours'}
+                      </p>
                     </div>
-                    <span>
-                      #{participation.rank ?? '-'} · {participation.score} pts
-                    </span>
+                    <div className="table-actions compact">
+                      <span>
+                        Rang #{participation.rank ?? '-'} · {participation.score} pts
+                      </span>
+                      <button
+                        className="table-action-button"
+                        onClick={() => setSelectedParticipationDetail(participation)}
+                        type="button"
+                      >
+                        Détail
+                      </button>
+                      {participation.contestId ? (
+                        <button
+                          className="table-action-button"
+                          onClick={() =>
+                            navigate(
+                              `${SUPER_ADMIN_CONTESTS_ROUTE}/${participation.contestId}/history`,
+                            )
+                          }
+                          type="button"
+                        >
+                          Historique
+                        </button>
+                      ) : null}
+                    </div>
                   </article>
                 ))}
                 {detail.participations.length === 0 ? (
                   <p className="empty-panel-text">Aucune participation.</p>
+                ) : null}
+                {detail.participations.length > 5 ? (
+                  <button
+                    className="table-action-button"
+                    onClick={() => setShowAllParticipations((value) => !value)}
+                    type="button"
+                  >
+                    {showAllParticipations ? 'Voir moins' : 'Voir plus'}
+                  </button>
                 ) : null}
               </div>
             </article>
@@ -8010,17 +8263,41 @@ function SuperAdminUserDetailPage() {
                 <section>
                   <h3>Gains</h3>
                   <div className="compact-list">
-                    {detail.rewards.map((reward) => (
+                    {visibleRewards.map((reward) => (
                       <article key={reward.id}>
                         <div>
                           <strong>{reward.contestTitle}</strong>
-                          <p>{reward.prizeDescription || 'Gain MegaPromo'}</p>
+                          <p>
+                            {reward.prizeDescription || 'Gain MegaPromo'} ·{' '}
+                            {formatDate(reward.createdAt)}
+                          </p>
                         </div>
-                        <span>{formatMoney(reward.prizeValue)}</span>
+                        <div className="table-actions compact">
+                          <span>{formatMoney(reward.prizeValue)}</span>
+                          <span className={`status-pill ${reward.status}`}>
+                            {reward.status}
+                          </span>
+                          <button
+                            className="table-action-button"
+                            onClick={() => setSelectedRewardDetail(reward)}
+                            type="button"
+                          >
+                            Détail
+                          </button>
+                        </div>
                       </article>
                     ))}
                     {detail.rewards.length === 0 ? (
                       <p className="empty-panel-text">Aucun gain.</p>
+                    ) : null}
+                    {detail.rewards.length > 5 ? (
+                      <button
+                        className="table-action-button"
+                        onClick={() => setShowAllRewards((value) => !value)}
+                        type="button"
+                      >
+                        {showAllRewards ? 'Voir moins' : 'Voir plus'}
+                      </button>
                     ) : null}
                   </div>
                 </section>
@@ -8070,7 +8347,234 @@ function SuperAdminUserDetailPage() {
           </section>
         )}
       </section>
+      {previewKycRequest ? (
+        <KycDocumentPreviewModal
+          request={previewKycRequest}
+          onClose={() => setPreviewKycRequest(null)}
+        />
+      ) : null}
+      {selectedParticipationDetail ? (
+        <PlayerParticipationDetailModal
+          participation={selectedParticipationDetail}
+          onClose={() => setSelectedParticipationDetail(null)}
+          onOpenHistory={() => {
+            if (!selectedParticipationDetail.contestId) return
+            navigate(
+              `${SUPER_ADMIN_CONTESTS_ROUTE}/${selectedParticipationDetail.contestId}/history`,
+            )
+          }}
+        />
+      ) : null}
+      {selectedRewardDetail ? (
+        <PlayerRewardDetailModal
+          reward={selectedRewardDetail}
+          onClose={() => setSelectedRewardDetail(null)}
+          onOpenHistory={() => {
+            if (!selectedRewardDetail.contestId) return
+            navigate(`${SUPER_ADMIN_CONTESTS_ROUTE}/${selectedRewardDetail.contestId}/history`)
+          }}
+        />
+      ) : null}
     </main>
+  )
+}
+
+function PlayerParticipationDetailModal({
+  participation,
+  onClose,
+  onOpenHistory,
+}: {
+  participation: PlayerParticipationItem
+  onClose: () => void
+  onOpenHistory: () => void
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        aria-label="Détail participation joueur"
+        aria-modal="true"
+        className="category-modal player-detail-modal"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Participation</p>
+            <h2>{participation.contestTitle}</h2>
+            <p className="modal-subtitle">{formatDate(participation.participatedAt)}</p>
+          </div>
+          <button aria-label="Fermer" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+        <div className="telemetry-grid detail-modal-grid">
+          <div>
+            <span>Rang</span>
+            <strong>#{participation.rank ?? '-'}</strong>
+          </div>
+          <div>
+            <span>Score</span>
+            <strong>{participation.score} pts</strong>
+          </div>
+          <div>
+            <span>Statut</span>
+            <strong>{participation.completed ? 'Terminé' : 'En cours'}</strong>
+          </div>
+          <div>
+            <span>ID participation</span>
+            <strong>{participation.id}</strong>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button
+            className="secondary-action-button"
+            disabled={!participation.contestId}
+            onClick={onOpenHistory}
+            type="button"
+          >
+            Voir historique du concours
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function PlayerRewardDetailModal({
+  reward,
+  onClose,
+  onOpenHistory,
+}: {
+  reward: PlayerRewardItem
+  onClose: () => void
+  onOpenHistory: () => void
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        aria-label="Détail gain joueur"
+        aria-modal="true"
+        className="category-modal player-detail-modal"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Gain</p>
+            <h2>{reward.contestTitle}</h2>
+            <p className="modal-subtitle">{formatDate(reward.createdAt)}</p>
+          </div>
+          <button aria-label="Fermer" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+        <div className="telemetry-grid detail-modal-grid">
+          <div>
+            <span>Libellé</span>
+            <strong>{reward.prizeDescription || 'Gain MegaPromo'}</strong>
+          </div>
+          <div>
+            <span>Valeur</span>
+            <strong>{formatMoney(reward.prizeValue)}</strong>
+          </div>
+          <div>
+            <span>Statut</span>
+            <strong>{reward.status}</strong>
+          </div>
+          <div>
+            <span>ID gain</span>
+            <strong>{reward.id}</strong>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button
+            className="secondary-action-button"
+            disabled={!reward.contestId}
+            onClick={onOpenHistory}
+            type="button"
+          >
+            Voir historique du concours
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function KycDocumentPreviewModal({
+  request,
+  onClose,
+}: {
+  request: PlayerKycRequestItem
+  onClose: () => void
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        aria-label="Pièce d'identité"
+        aria-modal="true"
+        className="kyc-preview-modal"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Pièce d’identité</p>
+            <h2>{playerKycDocumentLabel(request.documentType)}</h2>
+            <p className="modal-subtitle">
+              Statut : {playerKycStatusLabel(request.status)} · Envoyé le{' '}
+              {formatDate(request.createdAt)}
+            </p>
+          </div>
+          <button aria-label="Fermer" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+
+        <div className="kyc-preview-grid">
+          {request.documentFrontUrl ? (
+            <article>
+              <div className="kyc-preview-image-frame">
+                <img alt="Recto de la pièce d'identité" src={request.documentFrontUrl} />
+              </div>
+              <a
+                className="table-action-button"
+                href={request.documentFrontUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Ouvrir recto
+              </a>
+            </article>
+          ) : (
+            <article className="kyc-preview-empty">
+              <strong>Recto absent</strong>
+              <p>Aucun fichier recto n’a été envoyé.</p>
+            </article>
+          )}
+          {request.documentBackUrl ? (
+            <article>
+              <div className="kyc-preview-image-frame">
+                <img alt="Verso de la pièce d'identité" src={request.documentBackUrl} />
+              </div>
+              <a
+                className="table-action-button"
+                href={request.documentBackUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Ouvrir verso
+              </a>
+            </article>
+          ) : (
+            <article className="kyc-preview-empty">
+              <strong>Verso absent</strong>
+              <p>Aucun fichier verso n’a été envoyé.</p>
+            </article>
+          )}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -9039,7 +9543,49 @@ function SuperAdminSettingsPage() {
           </div>
         ) : null}
 
-        <section className="dashboard-grid">
+        <section className="settings-overview" aria-label="Vue d'ensemble des paramètres">
+          <article className="settings-overview-card featured">
+            <span className="settings-overview-icon">S</span>
+            <div>
+              <small>Session SA</small>
+              <strong>{adminName}</strong>
+              <p>Compte vérifié, accès système et configuration sensible.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">P</span>
+            <div>
+              <small>Paiements</small>
+              <strong>{paymentMethods.length} méthode(s)</strong>
+              <p>Méthodes, preuves et demandes KYC joueurs.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">M</span>
+            <div>
+              <small>Mobile</small>
+              <strong>{mobileInfoMessages.length} message(s)</strong>
+              <p>Version app, informations home et contenus légaux.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">C</span>
+            <div>
+              <small>Configuration</small>
+              <strong>{supabaseUrl && hasAnonKey ? 'Complète' : 'À vérifier'}</strong>
+              <p>Supabase, modules fonctionnels et accès sensibles.</p>
+            </div>
+          </article>
+        </section>
+
+        <section className="dashboard-grid settings-grid">
+          <div className="settings-group-title">
+            <div>
+              <p className="eyebrow">Compte & sécurité</p>
+              <h2>Identité du Super Admin</h2>
+            </div>
+            <span className="status-pill active">Session vérifiée</span>
+          </div>
           <article className="panel">
             <div className="section-heading">
               <div>
@@ -9070,7 +9616,6 @@ function SuperAdminSettingsPage() {
               </button>
             </div>
           </article>
-
           <article className="panel">
             <div className="section-heading">
               <div>
@@ -9195,7 +9740,15 @@ function SuperAdminSettingsPage() {
               </div>
             </form>
           </article>
-
+          <div className="settings-group-title">
+            <div>
+              <p className="eyebrow">Infrastructure</p>
+              <h2>Connexion, environnement et accès</h2>
+            </div>
+            <span className={`status-pill ${supabaseUrl && hasAnonKey ? 'active' : 'pending'}`}>
+              {supabaseUrl && hasAnonKey ? 'Configuré' : 'À compléter'}
+            </span>
+          </div>
           <article className="panel">
             <div className="section-heading">
               <div>
@@ -9264,7 +9817,19 @@ function SuperAdminSettingsPage() {
               </article>
             </div>
           </article>
-
+          <div className="settings-group-title">
+            <div>
+              <p className="eyebrow">Paiements & joueurs</p>
+              <h2>Souscriptions et vérifications</h2>
+            </div>
+            <span className="status-pill active">
+              {
+                playerKycRequests.filter((request) => request.status === 'pending')
+                  .length
+              }{' '}
+              KYC en attente
+            </span>
+          </div>
           <article className="panel">
             <div className="section-heading">
               <div>
@@ -9523,7 +10088,13 @@ function SuperAdminSettingsPage() {
               )}
             </div>
           </article>
-
+          <div className="settings-group-title">
+            <div>
+              <p className="eyebrow">Contenu public</p>
+              <h2>Légal, contact et landing</h2>
+            </div>
+            <span className="status-pill active">{legalPages.length} page(s)</span>
+          </div>
           <article className="panel">
             <div className="section-heading">
               <div>
@@ -9715,7 +10286,19 @@ function SuperAdminSettingsPage() {
               )}
             </div>
           </article>
-
+          <div className="settings-group-title">
+            <div>
+              <p className="eyebrow">Application mobile</p>
+              <h2>Version, messages et expérience joueur</h2>
+            </div>
+            <span
+              className={`status-pill ${
+                appUpdateConfigForm.isActive ? 'active' : 'inactive'
+              }`}
+            >
+              {appUpdateConfigForm.isActive ? 'Contrôle actif' : 'Contrôle inactif'}
+            </span>
+          </div>
           <article className="panel">
             <div className="section-heading">
               <div>
@@ -10064,6 +10647,13 @@ function SuperAdminSettingsPage() {
             </div>
           </article>
 
+          <div className="settings-group-title">
+            <div>
+              <p className="eyebrow">Modules</p>
+              <h2>Raccourcis de configuration</h2>
+            </div>
+            <span className="status-pill pending">6 modules</span>
+          </div>
           <article className="panel">
             <div className="section-heading">
               <div>
