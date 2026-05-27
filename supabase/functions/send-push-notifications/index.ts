@@ -16,6 +16,8 @@ type ServiceAccount = {
   project_id: string
 }
 
+const iosBundleId = Deno.env.get('FCM_IOS_BUNDLE_ID') ?? 'com.moyoo.megapromoios'
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -315,12 +317,15 @@ Deno.serve(async (request) => {
                 },
                 apns: {
                   headers: {
+                    'apns-push-type': 'alert',
                     'apns-priority': '10',
+                    'apns-topic': iosBundleId,
                   },
                   payload: {
                     aps: {
                       alert: { title, body },
                       sound: 'default',
+                      badge: 1,
                     },
                   },
                 },
