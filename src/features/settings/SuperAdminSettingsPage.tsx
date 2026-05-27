@@ -169,6 +169,13 @@ type AppUpdateConfigFormState = {
   forceUpdate: boolean
   isActive: boolean
 }
+type AppFeatureFlagItem = {
+  key: string
+  name: string
+  description: string
+  isEnabled: boolean
+  updatedAt: string
+}
 
 type SuperAdminSettingsPageProps = {
   authRoute: string
@@ -272,6 +279,24 @@ const defaultAppUpdateConfigForm: AppUpdateConfigFormState = {
   forceUpdate: false,
   isActive: true,
 }
+
+const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
+  {
+    key: 'player_subscriptions',
+    name: 'Bouton forfait joueur',
+    description: 'Affiche ou masque l’accès aux forfaits dans le profil joueur.',
+    isEnabled: true,
+    updatedAt: '',
+  },
+  {
+    key: 'app_maintenance',
+    name: 'Mode maintenance',
+    description:
+      'Redirige les joueurs vers une page maintenance et bloque l’accès mobile.',
+    isEnabled: false,
+    updatedAt: '',
+  },
+]
 
 
 function appUpdateConfigToForm(
@@ -439,6 +464,30 @@ async function fetchAppUpdateConfigForAdmin(): Promise<AppUpdateConfigItem | nul
 }
 
 
+async function fetchAppFeatureFlagsForAdmin(): Promise<AppFeatureFlagItem[]> {
+  const { data, error } = await supabase
+    .from('app_feature_flags')
+    .select('key, name, description, is_enabled, updated_at')
+    .in('key', defaultAppFeatureFlags.map((flag) => flag.key))
+    .order('name', { ascending: true })
+
+  if (error) throw error
+
+  const rows = (data ?? []).map((flag) => ({
+    key: flag.key as string,
+    name: (flag.name as string | null) ?? flag.key,
+    description: (flag.description as string | null) ?? '',
+    isEnabled: (flag.is_enabled as boolean | null) ?? true,
+    updatedAt: (flag.updated_at as string | null) ?? '',
+  }))
+
+  return defaultAppFeatureFlags.map((defaultFlag) => ({
+    ...defaultFlag,
+    ...rows.find((flag) => flag.key === defaultFlag.key),
+  }))
+}
+
+
 async function fetchPaymentMethodsForAdmin(): Promise<PaymentMethodItem[]> {
   const { data, error } = await supabase
     .from('payment_methods')
@@ -528,6 +577,10 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     useState<AppUpdateConfigFormState>(defaultAppUpdateConfigForm)
   const [appUpdateConfigUpdatedAt, setAppUpdateConfigUpdatedAt] = useState('')
   const [isAppUpdateConfigSaving, setIsAppUpdateConfigSaving] = useState(false)
+  const [appFeatureFlags, setAppFeatureFlags] = useState<AppFeatureFlagItem[]>(
+    defaultAppFeatureFlags,
+  )
+  const [isAppFeatureFlagSaving, setIsAppFeatureFlagSaving] = useState(false)
   const [profileForm, setProfileForm] = useState({
     username: adminAuth.profile?.username ?? '',
     email: adminAuth.user?.email ?? '',
@@ -654,6 +707,23 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     }
   }
 
+  async function loadAppFeatureFlags() {
+    try {
+      setAppFeatureFlags(await fetchAppFeatureFlagsForAdmin())
+    } catch (error) {
+      if (isMissingTableError(error, 'app_feature_flags')) {
+        setAppFeatureFlags(defaultAppFeatureFlags)
+        return
+      }
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de charger les options de l’app mobile.',
+        ),
+      )
+    }
+  }
+
   useEffect(() => {
     void (async () => {
       await Promise.all([
@@ -663,6 +733,7 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
         loadLandingContact(),
         loadMobileInfoMessages(),
         loadAppUpdateConfig(),
+        loadAppFeatureFlags(),
       ])
     })()
   }, [])
@@ -1044,6 +1115,51 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     }
   }
 
+  async function handleToggleAppFeatureFlag(flag: AppFeatureFlagItem, isEnabled: boolean) {
+    setNotice('')
+    setSettingsError('')
+    setIsAppFeatureFlagSaving(true)
+    try {
+      const { error } = await supabase.from('app_feature_flags').upsert({
+        key: flag.key,
+        name: flag.name,
+        description: flag.description,
+        is_enabled: isEnabled,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadAppFeatureFlags()
+      if (flag.key === 'app_maintenance') {
+        setNotice(
+          isEnabled
+            ? 'Mode maintenance activé. Les joueurs sont redirigés en temps réel.'
+            : 'Application repassée en ligne. Les joueurs retrouvent l’accès automatiquement.',
+        )
+      } else {
+        setNotice(
+          isEnabled
+            ? 'Accès aux forfaits réactivé côté joueur.'
+            : 'Accès aux forfaits masqué côté joueur.',
+        )
+      }
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de mettre à jour cette option.'),
+      )
+    } finally {
+      setIsAppFeatureFlagSaving(false)
+    }
+  }
+
+  const playerSubscriptionsFlag =
+    appFeatureFlags.find((flag) => flag.key === 'player_subscriptions') ??
+    defaultAppFeatureFlags[0]
+  const appMaintenanceFlag =
+    appFeatureFlags.find((flag) => flag.key === 'app_maintenance') ??
+    defaultAppFeatureFlags[1]
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -1197,6 +1313,64 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                 Fermer session
               </button>
             </div>
+          </article>
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Disponibilité</p>
+                <h2>Mode maintenance mobile</h2>
+              </div>
+              <span
+                className={`status-pill ${
+                  appMaintenanceFlag.isEnabled ? 'inactive' : 'active'
+                }`}
+              >
+                {appMaintenanceFlag.isEnabled ? 'Maintenance' : 'En ligne'}
+              </span>
+            </div>
+            <div className="maintenance-mode-action">
+              <div>
+                <strong>
+                  {appMaintenanceFlag.isEnabled
+                    ? 'Application bloquée pour les joueurs'
+                    : 'Application accessible aux joueurs'}
+                </strong>
+                <p>
+                  {appMaintenanceFlag.isEnabled
+                    ? 'Les joueurs voient la page maintenance en temps réel.'
+                    : 'Les joueurs peuvent utiliser normalement l’application.'}
+                </p>
+              </div>
+              <button
+                className={`primary-action ${
+                  appMaintenanceFlag.isEnabled ? '' : 'danger'
+                }`}
+                disabled={isAppFeatureFlagSaving}
+                onClick={() =>
+                  void handleToggleAppFeatureFlag(
+                    appMaintenanceFlag,
+                    !appMaintenanceFlag.isEnabled,
+                  )
+                }
+                type="button"
+              >
+                {isAppFeatureFlagSaving
+                  ? 'Mise à jour...'
+                  : appMaintenanceFlag.isEnabled
+                    ? 'Passer l’app en ligne'
+                    : 'Activer la maintenance'}
+              </button>
+            </div>
+            <p className="helper-text">
+              Quand ce mode est actif, les joueurs connectés sont redirigés
+              automatiquement vers la page maintenance et ne peuvent plus
+              accéder à l’app. Les comptes SA/admin restent autorisés.
+              {appMaintenanceFlag.updatedAt
+                ? ` Dernière mise à jour : ${formatDate(
+                    appMaintenanceFlag.updatedAt,
+                  )}.`
+                : ''}
+            </p>
           </article>
           <article className="panel">
             <div className="section-heading">
@@ -1881,6 +2055,44 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
               {appUpdateConfigForm.isActive ? 'Contrôle actif' : 'Contrôle inactif'}
             </span>
           </div>
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Accès joueur</p>
+                <h2>Forfaits dans le profil</h2>
+              </div>
+              <span
+                className={`status-pill ${
+                  playerSubscriptionsFlag.isEnabled ? 'active' : 'inactive'
+                }`}
+              >
+                {playerSubscriptionsFlag.isEnabled ? 'Visible' : 'Masqué'}
+              </span>
+            </div>
+            <label className="checkbox-row">
+              <input
+                checked={playerSubscriptionsFlag.isEnabled}
+                disabled={isAppFeatureFlagSaving}
+                onChange={(event) =>
+                  void handleToggleAppFeatureFlag(
+                    playerSubscriptionsFlag,
+                    event.target.checked,
+                  )
+                }
+                type="checkbox"
+              />
+              <span>Afficher le bouton Forfait sur le profil joueur</span>
+            </label>
+            <p className="helper-text">
+              Désactive cette option pour masquer l’accès aux forfaits dans
+              l’app mobile, notamment pendant la revue App Store.
+              {playerSubscriptionsFlag.updatedAt
+                ? ` Dernière mise à jour : ${formatDate(
+                    playerSubscriptionsFlag.updatedAt,
+                  )}.`
+                : ''}
+            </p>
+          </article>
           <article className="panel">
             <div className="section-heading">
               <div>

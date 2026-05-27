@@ -90,11 +90,29 @@ type PlayerPlanFormState = {
   orderIndex: string
   benefitsText: string
 }
+type PlansAccessFlag = {
+  isEnabled: boolean
+  updatedAt: string
+}
 
 function formatMoney(value: number | null) { if (!value) return '0 FCFA'; return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA` }
 function formatDate(value: string) { if (!value) return 'Non défini'; return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 function createClientUuid() { if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID(); return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => { const random = Math.floor(Math.random() * 16); const value = char === 'x' ? random : (random & 0x3) | 0x8; return value.toString(16) }) }
 function getVisiblePlansNavItems(permissions: string[] | undefined, navItems: PlansNavItem[]) { return navItems.filter((item) => hasAdminPermission(permissions, item.permission, 'read')) }
+async function fetchPlansAccessFlag(): Promise<PlansAccessFlag> {
+  const { data, error } = await supabase
+    .from('app_feature_flags')
+    .select('is_enabled, updated_at')
+    .eq('key', 'player_subscriptions')
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    isEnabled: (data?.is_enabled as boolean | null) ?? true,
+    updatedAt: (data?.updated_at as string | null) ?? '',
+  }
+}
 async function fetchPartnerPlansData(): Promise<PartnerPlansData> {
   const [plansResponse, benefitsResponse, subscriptionsResponse, partnersResponse] =
     await Promise.all([
@@ -318,18 +336,25 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
   )
   const [planError, setPlanError] = useState('')
   const [isSavingPlan, setIsSavingPlan] = useState(false)
+  const [plansAccessFlag, setPlansAccessFlag] = useState<PlansAccessFlag>({
+    isEnabled: true,
+    updatedAt: '',
+  })
+  const [isPlansAccessSaving, setIsPlansAccessSaving] = useState(false)
 
   const loadPlans = useCallback(async () => {
     setIsPlansLoading(true)
     setPlansError('')
 
     try {
-      const [nextPartnerPlans, nextPlayerPlans] = await Promise.all([
+      const [nextPartnerPlans, nextPlayerPlans, nextAccessFlag] = await Promise.all([
         fetchPartnerPlansData(),
         fetchPlayerPlansForAdmin(),
+        fetchPlansAccessFlag().catch(() => ({ isEnabled: true, updatedAt: '' })),
       ])
       setPlansData(nextPartnerPlans)
       setPlayerPlans(nextPlayerPlans)
+      setPlansAccessFlag(nextAccessFlag)
     } catch (error) {
       setPlansError(
         error instanceof Error
@@ -344,11 +369,16 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
   useEffect(() => {
     let isMounted = true
 
-    void Promise.all([fetchPartnerPlansData(), fetchPlayerPlansForAdmin()])
-      .then(([nextPlansData, nextPlayerPlans]) => {
+    void Promise.all([
+      fetchPartnerPlansData(),
+      fetchPlayerPlansForAdmin(),
+      fetchPlansAccessFlag().catch(() => ({ isEnabled: true, updatedAt: '' })),
+    ])
+      .then(([nextPlansData, nextPlayerPlans, nextAccessFlag]) => {
         if (!isMounted) return
         setPlansData(nextPlansData)
         setPlayerPlans(nextPlayerPlans)
+        setPlansAccessFlag(nextAccessFlag)
       })
       .catch((error) => {
         if (!isMounted) return
@@ -651,6 +681,32 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
     await loadPlans()
   }
 
+  async function handleTogglePlansAccess() {
+    const nextIsEnabled = !plansAccessFlag.isEnabled
+    setPlansError('')
+    setIsPlansAccessSaving(true)
+
+    const { error } = await supabase.from('app_feature_flags').upsert({
+      key: 'player_subscriptions',
+      name: 'Bouton forfait joueur',
+      description: 'Affiche ou masque l’accès aux forfaits dans le profil joueur.',
+      is_enabled: nextIsEnabled,
+      updated_at: new Date().toISOString(),
+    })
+
+    setIsPlansAccessSaving(false)
+
+    if (error) {
+      setPlansError(error.message)
+      return
+    }
+
+    setPlansAccessFlag({
+      isEnabled: nextIsEnabled,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
   async function handleDeletePlan(plan: PartnerPlanItem) {
     const confirmed = window.confirm(
       `Supprimer definitivement le forfait "${plan.name}" ?`,
@@ -766,7 +822,48 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
         ) : null}
 
         <section className="plans-layout">
-          <div className="panel">
+          <div className="plans-main-column">
+            <div className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Accès mobile</p>
+                <h2>Bouton Forfait dans le profil joueur</h2>
+              </div>
+              <span
+                className={`status-pill ${
+                  plansAccessFlag.isEnabled ? 'active' : 'inactive'
+                }`}
+              >
+                {plansAccessFlag.isEnabled ? 'Visible' : 'Masqué'}
+              </span>
+            </div>
+            <p className="page-subtitle">
+              Contrôle l’accès des joueurs à la page des forfaits depuis leur
+              profil mobile.
+              {plansAccessFlag.updatedAt
+                ? ` Dernière mise à jour : ${formatDate(plansAccessFlag.updatedAt)}.`
+                : ''}
+            </p>
+            <div className="contest-actions">
+              <button
+                className={
+                  plansAccessFlag.isEnabled
+                    ? 'table-action-button danger'
+                    : 'primary-button'
+                }
+                disabled={isPlansAccessSaving}
+                onClick={handleTogglePlansAccess}
+                type="button"
+              >
+                {isPlansAccessSaving
+                  ? 'Mise à jour...'
+                  : plansAccessFlag.isEnabled
+                    ? 'Désactiver l’accès aux forfaits'
+                    : 'Activer l’accès aux forfaits'}
+              </button>
+            </div>
+            </div>
+            <div className="panel">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Plans</p>
@@ -807,7 +904,12 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
                         <span>{plan.key}</span>
                         <strong>{plan.name}</strong>
                       </div>
-                      <small>{formatMoney(plan.price)}</small>
+                      <div className="plan-card-status">
+                        <span className={`status-pill ${plan.isActive ? 'active' : 'inactive'}`}>
+                          {plan.isActive ? 'Actif' : 'Inactif'}
+                        </span>
+                        <small>{formatMoney(plan.price)}</small>
+                      </div>
                     </div>
                     <p>{plan.description || 'Aucune description'}</p>
                     <div className="plan-limits">
@@ -837,11 +939,11 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
                         Modifier
                       </button>
                       <button
-                        className="table-action-button"
+                        className={plan.isActive ? 'table-action-button danger' : 'table-action-button'}
                         onClick={() => handleTogglePlan(plan)}
                         type="button"
                       >
-                        {plan.isActive ? 'Désactiver' : 'Activer'}
+                        {plan.isActive ? 'Désactiver ce forfait' : 'Activer ce forfait'}
                       </button>
                       <button
                         className="table-action-button danger"
@@ -861,7 +963,12 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
                         <span>{plan.key}</span>
                         <strong>{plan.name}</strong>
                       </div>
-                      <small>{formatMoney(plan.price)}</small>
+                      <div className="plan-card-status">
+                        <span className={`status-pill ${plan.isActive ? 'active' : 'inactive'}`}>
+                          {plan.isActive ? 'Actif' : 'Inactif'}
+                        </span>
+                        <small>{formatMoney(plan.price)}</small>
+                      </div>
                     </div>
                     <p>{plan.description || 'Aucune description'}</p>
                     <div className="plan-limits">
@@ -884,11 +991,11 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
                         Modifier
                       </button>
                       <button
-                        className="table-action-button"
+                        className={plan.isActive ? 'table-action-button danger' : 'table-action-button'}
                         onClick={() => handleTogglePlayerPlan(plan)}
                         type="button"
                       >
-                        {plan.isActive ? 'Désactiver' : 'Activer'}
+                        {plan.isActive ? 'Désactiver ce forfait' : 'Activer ce forfait'}
                       </button>
                       <button
                         className="table-action-button danger"
@@ -909,6 +1016,7 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
                       : 'Aucun forfait joueur créé.'}
                 </p>
               )}
+            </div>
             </div>
           </div>
 
