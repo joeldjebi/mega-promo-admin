@@ -23,6 +23,13 @@ type LandingContactForm = {
   message: string
 }
 
+const heroTypingThemes = [
+  'Offres locales.',
+  'Marques ivoiriennes.',
+  'Quiz gratuits.',
+  'Campagnes partenaires.',
+]
+
 const defaultContactSettings: LandingContactSettings = {
   whatsappNumber: '2250000000000',
   whatsappMessage: 'Bonjour MegaPromo, j’ai besoin d’informations.',
@@ -152,6 +159,7 @@ async function fetchContactSettings(): Promise<LandingContactSettings> {
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeFaq, setActiveFaq] = useState(0)
+  const [heroTypedText, setHeroTypedText] = useState(heroTypingThemes[0].slice(0, 1))
   const [statsStarted, setStatsStarted] = useState(false)
   const [counts, setCounts] = useState({ players: 0, money: 0, contests: 0 })
   const [content, setContent] = useState<LandingPageContent>(defaultLandingContent)
@@ -171,6 +179,44 @@ export function LandingPage() {
     fallbackPlayerPlans(defaultLandingContent),
   )
   const statsRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let phraseIndex = 0
+    let charIndex = 1
+    let isDeleting = false
+    let timeoutId: number | undefined
+
+    const tick = () => {
+      const phrase = heroTypingThemes[phraseIndex]
+
+      if (isDeleting) {
+        charIndex -= 1
+      } else {
+        charIndex += 1
+      }
+
+      setHeroTypedText(phrase.slice(0, Math.max(1, charIndex)))
+
+      if (!isDeleting && charIndex >= phrase.length) {
+        isDeleting = true
+        timeoutId = window.setTimeout(tick, 1100)
+        return
+      }
+
+      if (isDeleting && charIndex <= 1) {
+        isDeleting = false
+        phraseIndex = (phraseIndex + 1) % heroTypingThemes.length
+      }
+
+      timeoutId = window.setTimeout(tick, isDeleting ? 42 : 78)
+    }
+
+    timeoutId = window.setTimeout(tick, 420)
+
+    return () => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -353,11 +399,14 @@ export function LandingPage() {
         <div className="lp-wrap lp-hero-grid">
           <div className="lp-reveal visible">
             <span className="lp-pill">{content.hero.badge}</span>
-            <h1>
-              {content.hero.titleStart}{' '}
-              <span className="lp-gradient-text">{content.hero.titleHighlight}</span>
+            <h1 className="lp-typing-title">
+              <span>Découvre. </span>
+              <span className="lp-gradient-text">Réponds.</span>
               <br />
-              {content.hero.titleEnd}
+              <span className="lp-typewriter-line">
+                <span className="lp-typewriter-text">{heroTypedText}</span>
+                <i aria-hidden="true" />
+              </span>
             </h1>
             <p className="lp-lead">{content.hero.subtitle}</p>
             <div className="lp-hero-proof" aria-label="Garanties MegaPromo">
