@@ -44,6 +44,11 @@ type PlayersData = {
   totalCount: number
 }
 
+type AppFeatureFlagState = {
+  isEnabled: boolean
+  updatedAt: string
+}
+
 const userRoleFilterLabels: Record<UserRoleFilter, string> = {
   player: 'joueurs',
   partner: 'partenaires',
@@ -175,6 +180,24 @@ async function fetchPlayersData({
   }
 }
 
+async function fetchAppFeatureFlag(
+  key: string,
+  defaultEnabled = true,
+): Promise<AppFeatureFlagState> {
+  const { data, error } = await supabase
+    .from('app_feature_flags')
+    .select('is_enabled, updated_at')
+    .eq('key', key)
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    isEnabled: (data?.is_enabled as boolean | null) ?? defaultEnabled,
+    updatedAt: (data?.updated_at as string | null) ?? '',
+  }
+}
+
 export function SuperAdminUsersPage({
   authRoute,
   navItems,
@@ -207,6 +230,11 @@ export function SuperAdminUsersPage({
   const [isUsersLoading, setIsUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState('')
   const [usersNotice, setUsersNotice] = useState('')
+  const [coordinatesFlag, setCoordinatesFlag] = useState<AppFeatureFlagState>({
+    isEnabled: true,
+    updatedAt: '',
+  })
+  const [isCoordinatesFlagSaving, setIsCoordinatesFlagSaving] = useState(false)
 
   const totalPages = Math.max(1, Math.ceil(playersData.totalCount / pageSize))
   const resultsStart = playersData.totalCount === 0 ? 0 : usersPage * pageSize + 1
@@ -256,6 +284,20 @@ export function SuperAdminUsersPage({
     }
   }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
 
+  const loadCoordinatesFlag = useCallback(async () => {
+    try {
+      setCoordinatesFlag(
+        await fetchAppFeatureFlag('player_profile_coordinates', true),
+      )
+    } catch (error) {
+      setUsersError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de charger le réglage des coordonnées.',
+      )
+    }
+  }, [])
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setUsersPage(0)
@@ -304,15 +346,59 @@ export function SuperAdminUsersPage({
     }
   }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
 
+  useEffect(() => {
+    void loadCoordinatesFlag()
+  }, [loadCoordinatesFlag])
+
   const refreshUsersRealtime = useCallback(async () => {
-    await loadUsers()
-  }, [loadUsers])
+    await Promise.all([loadUsers(), loadCoordinatesFlag()])
+  }, [loadCoordinatesFlag, loadUsers])
 
   useRealtimeRefresh(
     'sa-users-realtime',
-    ['users', 'participations', 'winners', 'player_subscriptions', 'user_badges'],
+    [
+      'users',
+      'participations',
+      'winners',
+      'player_subscriptions',
+      'user_badges',
+      'app_feature_flags',
+    ],
     refreshUsersRealtime,
   )
+
+  async function handleToggleCoordinatesAccess() {
+    const nextIsEnabled = !coordinatesFlag.isEnabled
+    setUsersError('')
+    setUsersNotice('')
+    setIsCoordinatesFlagSaving(true)
+
+    const { error } = await supabase.from('app_feature_flags').upsert({
+      key: 'player_profile_coordinates',
+      name: 'Coordonnées profil joueur',
+      description:
+        'Affiche ou masque le bouton Coordonnées dans le profil joueur mobile.',
+      is_enabled: nextIsEnabled,
+      updated_at: new Date().toISOString(),
+    })
+
+    setIsCoordinatesFlagSaving(false)
+
+    if (error) {
+      setUsersError(error.message)
+      return
+    }
+
+    setCoordinatesFlag({
+      isEnabled: nextIsEnabled,
+      updatedAt: new Date().toISOString(),
+    })
+    setUsersNotice(
+      nextIsEnabled
+        ? 'Le bouton Coordonnées est visible dans le profil joueur.'
+        : 'Le bouton Coordonnées est masqué dans le profil joueur.',
+    )
+  }
 
   async function handleLogout() {
     await adminAuth.logout()
@@ -512,6 +598,47 @@ export function SuperAdminUsersPage({
             </div>
           </div>
         ) : null}
+
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Profil mobile</p>
+              <h2>Coordonnées dans le profil joueur</h2>
+            </div>
+            <span
+              className={`status-pill ${
+                coordinatesFlag.isEnabled ? 'active' : 'inactive'
+              }`}
+            >
+              {coordinatesFlag.isEnabled ? 'Visible' : 'Masqué'}
+            </span>
+          </div>
+          <p className="page-subtitle">
+            Contrôle l’affichage du bouton Coordonnées dans la page profil de
+            l’application mobile.
+            {coordinatesFlag.updatedAt
+              ? ` Dernière mise à jour : ${formatDate(coordinatesFlag.updatedAt)}.`
+              : ''}
+          </p>
+          <div className="contest-actions">
+            <button
+              className={
+                coordinatesFlag.isEnabled
+                  ? 'table-action-button danger'
+                  : 'primary-button'
+              }
+              disabled={isCoordinatesFlagSaving}
+              onClick={handleToggleCoordinatesAccess}
+              type="button"
+            >
+              {isCoordinatesFlagSaving
+                ? 'Mise à jour...'
+                : coordinatesFlag.isEnabled
+                  ? 'Désactiver les coordonnées'
+                  : 'Activer les coordonnées'}
+            </button>
+          </div>
+        </section>
 
         <section className="panel users-table-panel">
           <div className="section-heading">

@@ -22,6 +22,7 @@ let currentAdminPermissions: string[] | null = null
 export const adminPermissionDeniedEvent = 'megapromo:admin-permission-denied'
 
 const tablePermissionFeatures: Record<string, string> = {
+  app_feature_flags: 'settings',
   app_update_config: 'settings',
   badges: 'users',
   categories: 'categories',

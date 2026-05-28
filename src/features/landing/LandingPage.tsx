@@ -953,7 +953,7 @@ export function LandingPage() {
                   key={plan.id}
                 >
                   <div className="lp-price-topline">
-                    <span>{plan.key === 'free' ? 'Découverte' : 'Confort'}</span>
+                    <span>{plan.key === 'free' ? 'Découverte' : 'Flexible'}</span>
                     {plan.featured ? <strong>Populaire</strong> : null}
                   </div>
                   <div className="lp-price-card-head">

@@ -67,6 +67,10 @@ type WinnersData = {
   contests: ContestOption[]
   paymentMethods: WinnerPaymentMethodOption[]
 }
+type AppFeatureFlagState = {
+  isEnabled: boolean
+  updatedAt: string
+}
 
 function formatMoney(value: number | null) { if (!value) return '0 FCFA'; return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA` }
 function formatDate(value: string) { if (!value) return 'Non défini'; return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
@@ -78,6 +82,20 @@ function isoToDatetimeLocalValue(value: string) { if (!value) return ''; return 
 function hasContestEnded(endsAt: string) { const endDate = new Date(endsAt); return !Number.isNaN(endDate.getTime()) && endDate <= new Date() }
 function getVisibleWinnersNavItems(permissions: string[] | undefined, navItems: WinnersNavItem[]) { return navItems.filter((item) => hasAdminPermission(permissions, item.permission, 'read')) }
 function useRealtimeRefresh(channelName: string, tables: string[], onRefresh: () => void | Promise<void>) { const tablesKey = tables.join('|'); useEffect(() => { let refreshTimeout = 0; const scheduleRefresh = () => { window.clearTimeout(refreshTimeout); refreshTimeout = window.setTimeout(() => { void onRefresh() }, 350) }; const channel = supabase.channel(channelName); tables.forEach((table) => { channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh) }); channel.subscribe(); return () => { window.clearTimeout(refreshTimeout); void supabase.removeChannel(channel) } }, [channelName, tablesKey, onRefresh]) }
+async function fetchAppFeatureFlag(key: string, defaultEnabled = true): Promise<AppFeatureFlagState> {
+  const { data, error } = await supabase
+    .from('app_feature_flags')
+    .select('is_enabled, updated_at')
+    .eq('key', key)
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    isEnabled: (data?.is_enabled as boolean | null) ?? defaultEnabled,
+    updatedAt: (data?.updated_at as string | null) ?? '',
+  }
+}
 async function fetchWinnersData(): Promise<WinnersData> {
   const [
     winnersResponse,
@@ -233,6 +251,11 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
   const [winnerSearch, setWinnerSearch] = useState('')
   const [winnerStatusFilter, setWinnerStatusFilter] = useState<'all' | WinnerStatus>('all')
   const [winnerTypeFilter, setWinnerTypeFilter] = useState<'all' | 'contest' | 'live'>('all')
+  const [rewardsFlag, setRewardsFlag] = useState<AppFeatureFlagState>({
+    isEnabled: true,
+    updatedAt: '',
+  })
+  const [isRewardsFlagSaving, setIsRewardsFlagSaving] = useState(false)
 
   const filteredWinners = useMemo(() => {
     const search = winnerSearch.trim().toLowerCase()
@@ -269,6 +292,18 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     }
   }, [])
 
+  const loadRewardsFlag = useCallback(async () => {
+    try {
+      setRewardsFlag(await fetchAppFeatureFlag('player_profile_rewards', true))
+    } catch (error) {
+      setWinnersError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de charger le réglage des récompenses.',
+      )
+    }
+  }, [])
+
   useEffect(() => {
     let isMounted = true
 
@@ -293,11 +328,52 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     }
   }, [])
 
+  useEffect(() => {
+    void loadRewardsFlag()
+  }, [loadRewardsFlag])
+
+  const refreshWinnersRealtime = useCallback(async () => {
+    await Promise.all([loadWinners(), loadRewardsFlag()])
+  }, [loadRewardsFlag, loadWinners])
+
   useRealtimeRefresh(
     'sa-winners-realtime',
-    ['winners', 'users', 'contests'],
-    loadWinners,
+    ['winners', 'users', 'contests', 'app_feature_flags'],
+    refreshWinnersRealtime,
   )
+
+  async function handleToggleRewardsAccess() {
+    const nextIsEnabled = !rewardsFlag.isEnabled
+    setWinnersError('')
+    setWinnersNotice('')
+    setIsRewardsFlagSaving(true)
+
+    const { error } = await supabase.from('app_feature_flags').upsert({
+      key: 'player_profile_rewards',
+      name: 'Récompenses profil joueur',
+      description:
+        'Affiche ou masque le bouton Récompenses dans le profil joueur mobile.',
+      is_enabled: nextIsEnabled,
+      updated_at: new Date().toISOString(),
+    })
+
+    setIsRewardsFlagSaving(false)
+
+    if (error) {
+      setWinnersError(error.message)
+      return
+    }
+
+    setRewardsFlag({
+      isEnabled: nextIsEnabled,
+      updatedAt: new Date().toISOString(),
+    })
+    setWinnersNotice(
+      nextIsEnabled
+        ? 'Le bouton Récompenses est visible dans le profil joueur.'
+        : 'Le bouton Récompenses est masqué dans le profil joueur.',
+    )
+  }
 
   async function handleLogout() {
     await adminAuth.logout()
@@ -707,6 +783,43 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
             </div>
           </div>
         ) : null}
+
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Profil mobile</p>
+              <h2>Récompenses dans le profil joueur</h2>
+            </div>
+            <span
+              className={`status-pill ${rewardsFlag.isEnabled ? 'active' : 'inactive'}`}
+            >
+              {rewardsFlag.isEnabled ? 'Visible' : 'Masqué'}
+            </span>
+          </div>
+          <p className="page-subtitle">
+            Contrôle l’affichage du bouton Récompenses dans la page profil de
+            l’application mobile.
+            {rewardsFlag.updatedAt
+              ? ` Dernière mise à jour : ${formatDate(rewardsFlag.updatedAt)}.`
+              : ''}
+          </p>
+          <div className="contest-actions">
+            <button
+              className={
+                rewardsFlag.isEnabled ? 'table-action-button danger' : 'primary-button'
+              }
+              disabled={isRewardsFlagSaving}
+              onClick={handleToggleRewardsAccess}
+              type="button"
+            >
+              {isRewardsFlagSaving
+                ? 'Mise à jour...'
+                : rewardsFlag.isEnabled
+                  ? 'Désactiver les récompenses'
+                  : 'Activer les récompenses'}
+            </button>
+          </div>
+        </section>
 
         <section className="panel winners-page-panel">
           <div className="section-heading">

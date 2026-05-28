@@ -32,6 +32,11 @@ type HealthItem = {
   level: number
 }
 
+type AppFeatureFlagState = {
+  isEnabled: boolean
+  updatedAt: string
+}
+
 export type ChartPoint = {
   label: string
   value: number
@@ -121,6 +126,32 @@ function formatNumber(value: number) {
 function formatMoney(value: number | null) {
   if (!value) return '0 FCFA'
   return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA`
+}
+
+function formatDate(value: string) {
+  if (!value) return 'Non défini'
+  return new Intl.DateTimeFormat('fr-FR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
+async function fetchAppFeatureFlag(
+  key: string,
+  defaultEnabled = true,
+): Promise<AppFeatureFlagState> {
+  const { data, error } = await supabase
+    .from('app_feature_flags')
+    .select('is_enabled, updated_at')
+    .eq('key', key)
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    isEnabled: (data?.is_enabled as boolean | null) ?? defaultEnabled,
+    updatedAt: (data?.updated_at as string | null) ?? '',
+  }
 }
 
 function useRealtimeRefresh(
@@ -655,6 +686,12 @@ export function SuperAdminDashboard({
     useState<DashboardData>(emptyDashboardData)
   const [isDashboardLoading, setIsDashboardLoading] = useState(true)
   const [dashboardError, setDashboardError] = useState('')
+  const [dashboardNotice, setDashboardNotice] = useState('')
+  const [reviewSafeFlag, setReviewSafeFlag] = useState<AppFeatureFlagState>({
+    isEnabled: true,
+    updatedAt: '',
+  })
+  const [isReviewSafeSaving, setIsReviewSafeSaving] = useState(false)
 
   const loadDashboard = useCallback(async () => {
     setIsDashboardLoading(true)
@@ -671,6 +708,18 @@ export function SuperAdminDashboard({
       )
     } finally {
       setIsDashboardLoading(false)
+    }
+  }, [])
+
+  const loadReviewSafeFlag = useCallback(async () => {
+    try {
+      setReviewSafeFlag(await fetchAppFeatureFlag('app_review_safe', true))
+    } catch (error) {
+      setDashboardError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de charger le mode review safe.',
+      )
     }
   }, [])
 
@@ -698,6 +747,14 @@ export function SuperAdminDashboard({
     }
   }, [])
 
+  useEffect(() => {
+    void loadReviewSafeFlag()
+  }, [loadReviewSafeFlag])
+
+  const refreshDashboardRealtime = useCallback(async () => {
+    await Promise.all([loadDashboard(), loadReviewSafeFlag()])
+  }, [loadDashboard, loadReviewSafeFlag])
+
   useRealtimeRefresh(
     'sa-dashboard-realtime',
     [
@@ -709,13 +766,47 @@ export function SuperAdminDashboard({
       'notifications',
       'player_subscriptions',
       'partner_subscriptions',
+      'app_feature_flags',
     ],
-    loadDashboard,
+    refreshDashboardRealtime,
   )
 
   async function handleLogout() {
     await adminAuth.logout()
     navigate(authRoute, { replace: true })
+  }
+
+  async function handleToggleReviewSafeMode() {
+    const nextIsEnabled = !reviewSafeFlag.isEnabled
+    setDashboardError('')
+    setDashboardNotice('')
+    setIsReviewSafeSaving(true)
+
+    const { error } = await supabase.from('app_feature_flags').upsert({
+      key: 'app_review_safe',
+      name: 'Mode review safe',
+      description:
+        'Active la présentation de conformité pour les stores: montants masqués, forfaits masqués, tirages et pronostics masqués.',
+      is_enabled: nextIsEnabled,
+      updated_at: new Date().toISOString(),
+    })
+
+    setIsReviewSafeSaving(false)
+
+    if (error) {
+      setDashboardError(error.message)
+      return
+    }
+
+    setReviewSafeFlag({
+      isEnabled: nextIsEnabled,
+      updatedAt: new Date().toISOString(),
+    })
+    setDashboardNotice(
+      nextIsEnabled
+        ? 'Mode review safe activé en temps réel sur l’application.'
+        : 'Mode review safe désactivé en temps réel sur l’application.',
+    )
   }
 
   return (
@@ -812,6 +903,56 @@ export function SuperAdminDashboard({
             </button>
           </div>
         ) : null}
+
+        {dashboardNotice ? (
+          <div className="dashboard-success" role="status">
+            <div>
+              <strong>Action appliquée</strong>
+              <p>{dashboardNotice}</p>
+            </div>
+          </div>
+        ) : null}
+
+        <section className="panel hero-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Conformité stores</p>
+              <h2>Mode review safe</h2>
+            </div>
+            <span
+              className={`status-pill ${
+                reviewSafeFlag.isEnabled ? 'active' : 'inactive'
+              }`}
+            >
+              {reviewSafeFlag.isEnabled ? 'Activé' : 'Désactivé'}
+            </span>
+          </div>
+          <p className="page-subtitle">
+            Active ce mode pendant les revues App Store / Play Store. Il masque
+            les montants, les forfaits et les campagnes sensibles dans l’app.
+            {reviewSafeFlag.updatedAt
+              ? ` Dernière mise à jour : ${formatDate(reviewSafeFlag.updatedAt)}.`
+              : ''}
+          </p>
+          <div className="contest-actions">
+            <button
+              className={
+                reviewSafeFlag.isEnabled
+                  ? 'table-action-button danger'
+                  : 'primary-button'
+              }
+              disabled={isReviewSafeSaving}
+              onClick={handleToggleReviewSafeMode}
+              type="button"
+            >
+              {isReviewSafeSaving
+                ? 'Mise à jour...'
+                : reviewSafeFlag.isEnabled
+                  ? 'Désactiver le review safe'
+                  : 'Activer le review safe'}
+            </button>
+          </div>
+        </section>
 
         <section className="dashboard-analytics-grid">
           <DashboardTrendCard
