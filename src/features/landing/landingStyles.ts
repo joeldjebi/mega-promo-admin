@@ -2411,11 +2411,17 @@ html { scroll-behavior: smooth; }
 }
 
 @media (max-width: 767px) {
-  .lp-nav .lp-actions .lp-button { display: none; }
   .lp-stats { grid-template-columns: 1fr; }
   .lp-section { padding: 44px 0; }
   .lp-hero { padding-top: 104px; }
   .lp-button { width: 100%; }
+  .lp-nav .lp-actions .lp-button {
+    display: inline-flex;
+    font-size: 12px;
+    min-height: 38px;
+    padding: 0 12px;
+    width: auto;
+  }
   .lp-wrap { padding: 0 16px; }
   .lp-nav-inner { min-height: 70px; }
   .lp-header-logo img {
@@ -2510,6 +2516,14 @@ html { scroll-behavior: smooth; }
   .lp-burger {
     height: 40px;
     width: 40px;
+  }
+  .lp-nav .lp-actions {
+    gap: 7px;
+  }
+  .lp-nav .lp-actions .lp-button {
+    font-size: 11px;
+    min-height: 36px;
+    padding: 0 9px;
   }
   .lp-hero { padding-top: 92px; }
   .lp-hero-proof,

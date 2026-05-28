@@ -901,7 +901,7 @@ export function LandingPage() {
       <section className="lp-logo-parallax" aria-label="MegaPromo">
         <div className="lp-logo-parallax-inner">
           <img alt="" src="/megapromologo.png" />
-          <span>MegaPromo</span>
+          <span>Mega Promo</span>
         </div>
       </section>
     </main>
