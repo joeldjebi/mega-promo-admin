@@ -58,7 +58,7 @@ html { scroll-behavior: smooth; }
 .lp-nav-inner {
   align-items: center;
   display: flex;
-  min-height: 72px;
+  min-height: 78px;
   justify-content: space-between;
 }
 
@@ -99,9 +99,9 @@ html { scroll-behavior: smooth; }
   border: 0;
   box-shadow: none;
   border-radius: 17px;
-  height: 58px;
+  height: 78px;
   padding: 4px;
-  width: 58px;
+  width: 78px;
 }
 
 .lp-menu {
@@ -2425,8 +2425,8 @@ html { scroll-behavior: smooth; }
   .lp-wrap { padding: 0 16px; }
   .lp-nav-inner { min-height: 70px; }
   .lp-header-logo img {
-    height: 52px;
-    width: 52px;
+    height: 64px;
+    width: 64px;
   }
   .lp-mobile-menu.open {
     max-height: min(70vh, 420px);
@@ -2510,8 +2510,8 @@ html { scroll-behavior: smooth; }
   .lp-wrap { padding: 0 12px; }
   .lp-nav-inner { min-height: 66px; }
   .lp-header-logo img {
-    height: 46px;
-    width: 46px;
+    height: 54px;
+    width: 54px;
   }
   .lp-burger {
     height: 40px;
