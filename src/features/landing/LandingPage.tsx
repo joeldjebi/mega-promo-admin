@@ -53,8 +53,8 @@ function planFallbackFeatures(plan: {
       ? `${plan.dailyParticipationLimit} participation${plan.dailyParticipationLimit > 1 ? 's' : ''} par jour`
       : 'Participations illimitées',
     plan.bonusTickets > 0
-      ? `${plan.bonusTickets} ticket${plan.bonusTickets > 1 ? 's' : ''} bonus aux tirages`
-      : 'Accès aux concours standards',
+      ? `${plan.bonusTickets} avantage${plan.bonusTickets > 1 ? 's' : ''} bonus dans l’app`
+      : 'Accès aux campagnes standards',
   ]
 
   if (plan.badgeMultiplier > 1) {
@@ -108,7 +108,7 @@ async function fetchLandingPlayerPlans(): Promise<LandingPlayerPlan[]> {
       price: formatPlanPrice(price, durationDays),
       subtitle: durationDays > 0 && price > 0
         ? `Soit ${new Intl.NumberFormat('fr-FR').format(Math.ceil(price / durationDays))} FCFA par jour.`
-        : 'Pour commencer à jouer sans engagement.',
+        : 'Pour commencer sans engagement.',
       features: features?.length
         ? features.map((feature) => `✅ ${feature}`)
         : planFallbackFeatures({ dailyParticipationLimit, bonusTickets, badgeMultiplier }).map(
@@ -151,7 +151,6 @@ async function fetchContactSettings(): Promise<LandingContactSettings> {
 
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
   const [activeFaq, setActiveFaq] = useState(0)
   const [statsStarted, setStatsStarted] = useState(false)
   const [counts, setCounts] = useState({ players: 0, money: 0, contests: 0 })
@@ -213,13 +212,8 @@ export function LandingPage() {
       }
     })()
 
-    const handleScroll = () => setScrolled(window.scrollY > 20)
-    handleScroll()
-    window.addEventListener('scroll', handleScroll)
-
     return () => {
       isMounted = false
-      window.removeEventListener('scroll', handleScroll)
     }
   }, [])
 
@@ -310,12 +304,11 @@ export function LandingPage() {
   return (
     <main className="lp-page">
       <style>{landingStyle}</style>
-      <nav className={`lp-nav ${scrolled ? 'scrolled' : ''}`}>
+      <nav className="lp-nav">
         <div className="lp-wrap">
           <div className="lp-nav-inner">
-            <a className="lp-logo" href="#accueil" onClick={() => setMenuOpen(false)}>
+            <a className="lp-logo lp-header-logo" href="#accueil" onClick={() => setMenuOpen(false)} aria-label="MegaPromo">
               <img alt="" src="/megapromologo.png" />
-              <strong>MegaPromo</strong>
             </a>
             <div className="lp-menu">
               {content.navItems.map(([label, href]) => (
@@ -367,6 +360,11 @@ export function LandingPage() {
               {content.hero.titleEnd}
             </h1>
             <p className="lp-lead">{content.hero.subtitle}</p>
+            <div className="lp-hero-proof" aria-label="Garanties MegaPromo">
+              <span>Quiz gratuits</span>
+              <span>Sans mise</span>
+              <span>Sans pari</span>
+            </div>
             <div className="lp-hero-actions">
               <a className="lp-button primary" href="#telecharger">{content.hero.primaryCta}</a>
               <a className="lp-button outline" href="#concours">{content.hero.secondaryCta}</a>
@@ -374,239 +372,328 @@ export function LandingPage() {
             <div className="lp-stats" ref={statsRef}>
               <div className="lp-stat">
                 <strong>{new Intl.NumberFormat('fr-FR').format(counts.players)}+</strong>
-                <span>Joueurs actifs</span>
+                <span>Utilisateurs actifs</span>
               </div>
               <div className="lp-stat">
                 <strong>
                   {counts.money >= 1000000
-                    ? `${Math.round(counts.money / 1000000)}M+ FCFA`
-                    : `${new Intl.NumberFormat('fr-FR').format(counts.money)} FCFA`}
+                    ? `${Math.round(counts.money / 1000000)}M+`
+                    : `${new Intl.NumberFormat('fr-FR').format(counts.money)}+`}
                 </strong>
-                <span>Distribués</span>
+                <span>Valeur promo</span>
               </div>
               <div className="lp-stat">
                 <strong>{new Intl.NumberFormat('fr-FR').format(counts.contests)}+</strong>
-                <span>Concours lancés</span>
+                <span>Campagnes lancées</span>
               </div>
             </div>
           </div>
           <div className="lp-phone-wrap lp-reveal">
-            <div className="lp-phone">
-              <span className="lp-phone-notch" />
-              <div className="lp-phone-screen">
-                <div className="lp-app-top">
-                  <strong>MegaPromo</strong>
-                  <span>🇨🇮</span>
-                </div>
-                <div className="lp-app-balance">
-                  <small>Gains disponibles</small>
-                  <strong>125 000 FCFA</strong>
-                </div>
-                <div className="lp-contest-card featured">
-                  <small>EN VEDETTE</small>
-                  <h3>Grand Tirage Data</h3>
-                  <p>50 000 FCFA + 20 Go</p>
-                  <div className="lp-progress"><span style={{ width: '64%' }} /></div>
-                </div>
-                <div className="lp-contest-card">
-                  <small>QUIZ</small>
-                  <h3>Foot Africain</h3>
-                  <p>Score à battre : 840 pts</p>
-                </div>
-                <div className="lp-contest-card">
-                  <small>PRONOSTIC</small>
-                  <h3>AFCON 2025</h3>
-                  <p>891 joueurs déjà inscrits</p>
-                </div>
+            <img
+              alt="Aperçu de l'application MegaPromo sur iPhone"
+              className="lp-phone-mockup"
+              decoding="async"
+              src="/landing-iphone-mockup-transparent.png"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="lp-section lp-process-section" id="comment-ca-marche">
+        <div className="lp-wrap">
+          <div className="lp-process-layout">
+            <div className="lp-process-copy lp-reveal">
+              <span className="lp-pill">Parcours utilisateur</span>
+              <h2>Simple. Rapide. Gratuit.</h2>
+              <p>Trois étapes simples pour découvrir les campagnes partenaires.</p>
+              <div className="lp-process-proof">
+                <span>Sans mise</span>
+                <span>Sans pari</span>
+                <span>Sans achat obligatoire</span>
               </div>
+            </div>
+            <div className="lp-steps-timeline">
+              {content.steps.map(([icon, title, text], index) => (
+                <article
+                  className="lp-step-card lp-reveal"
+                  key={title}
+                  style={{ transitionDelay: `${index * 90}ms` }}
+                >
+                  <span className="lp-step-number">{index + 1}</span>
+                  <div className="lp-step-body">
+                    <span className="lp-step-icon">{icon}</span>
+                    <span className="lp-step-kicker">Étape {index + 1}</span>
+                    <h3>{title}</h3>
+                    <p>{text}</p>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      <section className="lp-section" id="comment-ca-marche">
+      <section className="lp-section lp-showcase-section">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
-            <h2>Simple. Rapide. Gratuit.</h2>
-            <p>Trois petites étapes et tu es déjà dans le jeu.</p>
+            <h2>3 façons de participer</h2>
+            <p>Découvre des marques, réponds aux quiz et profite d’avantages promotionnels.</p>
           </div>
-          <div className="lp-grid three">
-            {content.steps.map(([icon, title, text], index) => (
-              <article className="lp-card lp-reveal" key={title}>
-                <span className="lp-pill">Étape {index + 1}</span>
-                <span className="icon">{icon}</span>
-                <h3>{title}</h3>
-                <p>{text}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="lp-section">
-        <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>3 façons de gagner</h2>
-            <p>Choisis ton style : connaissance, chance ou flair sportif.</p>
-          </div>
-          <div className="lp-grid three">
-            {content.games.map((game) => (
-              <article className={`lp-card lp-game-card ${game.cls} lp-reveal`} key={game.title}>
-                <span className="icon">{game.icon}</span>
+          <div className="lp-participation-grid">
+            {content.games.map((game, index) => (
+              <article
+                className={`lp-participation-card lp-participation-card-${index + 1} lp-game-card ${game.cls} lp-reveal`}
+                key={game.title}
+                style={{ transitionDelay: `${index * 90}ms` }}
+              >
+                <span className="lp-feature-icon">{game.icon}</span>
                 <h3>{game.title}</h3>
                 <p>{game.text}</p>
                 <div className="lp-tags">
                   {game.tags.map((tag) => <span key={tag}>{tag}</span>)}
                 </div>
-                <a href="#concours">{game.cta}</a>
+                <a className="lp-feature-link" href="#concours">{game.cta}</a>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="lp-section" id="concours">
+      <section className="lp-section lp-campaigns-section" id="concours">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
-            <h2>Concours en ce moment</h2>
-            <p>Rejoins-les avant qu’ils se terminent.</p>
+            <span className="lp-pill">Campagnes actives</span>
+            <h2>Campagnes en ce moment</h2>
+            <p>Participe gratuitement avant la fin des campagnes.</p>
           </div>
-          <div className="lp-grid three">
-            {content.liveContests.map(([badge, title, prize, participants, progress, timer, cta]) => (
-              <article className="lp-card lp-live-card lp-reveal" key={title}>
-                <span className="lp-badge">{badge}</span>
-                <h3>{title}</h3>
-                <span className="lp-prize">{prize}</span>
-                <div className="lp-live-meta">
-                  <span>{participants}</span>
-                  <span>{timer}</span>
-                </div>
-                <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
-                <a className="lp-button primary" href="#telecharger" style={{ marginTop: 12 }}>{cta}</a>
-              </article>
-            ))}
+          <div className="lp-campaigns-shell">
+            <div className="lp-campaign-grid">
+              {content.liveContests.map(([badge, title, prize, participants, progress, timer, cta], index) => (
+                <article
+                  className={`lp-campaign-card lp-reveal ${index === 0 ? 'featured' : ''}`}
+                  key={title}
+                  style={{ transitionDelay: `${index * 80}ms` }}
+                >
+                  <div className="lp-campaign-top">
+                    <span>{badge}</span>
+                    <strong>{timer}</strong>
+                  </div>
+                  <div className="lp-campaign-icon" aria-hidden="true">
+                    {index === 0 ? '📣' : index === 1 ? '🧠' : '🎁'}
+                  </div>
+                  <h3>{title}</h3>
+                  <span className="lp-prize">{prize}</span>
+                  <div className="lp-live-meta">
+                    <span>{participants}</span>
+                    <span>{progress}% complété</span>
+                  </div>
+                  <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
+                  <a className="lp-button primary" href="#telecharger">{cta}</a>
+                </article>
+              ))}
+            </div>
+            <div className="lp-campaign-proof">
+              <span>Participation gratuite</span>
+              <span>Marques partenaires</span>
+              <span>Récompenses promotionnelles</span>
+            </div>
           </div>
-          <div style={{ marginTop: 20, textAlign: 'center' }}>
-            <a className="lp-button outline" href="#telecharger">Voir tous les concours →</a>
+          <div className="lp-centered-action">
+            <a className="lp-button outline" href="#telecharger">Voir toutes les campagnes →</a>
           </div>
         </div>
       </section>
 
-      <section className="lp-section" id="tarifs">
+      <section className="lp-section lp-plans-section" id="tarifs">
         <div className="lp-wrap">
-          <div className="lp-section-head">
+          <div className="lp-plans-head lp-reveal">
+            <span className="lp-pill">Offres utilisateur</span>
             <h2>Choisis ton forfait</h2>
-            <p>Les tarifs viennent directement de la configuration Super Admin.</p>
+            <p>Commence gratuitement. Active plus de confort uniquement si tu veux participer davantage aux campagnes.</p>
           </div>
-          <div
-            className={`lp-grid ${playerPlans.length >= 3 ? 'three' : 'two'} lp-price-grid`}
-          >
-            {playerPlans.map((plan) => (
-              <article
-                className={`lp-card lp-price-card ${plan.featured ? 'featured' : ''}`}
-                key={plan.id}
-              >
-                {plan.featured ? <span className="lp-badge">POPULAIRE</span> : null}
-                <h3>{plan.title}</h3>
-                <span className="lp-price">{plan.price}</span>
-                {plan.subtitle || plan.description ? <p>{plan.subtitle || plan.description}</p> : null}
-                <ul className="lp-feature-list">
-                  {plan.features.map((feature) => (
-                    <li key={feature}>{feature}</li>
-                  ))}
-                </ul>
-                <a className={`lp-button ${plan.featured ? 'primary' : 'outline'}`} href="#telecharger">
-                  {plan.key === 'free' ? 'Commencer' : `Choisir ${plan.title}`}
-                </a>
-              </article>
-            ))}
+          <div className="lp-plans-shell">
+            <div className={`lp-price-grid ${playerPlans.length >= 3 ? 'three' : 'two'}`}>
+              {playerPlans.map((plan) => (
+                <article
+                  className={`lp-price-card lp-reveal ${plan.featured ? 'featured' : ''}`}
+                  key={plan.id}
+                >
+                  <div className="lp-price-topline">
+                    <span>{plan.key === 'free' ? 'Découverte' : 'Confort'}</span>
+                    {plan.featured ? <strong>Populaire</strong> : null}
+                  </div>
+                  <div className="lp-price-card-head">
+                    <h3>{plan.title}</h3>
+                    {plan.subtitle || plan.description ? <p>{plan.subtitle || plan.description}</p> : null}
+                  </div>
+                  <div className="lp-price-box">
+                    <span className="lp-price">{plan.price}</span>
+                    <small>{plan.key === 'free' ? 'Aucune carte bancaire requise' : 'Activation depuis l’application'}</small>
+                  </div>
+                  <ul className="lp-feature-list">
+                    {plan.features.map((feature) => {
+                      const isDisabled = feature.trim().startsWith('❌')
+                      const label = feature.replace(/^[✅❌]\s*/, '')
+                      return (
+                        <li className={isDisabled ? 'disabled' : ''} key={feature}>
+                          <span aria-hidden="true">{isDisabled ? '−' : '✓'}</span>
+                          {label}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <a className={`lp-button ${plan.featured ? 'primary' : 'outline'}`} href="#telecharger">
+                    {plan.key === 'free' ? 'Commencer' : `Choisir ${plan.title}`}
+                  </a>
+                </article>
+              ))}
+            </div>
+            <div className="lp-plans-note">
+              <span>Sans mise</span>
+              <span>Sans pari</span>
+              <span>Campagnes gratuites</span>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="lp-section lp-partners" id="partenaires">
         <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>{content.partners.title}</h2>
-            <p>{content.partners.subtitle}</p>
-          </div>
-          <div className="lp-grid three">
-            {content.partners.benefits.map(([icon, title, text]) => (
-              <article className="lp-card lp-reveal" key={title}>
-                <span className="icon">{icon}</span>
-                <h3>{title}</h3>
-                <p>{text}</p>
-              </article>
-            ))}
-          </div>
-          <div className="lp-grid three" style={{ marginTop: 14 }}>
-            {content.partners.plans.map((plan) => (
-              <article className="lp-card lp-reveal" key={plan.name}>
-                <h3>{plan.name}</h3>
-                <span className="lp-price">{plan.price}</span>
-                <ul className="lp-feature-list">
-                  {plan.features.map((feature) => <li key={feature}>✅ {feature}</li>)}
-                </ul>
-              </article>
-            ))}
-          </div>
-          <div style={{ marginTop: 20, textAlign: 'center' }}>
-            <a className="lp-button primary" href="/auth/partner">Devenir partenaire</a>
+          <div className="lp-partner-shell">
+            <div className="lp-partner-intro lp-reveal">
+              <span className="lp-pill">Espace partenaires</span>
+              <h2>{content.partners.title}</h2>
+              <p>{content.partners.subtitle}</p>
+              <a className="lp-button primary" href="/auth/partner">Devenir partenaire</a>
+            </div>
+            <div className="lp-partner-benefits">
+              {content.partners.benefits.map(([icon, title, text], index) => (
+                <article
+                  className="lp-partner-benefit lp-reveal"
+                  key={title}
+                  style={{ transitionDelay: `${index * 80}ms` }}
+                >
+                  <span>{icon}</span>
+                  <div>
+                    <h3>{title}</h3>
+                    <p>{text}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="lp-partner-plans">
+              {content.partners.plans.map((plan, index) => (
+                <article
+                  className={`lp-partner-plan lp-reveal ${index === 1 ? 'featured' : ''}`}
+                  key={plan.name}
+                  style={{ transitionDelay: `${index * 80}ms` }}
+                >
+                  <div className="lp-partner-plan-top">
+                    <span>{index === 0 ? 'Lancement' : index === 1 ? 'Croissance' : 'Marque'}</span>
+                    {index === 1 ? <strong>Conseillé</strong> : null}
+                  </div>
+                  <h3>{plan.name}</h3>
+                  <div className="lp-partner-price-box">
+                    <small>À partir de</small>
+                    <span className="lp-price">{plan.price}</span>
+                  </div>
+                  <ul className="lp-feature-list lp-partner-feature-list">
+                    {plan.features.map((feature) => (
+                      <li key={feature}>
+                        <span aria-hidden="true">✓</span>
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <a className={`lp-button ${index === 1 ? 'primary' : 'outline'}`} href="/auth/partner">
+                    Demander une démo
+                  </a>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="lp-section">
+      <section className="lp-section lp-testimonials-section">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
-            <h2>Ils ont déjà gagné</h2>
+            <span className="lp-pill">Expérience utilisateur</span>
+            <h2>Ils ont découvert MegaPromo</h2>
+            <p>Des retours simples autour de la découverte de marques et des campagnes gratuites.</p>
           </div>
-          <div className="lp-grid three">
-            {content.testimonials.map(([initial, name, text]) => (
-              <article className="lp-card lp-testimonial lp-reveal" key={name}>
-                <span className="avatar">{initial}</span>
-                <h3>{name}</h3>
-                <div className="lp-stars-text">★★★★★</div>
-                <p>{text}</p>
+          <div className="lp-testimonial-grid">
+            {content.testimonials.map(([initial, name, text], index) => (
+              <article
+                className={`lp-testimonial-card lp-reveal ${index === 0 ? 'featured' : ''}`}
+                key={name}
+                style={{ transitionDelay: `${index * 90}ms` }}
+              >
+                <div className="lp-testimonial-head">
+                  <span className="avatar">{initial}</span>
+                  <div>
+                    <h3>{name}</h3>
+                    <div className="lp-stars-text">★★★★★</div>
+                  </div>
+                </div>
+                <p>“{text}”</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="lp-section">
+      <section className="lp-section lp-faq-section">
         <div className="lp-wrap">
-          <div className="lp-section-head lp-reveal">
-            <h2>Questions fréquentes</h2>
-          </div>
-          <div className="lp-faq lp-reveal">
-            {content.faqs.map(([question, answer], index) => (
-              <div className={`lp-faq-item ${activeFaq === index ? 'open' : ''}`} key={question}>
-                <button onClick={() => setActiveFaq(activeFaq === index ? -1 : index)} type="button">
-                  <span>{question}</span>
-                  <span>{activeFaq === index ? '−' : '+'}</span>
-                </button>
-                <div className="lp-faq-answer">{answer}</div>
-              </div>
-            ))}
+          <div className="lp-faq-layout">
+            <div className="lp-faq-copy lp-reveal">
+              <span className="lp-pill">Besoin d’éclaircir ?</span>
+              <h2>Questions fréquentes</h2>
+              <p>Les réponses essentielles pour comprendre MegaPromo en quelques secondes.</p>
+              <a className="lp-button outline" href="#contact">Contacter l’équipe</a>
+            </div>
+            <div className="lp-faq lp-reveal">
+              {content.faqs.map(([question, answer], index) => (
+                <div className={`lp-faq-item ${activeFaq === index ? 'open' : ''}`} key={question}>
+                  <button onClick={() => setActiveFaq(activeFaq === index ? -1 : index)} type="button">
+                    <span>{question}</span>
+                    <span>{activeFaq === index ? '−' : '+'}</span>
+                  </button>
+                  <div className="lp-faq-answer">{answer}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
       <section className="lp-section lp-contact-section" id="contact">
         <div className="lp-wrap">
+          <div className="lp-section-head lp-reveal">
+            <span className="lp-pill">Support & partenariat</span>
+            <h2>Besoin d’aide ?</h2>
+            <p>Notre équipe accompagne les utilisateurs et les marques avec des réponses simples, rapides et humaines.</p>
+          </div>
           <div className="lp-contact-grid">
             <div className="lp-contact-copy lp-reveal">
-              <span className="lp-pill">Contact</span>
               <h2>{content.contact.title}</h2>
               <p>{content.contact.subtitle}</p>
+              <div className="lp-support-grid" aria-label="Canaux de contact">
+                <span><strong>24h</strong><small>Retour moyen</small></span>
+                <span><strong>CI</strong><small>Support local</small></span>
+                <span><strong>2</strong><small>Canaux directs</small></span>
+              </div>
               <a
                 className="lp-whatsapp-card"
                 href={buildWhatsappUrl(contactSettings)}
                 rel="noreferrer"
                 target="_blank"
               >
-                <span className="lp-whatsapp-icon">WA</span>
+                <span className="lp-whatsapp-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" role="img">
+                    <path d="M12.04 3.5a8.45 8.45 0 0 0-7.22 12.86L3.75 20.5l4.24-1.04A8.45 8.45 0 1 0 12.04 3.5Zm0 1.52a6.93 6.93 0 0 1 5.9 10.57 6.92 6.92 0 0 1-8.6 2.49l-.28-.13-2.53.62.64-2.46-.15-.29a6.93 6.93 0 0 1 5.02-10.8Zm-2.3 3.67c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2 0 1.18.86 2.32.98 2.48.12.16 1.68 2.68 4.15 3.65 2.06.81 2.48.65 2.93.61.45-.04 1.45-.59 1.65-1.16.2-.57.2-1.06.14-1.16-.06-.1-.22-.16-.47-.29-.25-.12-1.45-.72-1.68-.8-.22-.08-.39-.12-.55.12-.16.24-.63.8-.77.96-.14.16-.28.18-.53.06-.25-.12-1.04-.38-1.98-1.22-.73-.65-1.23-1.46-1.37-1.7-.14-.24-.02-.38.1-.5.11-.11.25-.28.37-.43.12-.14.16-.24.25-.4.08-.16.04-.3-.02-.43-.06-.12-.55-1.32-.75-1.8-.2-.47-.4-.4-.55-.41h-.48Z" />
+                  </svg>
+                </span>
                 <span>
                   <strong>{content.contact.whatsappLabel}</strong>
                   <small>{content.contact.whatsappHint}</small>
@@ -670,7 +757,7 @@ export function LandingPage() {
                       subject: event.target.value,
                     }))
                   }
-                  placeholder="Question, gain, partenariat..."
+                  placeholder="Question, campagne, partenariat..."
                   value={contactForm.subject}
                 />
               </label>
@@ -698,16 +785,55 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="lp-section" id="telecharger">
+      <section className="lp-section lp-download-section" id="telecharger">
         <div className="lp-wrap">
           <div className="lp-final lp-reveal">
-            <h2>{content.finalCta.title}</h2>
-            <p>{content.finalCta.subtitle}</p>
-            <div className="lp-final-actions">
-              <a className="lp-button light" href="/auth/partner">{content.finalCta.primaryCta}</a>
-              <a className="lp-button outline" href="#concours">{content.finalCta.secondaryCta}</a>
+            <div className="lp-final-copy">
+              <span className="lp-pill">Application mobile</span>
+              <h2>{content.finalCta.title}</h2>
+              <p>{content.finalCta.subtitle}</p>
+              <div className="lp-final-actions">
+                <a className="lp-store-button android" href="/auth/partner">
+                  <span className="lp-store-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M5.2 3.1c-.42.22-.7.68-.7 1.31v15.18c0 .62.28 1.08.7 1.31l8.78-8.9L5.2 3.1Z" />
+                      <path d="m15.18 10.78 2.3-2.33L7.1 2.58c-.36-.2-.7-.25-.99-.13l9.07 8.33Z" />
+                      <path d="m15.18 13.22-9.07 8.33c.29.12.63.07.99-.13l10.38-5.87-2.3-2.33Z" />
+                      <path d="m18.5 9.03-2.42 2.46 2.42 2.48 1.38-.78c1.02-.58 1.02-1.8 0-2.38l-1.38-.78Z" />
+                    </svg>
+                  </span>
+                  <span><small>Télécharger sur</small><strong>Google Play</strong></span>
+                </a>
+                <a className="lp-store-button ios" href="#contact">
+                  <span className="lp-store-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M16.71 12.72c-.02-2.06 1.7-3.05 1.78-3.1-1-.14-1.96-.69-2.61-1.49-.56-.68-1.25-1.13-2.06-1.13-.88 0-1.65.52-2.13.52-.5 0-1.3-.5-2.14-.48-1.1.02-2.12.64-2.69 1.62-1.15 2-.29 4.95.83 6.57.55.8 1.2 1.69 2.06 1.66.82-.03 1.13-.53 2.12-.53.99 0 1.27.53 2.14.51.88-.02 1.44-.81 1.98-1.61.62-.91.88-1.8.89-1.85-.02-.01-1.74-.67-1.77-2.19Z" />
+                      <path d="M14.17 5.75c.45-.55.76-1.32.68-2.08-.65.03-1.43.43-1.9.98-.42.48-.79 1.27-.69 2.01.72.06 1.46-.36 1.91-.91Z" />
+                    </svg>
+                  </span>
+                  <span><small>Bientôt sur</small><strong>App Store</strong></span>
+                </a>
+              </div>
+              <div className="lp-final-proof">
+                <span>Gratuit</span>
+                <span>Sans mise</span>
+                <span>iOS & Android</span>
+              </div>
             </div>
-            <span className="lp-store">{content.finalCta.storeBadge}</span>
+            <div className="lp-device-showcase" aria-hidden="true">
+              <div className="lp-device-card ios">
+                <span className="lp-device-notch" />
+                <strong>iOS</strong>
+                <small>App Store</small>
+                <div className="lp-device-bars"><i /><i /><i /></div>
+              </div>
+              <div className="lp-device-card android">
+                <span className="lp-device-camera" />
+                <strong>Android</strong>
+                <small>Google Play</small>
+                <div className="lp-device-bars"><i /><i /><i /></div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -715,29 +841,49 @@ export function LandingPage() {
       <footer className="lp-footer">
         <div className="lp-wrap">
           <div className="lp-footer-grid">
-            <div>
+            <div className="lp-footer-brand">
               <a className="lp-logo" href="#accueil">
                 <img alt="" src="/megapromologo.png" />
-                <strong>MegaPromo</strong>
               </a>
               <p>{content.footer.description}</p>
-              <div className="lp-socials"><span>f</span><span>ig</span><span>x</span><span>wa</span></div>
+              <div className="lp-footer-badges">
+                <span>Plateforme gratuite</span>
+                <span>Sans mise</span>
+                <span>Côte d’Ivoire</span>
+              </div>
+              <div className="lp-socials" aria-label="Réseaux et contact">
+                <a href="#contact" aria-label="WhatsApp">
+                  <svg viewBox="0 0 24 24" role="img">
+                    <path d="M12.04 3.5a8.45 8.45 0 0 0-7.22 12.86L3.75 20.5l4.24-1.04A8.45 8.45 0 1 0 12.04 3.5Zm0 1.52a6.93 6.93 0 0 1 5.9 10.57 6.92 6.92 0 0 1-8.6 2.49l-.28-.13-2.53.62.64-2.46-.15-.29a6.93 6.93 0 0 1 5.02-10.8Zm-2.3 3.67c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2 0 1.18.86 2.32.98 2.48.12.16 1.68 2.68 4.15 3.65 2.06.81 2.48.65 2.93.61.45-.04 1.45-.59 1.65-1.16.2-.57.2-1.06.14-1.16-.06-.1-.22-.16-.47-.29-.25-.12-1.45-.72-1.68-.8-.22-.08-.39-.12-.55.12-.16.24-.63.8-.77.96-.14.16-.28.18-.53.06-.25-.12-1.04-.38-1.98-1.22-.73-.65-1.23-1.46-1.37-1.7-.14-.24-.02-.38.1-.5.11-.11.25-.28.37-.43.12-.14.16-.24.25-.4.08-.16.04-.3-.02-.43-.06-.12-.55-1.32-.75-1.8-.2-.47-.4-.4-.55-.41h-.48Z" />
+                  </svg>
+                </a>
+                <a href="#contact" aria-label="Instagram">
+                  <svg viewBox="0 0 24 24" role="img">
+                    <path d="M8.4 3.5h7.2a4.9 4.9 0 0 1 4.9 4.9v7.2a4.9 4.9 0 0 1-4.9 4.9H8.4a4.9 4.9 0 0 1-4.9-4.9V8.4a4.9 4.9 0 0 1 4.9-4.9Zm0 1.7a3.2 3.2 0 0 0-3.2 3.2v7.2a3.2 3.2 0 0 0 3.2 3.2h7.2a3.2 3.2 0 0 0 3.2-3.2V8.4a3.2 3.2 0 0 0-3.2-3.2H8.4Zm3.6 3.1a3.7 3.7 0 1 1 0 7.4 3.7 3.7 0 0 1 0-7.4Zm0 1.7a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm4.05-2.52a.98.98 0 1 1 0 1.96.98.98 0 0 1 0-1.96Z" />
+                  </svg>
+                </a>
+                <a href="#contact" aria-label="Facebook">
+                  <svg viewBox="0 0 24 24" role="img">
+                    <path d="M13.5 20.5v-7.1h2.38l.36-2.77H13.5V8.86c0-.8.22-1.35 1.37-1.35h1.46V5.03c-.25-.03-1.12-.11-2.13-.11-2.1 0-3.55 1.28-3.55 3.64v2.07H8.27v2.77h2.38v7.1h2.85Z" />
+                  </svg>
+                </a>
+              </div>
             </div>
-            <div>
+            <div className="lp-footer-column">
               <h4>Produit</h4>
               <a href="#comment-ca-marche">Comment ça marche</a>
-              <a href="#concours">Les concours</a>
+              <a href="#concours">Les campagnes</a>
               <a href="#tarifs">Premium</a>
-              <a href="#telecharger">Classement</a>
+              <a href="#telecharger">Application mobile</a>
             </div>
-            <div>
+            <div className="lp-footer-column">
               <h4>Partenaires</h4>
               <a href="#partenaires">Devenir partenaire</a>
               <a href="#partenaires">Nos formules</a>
               <a href="#partenaires">Témoignages marques</a>
               <a href="#partenaires">Contact commercial</a>
             </div>
-            <div>
+            <div className="lp-footer-column">
               <h4>Légal</h4>
               <a href="/legal/terms">CGU</a>
               <a href="/legal/privacy">Politique de confidentialité</a>
@@ -745,9 +891,19 @@ export function LandingPage() {
               <a href="#contact">Contact</a>
             </div>
           </div>
-          <div className="lp-bottom">{content.footer.bottom}</div>
+          <div className="lp-bottom">
+            <span>{content.footer.bottom}</span>
+            <span>Découverte de marques · Quiz gratuits · Récompenses promotionnelles</span>
+          </div>
         </div>
       </footer>
+
+      <section className="lp-logo-parallax" aria-label="MegaPromo">
+        <div className="lp-logo-parallax-inner">
+          <img alt="" src="/megapromologo.png" />
+          <span>MegaPromo</span>
+        </div>
+      </section>
     </main>
   )
 }

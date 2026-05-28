@@ -16,13 +16,13 @@ const fallbackLegalPages: Record<LegalPageKey, LegalPageRecord> = {
     key: 'terms',
     title: 'Conditions générales d’utilisation',
     content:
-      'Bienvenue sur MegaPromo. En utilisant nos services, vous acceptez de participer aux concours dans le respect des règles affichées dans l’application.\n\nChaque joueur est responsable des informations fournies lors de son inscription. Toute tentative de fraude, d’usage abusif ou de création de comptes multiples peut entraîner la suspension du compte.\n\nLes gains, concours, forfaits et conditions de participation peuvent varier selon les campagnes. Les informations officielles sont celles affichées dans l’application au moment de la participation.',
+      'Bienvenue sur MegaPromo. MegaPromo est une plateforme promotionnelle permettant aux utilisateurs de découvrir des marques, produits et services à travers des campagnes interactives gratuites.\n\nLa participation ne nécessite aucune mise, aucun pari et aucun achat obligatoire. Chaque utilisateur est responsable des informations fournies lors de son inscription. Toute tentative de fraude, d’usage abusif ou de création de comptes multiples peut entraîner la suspension du compte.\n\nLes récompenses promotionnelles, avantages, forfaits et conditions de participation peuvent varier selon les campagnes. Les informations officielles sont celles affichées dans l’application au moment de la participation.',
   },
   privacy: {
     key: 'privacy',
     title: 'Politique de confidentialité',
     content:
-      'MegaPromo collecte uniquement les informations nécessaires au fonctionnement du service, notamment l’identification du joueur, la participation aux concours, les notifications et la sécurisation de l’expérience.\n\nLes données peuvent être utilisées pour afficher les concours disponibles, gérer les gains, prévenir la fraude et améliorer l’application.\n\nVous pouvez contacter l’équipe MegaPromo pour toute demande liée à vos données personnelles.',
+      'MegaPromo collecte uniquement les informations nécessaires au fonctionnement du service, notamment l’identification de l’utilisateur, la participation aux campagnes, les notifications et la sécurisation de l’expérience.\n\nLes données peuvent être utilisées pour afficher les campagnes disponibles, gérer les récompenses promotionnelles, prévenir la fraude et améliorer l’application.\n\nVous pouvez contacter l’équipe MegaPromo pour toute demande liée à vos données personnelles.',
   },
 }
 
@@ -110,7 +110,7 @@ export function LegalPage({ pageKey }: { pageKey: LegalPageKey }) {
             <p>
               {updatedAt
                 ? `Dernière mise à jour : ${updatedAt}`
-                : 'Document officiel consultable par les joueurs et visiteurs.'}
+                : 'Document officiel consultable par les utilisateurs et visiteurs.'}
             </p>
           </div>
 
