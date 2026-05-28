@@ -58,6 +58,7 @@ const rpcPermissionFeatures: Record<string, string> = {
   admin_delete_player_subscription: 'users',
   admin_maintenance_clear: 'maintenance',
   admin_update_player_subscription_status: 'users',
+  upsert_landing_maintenance_flag: 'landing',
   delete_reward_catalog_item: 'reward_catalog',
   delete_reward_type: 'reward_catalog',
   disable_reward_catalog_item: 'reward_catalog',

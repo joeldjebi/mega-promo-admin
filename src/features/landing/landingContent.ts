@@ -15,6 +15,7 @@ export type LandingPartnerPlan = {
 
 export type LandingPageContent = {
   navItems: string[][]
+  blockVisibility: Record<string, boolean>
   hero: {
     badge: string
     titleStart: string
@@ -75,6 +76,22 @@ export type LandingPlayerPlan = {
 }
 
 export const defaultLandingContent: LandingPageContent = {
+  blockVisibility: {
+    navItems: true,
+    hero: true,
+    stats: true,
+    steps: true,
+    games: true,
+    liveContests: true,
+    playerPlans: true,
+    partners: true,
+    testimonials: true,
+    faqs: true,
+    contact: true,
+    finalCta: true,
+    footer: true,
+    floatingLiveQuiz: true,
+  },
   navItems: [
     ['Accueil', '#accueil'],
     ['Comment ça marche', '#comment-ca-marche'],
@@ -210,6 +227,10 @@ export function mergeLandingContent(
   return {
     ...defaultLandingContent,
     ...(content ?? {}),
+    blockVisibility: {
+      ...defaultLandingContent.blockVisibility,
+      ...(content?.blockVisibility ?? {}),
+    },
     hero: { ...defaultLandingContent.hero, ...(content?.hero ?? {}) },
     stats: { ...defaultLandingContent.stats, ...(content?.stats ?? {}) },
     playerPlans: {

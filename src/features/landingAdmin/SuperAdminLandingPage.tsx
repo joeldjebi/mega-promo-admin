@@ -17,6 +17,13 @@ type SupabaseLikeError = {
   code?: unknown
 }
 
+type LandingMaintenanceState = {
+  isEnabled: boolean
+  title: string
+  message: string
+  badge: string
+}
+
 type FeatureNavItem = {
   label: string
   href: string
@@ -55,6 +62,7 @@ function useRealtimeRefresh(
 
   useEffect(() => {
     let refreshTimeout = 0
+    const realtimeTables = tablesKey.split('|').filter(Boolean)
     const scheduleRefresh = () => {
       window.clearTimeout(refreshTimeout)
       refreshTimeout = window.setTimeout(() => {
@@ -63,7 +71,7 @@ function useRealtimeRefresh(
     }
 
     const channel = supabase.channel(channelName)
-    tables.forEach((table) => {
+    realtimeTables.forEach((table) => {
       channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table },
@@ -105,6 +113,55 @@ const landingEditorBlocks: Array<{
   { key: 'footer', title: 'Footer', description: 'Description et copyright.' },
 ]
 
+const landingVisibilityBlocks = [
+  ...landingEditorBlocks,
+  {
+    key: 'floatingLiveQuiz',
+    title: 'QL flottant',
+    description: 'Bloc flottant qui met en avant le Quiz Live actif ou à venir.',
+  },
+] as const
+
+function isLandingBlockEnabled(content: LandingPageContent, blockKey: string) {
+  return content.blockVisibility?.[blockKey] !== false
+}
+
+const defaultLandingMaintenance: LandingMaintenanceState = {
+  isEnabled: false,
+  title: 'MegaPromo revient très vite',
+  message:
+    'Nous effectuons une courte mise à jour afin de vous offrir une expérience plus fluide. Merci pour votre patience.',
+  badge: 'Maintenance en cours',
+}
+
+async function fetchLandingMaintenance(): Promise<LandingMaintenanceState> {
+  const { data, error } = await supabase
+    .from('app_feature_flags')
+    .select('is_enabled, metadata')
+    .eq('key', 'landing_maintenance')
+    .maybeSingle()
+
+  if (error) throw error
+
+  const metadata = (data?.metadata ?? {}) as Partial<LandingMaintenanceState>
+
+  return {
+    isEnabled: (data?.is_enabled as boolean | null) ?? false,
+    title:
+      typeof metadata.title === 'string' && metadata.title.trim()
+        ? metadata.title
+        : defaultLandingMaintenance.title,
+    message:
+      typeof metadata.message === 'string' && metadata.message.trim()
+        ? metadata.message
+        : defaultLandingMaintenance.message,
+    badge:
+      typeof metadata.badge === 'string' && metadata.badge.trim()
+        ? metadata.badge
+        : defaultLandingMaintenance.badge,
+  }
+}
+
 export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperAdminLandingPageProps) {
   const adminAuth = useAdminAuth()
   const navigate = useNavigate()
@@ -114,6 +171,9 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
   const [selectedBlock, setSelectedBlock] = useState<keyof LandingPageContent>('hero')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isMaintenanceSaving, setIsMaintenanceSaving] = useState(false)
+  const [landingMaintenance, setLandingMaintenance] =
+    useState<LandingMaintenanceState>(defaultLandingMaintenance)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
@@ -126,6 +186,7 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
         .select('content')
         .eq('key', 'main')
         .maybeSingle()
+      const maintenance = await fetchLandingMaintenance()
 
       if (error) throw error
 
@@ -139,6 +200,7 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
           return draftMap
         }, {}),
       )
+      setLandingMaintenance(maintenance)
     } catch (error) {
       setError(
         formatUnknownError(
@@ -153,6 +215,7 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
           return draftMap
         }, {}),
       )
+      setLandingMaintenance(defaultLandingMaintenance)
     } finally {
       setIsLoading(false)
     }
@@ -165,7 +228,7 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
 
   useRealtimeRefresh(
     'sa-landing-realtime',
-    ['landing_page_content'],
+    ['landing_page_content', 'app_feature_flags'],
     loadLandingContent,
   )
 
@@ -204,6 +267,86 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
       setError(formatUnknownError(error, 'JSON invalide ou sauvegarde impossible.'))
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleToggleBlock(blockKey: string) {
+    setNotice('')
+    setError('')
+    setIsSaving(true)
+
+    try {
+      const nextVisibility = {
+        ...content.blockVisibility,
+        [blockKey]: !isLandingBlockEnabled(content, blockKey),
+      }
+      const nextContent = mergeLandingContent({
+        ...content,
+        blockVisibility: nextVisibility,
+      })
+
+      const { error } = await supabase.from('landing_page_content').upsert({
+        key: 'main',
+        content: nextContent,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      setContent(nextContent)
+      setDrafts((current) => ({
+        ...current,
+        blockVisibility: JSON.stringify(nextContent.blockVisibility, null, 2),
+      }))
+
+      const blockTitle =
+        landingVisibilityBlocks.find((block) => block.key === blockKey)?.title ??
+        blockKey
+      setNotice(
+        `Bloc "${blockTitle}" ${
+          nextVisibility[blockKey] === false ? 'désactivé' : 'activé'
+        }.`,
+      )
+    } catch (error) {
+      setError(formatUnknownError(error, 'Impossible de mettre à jour l’état du bloc.'))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleToggleLandingMaintenance() {
+    setNotice('')
+    setError('')
+    setIsMaintenanceSaving(true)
+
+    try {
+      const nextMaintenance = {
+        ...landingMaintenance,
+        isEnabled: !landingMaintenance.isEnabled,
+      }
+      const { data, error } = await supabase.rpc('upsert_landing_maintenance_flag', {
+        p_is_enabled: nextMaintenance.isEnabled,
+        p_title: nextMaintenance.title,
+        p_message: nextMaintenance.message,
+        p_badge: nextMaintenance.badge,
+      })
+
+      if (error) throw error
+
+      const row = data as { is_enabled?: boolean } | null
+      setLandingMaintenance({
+        ...nextMaintenance,
+        isEnabled: row?.is_enabled ?? nextMaintenance.isEnabled,
+      })
+      setNotice(
+        nextMaintenance.isEnabled
+          ? 'Mode maintenance site activé. La landing publique est remplacée en temps réel.'
+          : 'Mode maintenance site désactivé. La landing publique est de nouveau visible.',
+      )
+    } catch (error) {
+      setError(formatUnknownError(error, 'Impossible de mettre à jour la maintenance du site.'))
+    } finally {
+      setIsMaintenanceSaving(false)
     }
   }
 
@@ -271,7 +414,14 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
         <div className="sidebar-card">
           <span>Landing</span>
           <strong>{landingEditorBlocks.length} blocs</strong>
-          <p>Contenu public modifiable sans redéployer le front.</p>
+          <p>
+            {
+              landingVisibilityBlocks.filter((block) =>
+                isLandingBlockEnabled(content, block.key),
+              ).length
+            }{' '}
+            blocs actifs. Modifiable sans redéployer le front.
+          </p>
         </div>
       </aside>
 
@@ -317,6 +467,39 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
           </div>
         ) : null}
 
+        <section className={`panel landing-maintenance-panel ${
+          landingMaintenance.isEnabled ? 'enabled' : ''
+        }`}>
+          <div>
+            <p className="eyebrow">Mode maintenance site</p>
+            <h2>
+              {landingMaintenance.isEnabled
+                ? 'Le site public est en maintenance'
+                : 'Le site public est en ligne'}
+            </h2>
+            <p>
+              Active ce mode pour remplacer totalement la landing publique par
+              une page de maintenance diplomatique, sans toucher à l’app mobile.
+            </p>
+          </div>
+          <button
+            className={
+              landingMaintenance.isEnabled
+                ? 'table-action-button'
+                : 'table-action-button danger'
+            }
+            disabled={isMaintenanceSaving}
+            onClick={() => void handleToggleLandingMaintenance()}
+            type="button"
+          >
+            {isMaintenanceSaving
+              ? 'Mise à jour...'
+              : landingMaintenance.isEnabled
+                ? 'Remettre le site en ligne'
+                : 'Mettre le site en maintenance'}
+          </button>
+        </section>
+
         <section className="dashboard-grid">
           <article className="panel">
             <div className="section-heading">
@@ -339,6 +522,11 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
                     <strong>{block.title}</strong>
                     <p>{block.description}</p>
                   </div>
+                  <span className={`landing-block-status ${
+                    isLandingBlockEnabled(content, block.key) ? 'active' : 'inactive'
+                  }`}>
+                    {isLandingBlockEnabled(content, block.key) ? 'Actif' : 'Masqué'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -349,8 +537,29 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
               <div>
                 <p className="eyebrow">JSON</p>
                 <h2>{currentBlock?.title ?? 'Bloc'}</h2>
+                <p className="page-subtitle">
+                  Ce bloc est actuellement{' '}
+                  <strong>
+                    {isLandingBlockEnabled(content, selectedBlock) ? 'visible' : 'masqué'}
+                  </strong>{' '}
+                  sur la landing publique.
+                </p>
               </div>
               <div className="section-heading-actions">
+                <button
+                  className={
+                    isLandingBlockEnabled(content, selectedBlock)
+                      ? 'table-action-button danger'
+                      : 'table-action-button'
+                  }
+                  disabled={isSaving}
+                  onClick={() => void handleToggleBlock(selectedBlock)}
+                  type="button"
+                >
+                  {isLandingBlockEnabled(content, selectedBlock)
+                    ? 'Désactiver le bloc'
+                    : 'Activer le bloc'}
+                </button>
                 <button
                   className="table-action-button"
                   onClick={() =>
@@ -410,6 +619,37 @@ export function SuperAdminLandingPage({ authRoute, rootRoute, navItems }: SuperA
                 </button>
               </div>
             </form>
+          </article>
+
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Visibilité</p>
+                <h2>Activation des blocs</h2>
+              </div>
+              <span className="pill">Realtime</span>
+            </div>
+            <div className="landing-visibility-grid">
+              {landingVisibilityBlocks.map((block) => {
+                const isEnabled = isLandingBlockEnabled(content, block.key)
+                return (
+                  <button
+                    className={`landing-visibility-card ${isEnabled ? 'active' : 'inactive'}`}
+                    disabled={isSaving}
+                    key={block.key}
+                    onClick={() => void handleToggleBlock(block.key)}
+                    type="button"
+                  >
+                    <span className="landing-visibility-dot" />
+                    <div>
+                      <strong>{block.title}</strong>
+                      <p>{block.description}</p>
+                    </div>
+                    <em>{isEnabled ? 'Actif' : 'Masqué'}</em>
+                  </button>
+                )
+              })}
+            </div>
           </article>
         </section>
       </section>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { supabase } from '../../lib/supabase'
 import {
   defaultLandingContent,
@@ -23,17 +23,61 @@ type LandingContactForm = {
   message: string
 }
 
+type LandingMaintenanceState = {
+  isEnabled: boolean
+  title: string
+  message: string
+  badge: string
+}
+
+type LandingLiveQuiz = {
+  id: string
+  title: string
+  brandName: string
+  logoUrl: string
+  imageUrl: string
+  prizeLabel: string
+  liveStartsAt: string
+  endsAt: string
+  liveStatus: string
+  registeredCount: number
+}
+
+type LandingLiveQuizRow = {
+  id?: string | null
+  title?: string | null
+  brand_name?: string | null
+  brand_logo_url?: string | null
+  image_url?: string | null
+  prize_label?: string | null
+  prize_value?: number | null
+  live_starts_at?: string | null
+  ends_at?: string | null
+  live_status?: string | null
+  registered_count?: number | null
+}
+
 const heroTypingThemes = [
   'Offres locales.',
   'Marques ivoiriennes.',
   'Quiz gratuits.',
-  'Campagnes partenaires.',
+  'Campagnes promo.',
 ]
+
+const dismissedLiveQuizStorageKey = 'megapromo:dismissed-live-quiz-prompts'
 
 const defaultContactSettings: LandingContactSettings = {
   whatsappNumber: '2250000000000',
   whatsappMessage: 'Bonjour MegaPromo, j’ai besoin d’informations.',
   email: 'contact@megapromo.ci',
+}
+
+const defaultLandingMaintenance: LandingMaintenanceState = {
+  isEnabled: false,
+  title: 'MegaPromo revient très vite',
+  message:
+    'Nous effectuons une courte mise à jour afin de vous offrir une expérience plus fluide. Merci pour votre patience.',
+  badge: 'Maintenance en cours',
 }
 
 function formatPlanPrice(price: number, durationDays: number) {
@@ -48,6 +92,94 @@ function formatPlanPrice(price: number, durationDays: number) {
         : `${durationDays} jour${durationDays > 1 ? 's' : ''}`
 
   return `${new Intl.NumberFormat('fr-FR').format(price)} FCFA / ${period}`
+}
+
+function formatMoney(value: number) {
+  return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA`
+}
+
+function readDismissedLiveQuizIds() {
+  if (typeof window === 'undefined') return new Set<string>()
+
+  try {
+    const rawValue = window.localStorage.getItem(dismissedLiveQuizStorageKey)
+    const ids = rawValue ? JSON.parse(rawValue) : []
+    return new Set(Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [])
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function saveDismissedLiveQuizIds(ids: Set<string>) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(
+    dismissedLiveQuizStorageKey,
+    JSON.stringify(Array.from(ids)),
+  )
+}
+
+function formatCountdown(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000))
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+
+  if (days > 0) return `${days}j ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, '0')}min`
+  if (minutes > 0) return `${minutes}min`
+  return 'moins d’une minute'
+}
+
+function getLiveQuizStatusLabel(quiz: LandingLiveQuiz, nowMs: number) {
+  const startsAtMs = Date.parse(quiz.liveStartsAt || quiz.endsAt)
+  const endsAtMs = Date.parse(quiz.endsAt)
+  const isRunning =
+    quiz.liveStatus === 'running' ||
+    quiz.liveStatus === 'started' ||
+    quiz.liveStatus === 'open' ||
+    (!Number.isNaN(startsAtMs) && !Number.isNaN(endsAtMs) && startsAtMs <= nowMs && endsAtMs > nowMs)
+
+  if (isRunning) {
+    return {
+      badge: 'En cours',
+      message: !Number.isNaN(endsAtMs)
+        ? `Se termine dans ${formatCountdown(endsAtMs - nowMs)}`
+        : 'Quiz Live disponible maintenant',
+    }
+  }
+
+  return {
+    badge: 'À venir',
+    message: !Number.isNaN(startsAtMs)
+      ? `Commence dans ${formatCountdown(startsAtMs - nowMs)}`
+      : 'Quiz Live bientôt disponible',
+  }
+}
+
+function isLandingBlockVisible(
+  content: LandingPageContent,
+  blockKey: string,
+) {
+  return content.blockVisibility?.[blockKey] !== false
+}
+
+function mapLandingLiveQuizRow(row: LandingLiveQuizRow): LandingLiveQuiz {
+  const prizeValue = row.prize_value ?? 0
+
+  return {
+    id: row.id ?? '',
+    title: row.title ?? 'Quiz Live MegaPromo',
+    brandName: row.brand_name || 'MegaPromo',
+    logoUrl: row.brand_logo_url || '/megapromologo.png',
+    imageUrl: row.image_url || '',
+    prizeLabel:
+      row.prize_label ||
+      (prizeValue > 0 ? formatMoney(prizeValue) : 'Récompense promotionnelle'),
+    liveStartsAt: row.live_starts_at ?? '',
+    endsAt: row.ends_at ?? '',
+    liveStatus: row.live_status ?? 'scheduled',
+    registeredCount: row.registered_count ?? 0,
+  }
 }
 
 function planFallbackFeatures(plan: {
@@ -126,6 +258,53 @@ async function fetchLandingPlayerPlans(): Promise<LandingPlayerPlan[]> {
   })
 }
 
+async function fetchLandingLiveQuiz(): Promise<LandingLiveQuiz | null> {
+  const now = new Date()
+  const rpcResponse = await supabase.rpc('get_public_landing_live_quiz')
+
+  if (!rpcResponse.error && Array.isArray(rpcResponse.data)) {
+    const firstQuiz = rpcResponse.data
+      .map((row) => mapLandingLiveQuizRow(row as LandingLiveQuizRow))
+      .find((quiz) => quiz.id && quiz.endsAt && Date.parse(quiz.endsAt) > now.getTime())
+
+    return firstQuiz ?? null
+  }
+
+  const { data, error } = await supabase
+    .from('contests')
+    .select(
+      'id, title, brand_name, brand_logo_url, image_url, prize_description, prize_value, live_starts_at, ends_at, live_status, registered_count',
+    )
+    .eq('is_live', true)
+    .eq('status', 'active')
+    .neq('live_status', 'ended')
+    .gte('ends_at', now.toISOString())
+    .order('live_starts_at', { ascending: true })
+    .limit(8)
+
+  if (error) throw error
+
+  const liveQuizzes = (data ?? [])
+    .map((contest) =>
+      mapLandingLiveQuizRow({
+        id: contest.id as string | null,
+        title: contest.title as string | null,
+        brand_name: contest.brand_name as string | null,
+        brand_logo_url: contest.brand_logo_url as string | null,
+        image_url: contest.image_url as string | null,
+        prize_label: contest.prize_description as string | null,
+        prize_value: contest.prize_value as number | null,
+        live_starts_at: contest.live_starts_at as string | null,
+        ends_at: contest.ends_at as string | null,
+        live_status: contest.live_status as string | null,
+        registered_count: contest.registered_count as number | null,
+      }),
+    )
+    .filter((quiz) => quiz.id && quiz.endsAt)
+
+  return liveQuizzes.find((quiz) => Date.parse(quiz.endsAt) > now.getTime()) ?? null
+}
+
 function normalizeWhatsappNumber(value: string) {
   return value.replace(/[^\d]/g, '')
 }
@@ -156,10 +335,35 @@ async function fetchContactSettings(): Promise<LandingContactSettings> {
   }
 }
 
+async function fetchLandingMaintenance(): Promise<LandingMaintenanceState> {
+  const rpcResponse = await supabase.rpc('get_public_landing_maintenance')
+
+  if (!rpcResponse.error && Array.isArray(rpcResponse.data)) {
+    const row = rpcResponse.data[0] as
+      | {
+          is_enabled?: boolean | null
+          title?: string | null
+          message?: string | null
+          badge?: string | null
+        }
+      | undefined
+
+    return {
+      isEnabled: row?.is_enabled ?? false,
+      title: row?.title || defaultLandingMaintenance.title,
+      message: row?.message || defaultLandingMaintenance.message,
+      badge: row?.badge || defaultLandingMaintenance.badge,
+    }
+  }
+
+  return defaultLandingMaintenance
+}
+
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeFaq, setActiveFaq] = useState(0)
   const [heroTypedText, setHeroTypedText] = useState(heroTypingThemes[0].slice(0, 1))
+  const [showBackTop, setShowBackTop] = useState(false)
   const [statsStarted, setStatsStarted] = useState(false)
   const [counts, setCounts] = useState({ players: 0, money: 0, contests: 0 })
   const [content, setContent] = useState<LandingPageContent>(defaultLandingContent)
@@ -175,10 +379,72 @@ export function LandingPage() {
   const [contactStatus, setContactStatus] = useState('')
   const [contactError, setContactError] = useState('')
   const [isContactSending, setIsContactSending] = useState(false)
+  const [landingMaintenance, setLandingMaintenance] =
+    useState<LandingMaintenanceState>(defaultLandingMaintenance)
+  const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now())
+  const [featuredLiveQuiz, setFeaturedLiveQuiz] = useState<LandingLiveQuiz | null>(null)
+  const [dismissedLiveQuizIds, setDismissedLiveQuizIds] = useState<Set<string>>(
+    readDismissedLiveQuizIds,
+  )
   const [playerPlans, setPlayerPlans] = useState<LandingPlayerPlan[]>(
     fallbackPlayerPlans(defaultLandingContent),
   )
   const statsRef = useRef<HTMLDivElement | null>(null)
+  const showBackTopRef = useRef(false)
+  const backTopFrameRef = useRef<number | null>(null)
+
+  const loadLandingData = useCallback(async () => {
+    const contentResult = await supabase
+      .from('landing_page_content')
+      .select('content')
+      .eq('key', 'main')
+      .maybeSingle()
+    const plansResult = await fetchLandingPlayerPlans()
+      .then((plans) => ({ plans, error: null }))
+      .catch((error: unknown) => ({ plans: [] as LandingPlayerPlan[], error }))
+    const contactResult = await fetchContactSettings()
+      .then((settings) => ({ settings, error: null }))
+      .catch((error: unknown) => ({ settings: defaultContactSettings, error }))
+    const liveQuizResult = await fetchLandingLiveQuiz()
+      .then((quiz) => ({ quiz, error: null }))
+      .catch((error: unknown) => ({ quiz: null, error }))
+    const maintenanceResult = await fetchLandingMaintenance()
+      .then((maintenance) => ({ maintenance, error: null }))
+      .catch((error: unknown) => ({
+        maintenance: defaultLandingMaintenance,
+        error,
+      }))
+
+    const nextContent = contentResult.data?.content
+      ? mergeLandingContent(contentResult.data.content as Partial<LandingPageContent>)
+      : defaultLandingContent
+
+    setContent(nextContent)
+    setPlayerPlans(
+      plansResult.plans.length > 0
+        ? plansResult.plans
+        : fallbackPlayerPlans(nextContent),
+    )
+    setContactSettings(contactResult.settings)
+    setFeaturedLiveQuiz(liveQuizResult.quiz)
+    setLandingMaintenance(maintenanceResult.maintenance)
+
+    if (contentResult.error) {
+      console.warn('[MegaPromo][landing] content unavailable', contentResult.error)
+    }
+    if (plansResult.error) {
+      console.warn('[MegaPromo][landing] player plans unavailable', plansResult.error)
+    }
+    if (contactResult.error) {
+      console.warn('[MegaPromo][landing] contact settings unavailable', contactResult.error)
+    }
+    if (liveQuizResult.error) {
+      console.warn('[MegaPromo][landing] live quiz unavailable', liveQuizResult.error)
+    }
+    if (maintenanceResult.error) {
+      console.warn('[MegaPromo][landing] maintenance unavailable', maintenanceResult.error)
+    }
+  }, [])
 
   useEffect(() => {
     let phraseIndex = 0
@@ -219,49 +485,77 @@ export function LandingPage() {
   }, [])
 
   useEffect(() => {
-    let isMounted = true
-    void (async () => {
-      const contentResult = await supabase
-        .from('landing_page_content')
-        .select('content')
-        .eq('key', 'main')
-        .maybeSingle()
-      const plansResult = await fetchLandingPlayerPlans()
-        .then((plans) => ({ plans, error: null }))
-        .catch((error: unknown) => ({ plans: [] as LandingPlayerPlan[], error }))
-      const contactResult = await fetchContactSettings()
-        .then((settings) => ({ settings, error: null }))
-        .catch((error: unknown) => ({ settings: defaultContactSettings, error }))
+    const updateBackTop = () => {
+      backTopFrameRef.current = null
+      const nextVisible = window.scrollY > window.innerHeight * 0.7
+      if (showBackTopRef.current === nextVisible) return
+      showBackTopRef.current = nextVisible
+      setShowBackTop(nextVisible)
+    }
 
-      if (!isMounted) return
+    const handleScroll = () => {
+      if (backTopFrameRef.current !== null) return
+      backTopFrameRef.current = window.requestAnimationFrame(updateBackTop)
+    }
 
-      const nextContent = contentResult.data?.content
-        ? mergeLandingContent(contentResult.data.content as Partial<LandingPageContent>)
-        : defaultLandingContent
-
-      setContent(nextContent)
-      setPlayerPlans(
-        plansResult.plans.length > 0
-          ? plansResult.plans
-          : fallbackPlayerPlans(nextContent),
-      )
-      setContactSettings(contactResult.settings)
-
-      if (contentResult.error) {
-        console.warn('[MegaPromo][landing] content unavailable', contentResult.error)
-      }
-      if (plansResult.error) {
-        console.warn('[MegaPromo][landing] player plans unavailable', plansResult.error)
-      }
-      if (contactResult.error) {
-        console.warn('[MegaPromo][landing] contact settings unavailable', contactResult.error)
-      }
-    })()
+    updateBackTop()
+    window.addEventListener('scroll', handleScroll, { passive: true })
 
     return () => {
-      isMounted = false
+      if (backTopFrameRef.current !== null) {
+        window.cancelAnimationFrame(backTopFrameRef.current)
+      }
+      window.removeEventListener('scroll', handleScroll)
     }
   }, [])
+
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => {
+      void loadLandingData()
+    }, 0)
+
+    return () => window.clearTimeout(initialLoad)
+  }, [loadLandingData])
+
+  useEffect(() => {
+    const timeTicker = window.setInterval(() => {
+      setCurrentTimeMs(Date.now())
+    }, 30000)
+
+    return () => window.clearInterval(timeTicker)
+  }, [])
+
+  useEffect(() => {
+    let refreshTimeout = 0
+    const scheduleRefresh = () => {
+      window.clearTimeout(refreshTimeout)
+      refreshTimeout = window.setTimeout(() => {
+        void loadLandingData()
+      }, 250)
+    }
+
+    const channel = supabase.channel('public-landing-realtime')
+    ;[
+      'landing_page_content',
+      'landing_contact_settings',
+      'player_plans',
+      'player_plan_benefits',
+      'contests',
+      'app_feature_flags',
+    ].forEach((table) => {
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table },
+        scheduleRefresh,
+      )
+    })
+    channel.subscribe()
+
+    return () => {
+      window.clearTimeout(refreshTimeout)
+      void supabase.removeChannel(channel)
+    }
+  }, [loadLandingData])
 
   useEffect(() => {
     const revealObserver = new IntersectionObserver(
@@ -347,6 +641,82 @@ export function LandingPage() {
     }
   }
 
+  function dismissFeaturedLiveQuiz() {
+    if (!featuredLiveQuiz) return
+    setDismissedLiveQuizIds((current) => {
+      const next = new Set(current)
+      next.add(featuredLiveQuiz.id)
+      saveDismissedLiveQuizIds(next)
+      return next
+    })
+  }
+
+  const visibleFeaturedLiveQuiz =
+    featuredLiveQuiz &&
+    isLandingBlockVisible(content, 'floatingLiveQuiz') &&
+    !dismissedLiveQuizIds.has(featuredLiveQuiz.id)
+      ? featuredLiveQuiz
+      : null
+  const visibleLiveQuizStatus = visibleFeaturedLiveQuiz
+    ? getLiveQuizStatusLabel(visibleFeaturedLiveQuiz, currentTimeMs)
+    : null
+
+  if (landingMaintenance.isEnabled) {
+    return (
+      <main className="lp-page lp-maintenance-page">
+        <style>{landingStyle}</style>
+        <section className="lp-maintenance-screen" aria-label="Site en maintenance">
+          <div className="lp-maintenance-card">
+            <div className="lp-maintenance-lottie" aria-hidden="true">
+              <div className="lp-maintenance-browser">
+                <div className="lp-maintenance-browser-bar">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="lp-maintenance-code-lines">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              </div>
+              <div className="lp-maintenance-tool gear" />
+              <div className="lp-maintenance-tool wrench" />
+              <div className="lp-maintenance-tool brush" />
+            </div>
+            <span className="lp-maintenance-badge">{landingMaintenance.badge}</span>
+            <h1>{landingMaintenance.title}</h1>
+            <p>{landingMaintenance.message}</p>
+            <div className="lp-maintenance-loader" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="lp-maintenance-progress" aria-hidden="true">
+              <span />
+            </div>
+            <div className="lp-maintenance-status">
+              <span>Optimisation en cours</span>
+              <span>Retour imminent</span>
+            </div>
+            <div className="lp-maintenance-actions">
+              <a
+                className="lp-button primary"
+                href={buildWhatsappUrl(contactSettings)}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Contacter MegaPromo
+              </a>
+            </div>
+            <small>Merci de revenir dans quelques instants.</small>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="lp-page">
       <style>{landingStyle}</style>
@@ -356,11 +726,13 @@ export function LandingPage() {
             <a className="lp-logo lp-header-logo" href="#accueil" onClick={() => setMenuOpen(false)} aria-label="MegaPromo">
               <img alt="" src="/megapromologo.png" />
             </a>
-            <div className="lp-menu">
-              {content.navItems.map(([label, href]) => (
-                <a href={href} key={href}>{label}</a>
-              ))}
-            </div>
+            {isLandingBlockVisible(content, 'navItems') ? (
+              <div className="lp-menu">
+                {content.navItems.map(([label, href]) => (
+                  <a href={href} key={href}>{label}</a>
+                ))}
+              </div>
+            ) : null}
             <div className="lp-actions">
               <a className="lp-button primary" href="#telecharger">Télécharger l’app</a>
               <button
@@ -375,14 +747,17 @@ export function LandingPage() {
               </button>
             </div>
           </div>
-          <div className={`lp-mobile-menu ${menuOpen ? 'open' : ''}`}>
-            {content.navItems.map(([label, href]) => (
-              <a href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a>
-            ))}
-          </div>
+          {isLandingBlockVisible(content, 'navItems') ? (
+            <div className={`lp-mobile-menu ${menuOpen ? 'open' : ''}`}>
+              {content.navItems.map(([label, href]) => (
+                <a href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a>
+              ))}
+            </div>
+          ) : null}
         </div>
       </nav>
 
+      {isLandingBlockVisible(content, 'hero') ? (
       <section className="lp-hero" id="accueil">
         <div className="lp-stars" aria-hidden="true">
           {Array.from({ length: 34 }).map((_, index) => (
@@ -418,6 +793,7 @@ export function LandingPage() {
               <a className="lp-button primary" href="#telecharger">{content.hero.primaryCta}</a>
               <a className="lp-button outline" href="#concours">{content.hero.secondaryCta}</a>
             </div>
+            {isLandingBlockVisible(content, 'stats') ? (
             <div className="lp-stats" ref={statsRef}>
               <div className="lp-stat">
                 <strong>{new Intl.NumberFormat('fr-FR').format(counts.players)}+</strong>
@@ -436,6 +812,7 @@ export function LandingPage() {
                 <span>Campagnes lancées</span>
               </div>
             </div>
+            ) : null}
           </div>
           <div className="lp-phone-wrap lp-reveal">
             <img
@@ -447,7 +824,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'steps') ? (
       <section className="lp-section lp-process-section" id="comment-ca-marche">
         <div className="lp-wrap">
           <div className="lp-process-layout">
@@ -481,8 +860,10 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
-      <section className="lp-section lp-showcase-section">
+      {isLandingBlockVisible(content, 'games') ? (
+      <section className="lp-section lp-showcase-section" id="participer">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
             <h2>3 façons de participer</h2>
@@ -507,7 +888,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'liveContests') ? (
       <section className="lp-section lp-campaigns-section" id="concours">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
@@ -552,7 +935,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'playerPlans') ? (
       <section className="lp-section lp-plans-section" id="tarifs">
         <div className="lp-wrap">
           <div className="lp-plans-head lp-reveal">
@@ -605,7 +990,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'partners') ? (
       <section className="lp-section lp-partners" id="partenaires">
         <div className="lp-wrap">
           <div className="lp-partner-shell">
@@ -630,7 +1017,7 @@ export function LandingPage() {
                 </article>
               ))}
             </div>
-            <div className="lp-partner-plans">
+            <div className="lp-partner-plans" id="formules-partenaires">
               {content.partners.plans.map((plan, index) => (
                 <article
                   className={`lp-partner-plan lp-reveal ${index === 1 ? 'featured' : ''}`}
@@ -663,8 +1050,10 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
-      <section className="lp-section lp-testimonials-section">
+      {isLandingBlockVisible(content, 'testimonials') ? (
+      <section className="lp-section lp-testimonials-section" id="temoignages">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
             <span className="lp-pill">Expérience utilisateur</span>
@@ -691,7 +1080,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'faqs') ? (
       <section className="lp-section lp-faq-section">
         <div className="lp-wrap">
           <div className="lp-faq-layout">
@@ -715,7 +1106,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'contact') ? (
       <section className="lp-section lp-contact-section" id="contact">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
@@ -833,7 +1226,9 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'finalCta') ? (
       <section className="lp-section lp-download-section" id="telecharger">
         <div className="lp-wrap">
           <div className="lp-final lp-reveal">
@@ -886,7 +1281,10 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {isLandingBlockVisible(content, 'footer') ? (
+      <>
       <footer className="lp-footer">
         <div className="lp-wrap">
           <div className="lp-footer-grid">
@@ -928,15 +1326,15 @@ export function LandingPage() {
             <div className="lp-footer-column">
               <h4>Partenaires</h4>
               <a href="#partenaires">Devenir partenaire</a>
-              <a href="#partenaires">Nos formules</a>
-              <a href="#partenaires">Témoignages marques</a>
-              <a href="#partenaires">Contact commercial</a>
+              <a href="#formules-partenaires">Nos formules</a>
+              <a href="#temoignages">Témoignages marques</a>
+              <a href="#contact">Contact commercial</a>
             </div>
             <div className="lp-footer-column">
               <h4>Légal</h4>
               <a href="/legal/terms">CGU</a>
               <a href="/legal/privacy">Politique de confidentialité</a>
-              <a href="#accueil">Mentions légales</a>
+              <a href="/legal/terms">Mentions légales</a>
               <a href="#contact">Contact</a>
             </div>
           </div>
@@ -953,6 +1351,59 @@ export function LandingPage() {
           <span>Mega Promo</span>
         </div>
       </section>
+      </>
+      ) : null}
+
+      <a
+        className={`lp-back-top ${showBackTop ? 'visible' : ''}`}
+        href="#accueil"
+        aria-label="Retour en haut"
+      >
+        <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+          <path d="M12 5.25 5.25 12l1.42 1.42L11 9.08v9.67h2V9.08l4.33 4.34L18.75 12 12 5.25Z" />
+        </svg>
+      </a>
+
+      {visibleFeaturedLiveQuiz && visibleLiveQuizStatus ? (
+        <aside className="lp-live-floating-card" aria-label="Quiz Live disponible">
+          <button
+            aria-label="Masquer ce Quiz Live"
+            className="lp-live-floating-close"
+            onClick={dismissFeaturedLiveQuiz}
+            type="button"
+          >
+            ×
+          </button>
+          <div className="lp-live-floating-logo">
+            <img
+              alt=""
+              src={visibleFeaturedLiveQuiz.logoUrl}
+              onError={(event) => {
+                event.currentTarget.src = '/megapromologo.png'
+              }}
+            />
+          </div>
+          <span className="lp-live-floating-badge">{visibleLiveQuizStatus.badge}</span>
+          <strong className="lp-live-floating-brand">
+            {visibleFeaturedLiveQuiz.brandName}
+          </strong>
+          <h3>{visibleFeaturedLiveQuiz.title}</h3>
+          <p>{visibleLiveQuizStatus.message}</p>
+          <div className="lp-live-floating-meta">
+            <span>
+              <small>Récompense</small>
+              {visibleFeaturedLiveQuiz.prizeLabel}
+            </span>
+            <span>
+              <small>Participants</small>
+              {new Intl.NumberFormat('fr-FR').format(visibleFeaturedLiveQuiz.registeredCount)} inscrit(s)
+            </span>
+          </div>
+          <a className="lp-live-floating-action" href="#telecharger">
+            Participer depuis l’app
+          </a>
+        </aside>
+      ) : null}
     </main>
   )
 }
