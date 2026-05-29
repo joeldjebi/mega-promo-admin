@@ -53,6 +53,10 @@ function formatMoney(value: number | null) {
   }).format(value ?? 0)
 }
 
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('fr-FR').format(value)
+}
+
 function formatDate(value: string) {
   if (!value) return 'Non défini'
   return new Intl.DateTimeFormat('fr-FR', {
@@ -217,6 +221,47 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
       return matchesSearch && matchesStatus
     })
   }, [historyData.subscriptions, subscriptionSearch, subscriptionStatusFilter])
+  const subscriptionStats = useMemo(() => {
+    const now = Date.now()
+    const pending = historyData.subscriptions.filter(
+      (subscription) => subscription.status === 'pending',
+    )
+    const active = historyData.subscriptions.filter(
+      (subscription) => subscription.status === 'active',
+    )
+    const expired = historyData.subscriptions.filter(
+      (subscription) => subscription.status === 'expired',
+    )
+    const cancelled = historyData.subscriptions.filter(
+      (subscription) => subscription.status === 'cancelled',
+    )
+    const totalAmount = historyData.subscriptions.reduce(
+      (total, subscription) => total + subscription.amount,
+      0,
+    )
+    const activeAmount = active.reduce(
+      (total, subscription) => total + subscription.amount,
+      0,
+    )
+    const expiringSoon = active.filter((subscription) => {
+      if (!subscription.expiresAt) return false
+      const expiresAt = new Date(subscription.expiresAt).getTime()
+      return Number.isFinite(expiresAt)
+        && expiresAt >= now
+        && expiresAt <= now + 7 * 24 * 60 * 60 * 1000
+    })
+
+    return {
+      total: historyData.subscriptions.length,
+      pending: pending.length,
+      active: active.length,
+      expired: expired.length,
+      cancelled: cancelled.length,
+      totalAmount,
+      activeAmount,
+      expiringSoon: expiringSoon.length,
+    }
+  }, [historyData.subscriptions])
 
   const loadSubscriptionHistory = useCallback(async () => {
     setIsHistoryLoading(true)
@@ -457,6 +502,44 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
             </div>
           </div>
         ) : null}
+
+        <section className="settings-overview subscription-history-stats-overview" aria-label="Statistiques des abonnements">
+          <article className="settings-overview-card featured">
+            <span className="settings-overview-icon">A</span>
+            <div>
+              <small>Abonnements</small>
+              <strong>{formatNumber(subscriptionStats.total)}</strong>
+              <p>
+                {formatNumber(subscriptionStats.active)} actifs ·{' '}
+                {formatNumber(subscriptionStats.pending)} en attente
+              </p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">R</span>
+            <div>
+              <small>Revenus</small>
+              <strong>{formatMoney(subscriptionStats.totalAmount)}</strong>
+              <p>{formatMoney(subscriptionStats.activeAmount)} sur les lignes actives.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">E</span>
+            <div>
+              <small>Expiration</small>
+              <strong>{formatNumber(subscriptionStats.expiringSoon)}</strong>
+              <p>Actif(s) qui expirent dans les 7 prochains jours.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">S</span>
+            <div>
+              <small>Statuts fermés</small>
+              <strong>{formatNumber(subscriptionStats.expired)}</strong>
+              <p>{formatNumber(subscriptionStats.cancelled)} abonnement(s) annulé(s).</p>
+            </div>
+          </article>
+        </section>
 
         <section className="panel winners-page-panel">
           <div className="section-heading">

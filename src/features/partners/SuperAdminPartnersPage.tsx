@@ -633,6 +633,15 @@ export function SuperAdminPartnersPage({ authRoute, rootRoute, navItems }: Super
                 <small>Session vérifiée</small>
               </div>
             </div>
+            <a
+              aria-label="Accéder à la page de connexion des partenaires"
+              className="table-action-button"
+              href={PARTNER_AUTH_ROUTE}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Login partenaires
+            </a>
             <button className="primary-button" onClick={openPartnerModal} type="button">
               Nouveau partenaire
             </button>

@@ -2899,6 +2899,267 @@ html { scroll-behavior: smooth; }
   line-height: 1.25;
 }
 
+/* Compact landing rhythm */
+.lp-wrap {
+  max-width: 1140px;
+}
+
+.lp-section {
+  padding: 50px 0;
+}
+
+.lp-hero {
+  padding: 108px 0 52px;
+}
+
+.lp-hero-grid {
+  gap: 38px;
+}
+
+.lp-hero h1 {
+  font-size: clamp(34px, 7.2vw, 60px);
+  margin: 14px 0 12px;
+  min-height: calc(clamp(34px, 7.2vw, 60px) * 2.08);
+}
+
+.lp-typewriter-line {
+  border-radius: 21px;
+  font-size: clamp(22px, 4.7vw, 50px);
+  margin-top: 8px;
+  padding: 5px 11px;
+}
+
+.lp-lead {
+  font-size: clamp(14px, 1.35vw, 16.5px);
+  max-width: 560px;
+}
+
+.lp-hero-proof {
+  margin-top: 14px;
+}
+
+.lp-hero-actions,
+.lp-final-actions {
+  margin-top: 18px;
+}
+
+.lp-stats {
+  margin-top: 20px;
+}
+
+.lp-section-head {
+  margin-bottom: 20px;
+}
+
+.lp-section-head h2 {
+  font-size: clamp(25px, 4vw, 38px);
+}
+
+.lp-section-head p,
+.lp-card p,
+.lp-step-card p,
+.lp-participation-card p,
+.lp-campaign-proof,
+.lp-plans-note,
+.lp-partner-intro p,
+.lp-faq-copy p,
+.lp-final p,
+.lp-testimonial-card p,
+.lp-contact-copy p {
+  font-size: 13.5px;
+}
+
+.lp-card,
+.lp-participation-card,
+.lp-campaign-card,
+.lp-price-card,
+.lp-partner-benefit,
+.lp-partner-plan,
+.lp-testimonial-card,
+.lp-contact-copy,
+.lp-contact-form {
+  padding: 18px;
+}
+
+.lp-card h3,
+.lp-participation-card h3,
+.lp-step-card h3,
+.lp-partner-benefit h3,
+.lp-partner-plan h3,
+.lp-testimonial-card h3 {
+  font-size: 17.5px;
+}
+
+.lp-process-copy,
+.lp-partner-intro,
+.lp-faq-copy,
+.lp-final {
+  padding: 24px;
+}
+
+.lp-process-copy h2,
+.lp-partner-intro h2,
+.lp-faq-copy h2,
+.lp-plans-head h2,
+.lp-final h2 {
+  font-size: clamp(28px, 4.4vw, 46px);
+  margin-top: 16px;
+}
+
+.lp-process-copy p,
+.lp-plans-head p {
+  font-size: 14.5px;
+}
+
+.lp-step-card {
+  grid-template-columns: 48px minmax(0, 1fr);
+  min-height: 132px;
+  padding: 16px;
+}
+
+.lp-step-number {
+  border-radius: 16px;
+  font-size: 14px;
+  height: 48px;
+  width: 48px;
+}
+
+.lp-step-icon {
+  border-radius: 15px;
+  font-size: 22px;
+  height: 42px;
+  right: 16px;
+  top: 16px;
+  width: 42px;
+}
+
+.lp-feature-icon,
+.lp-campaign-icon {
+  border-radius: 19px;
+  font-size: 27px;
+  height: 56px;
+  margin-bottom: 14px;
+  width: 56px;
+}
+
+.lp-participation-card {
+  min-height: 196px;
+}
+
+.lp-campaign-card {
+  min-height: 296px;
+}
+
+.lp-campaign-card h3 {
+  font-size: 20px;
+}
+
+.lp-campaign-card .lp-prize {
+  font-size: 16px;
+}
+
+.lp-price-card {
+  min-height: 408px;
+}
+
+.lp-price-card h3 {
+  font-size: 23px;
+}
+
+.lp-price {
+  font-size: clamp(24px, 3.3vw, 33px);
+}
+
+.lp-price-card-head {
+  min-height: 86px;
+}
+
+.lp-price-box {
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.lp-feature-list {
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.lp-feature-list li {
+  font-size: 13px;
+}
+
+.lp-partner-plan {
+  min-height: 326px;
+}
+
+.lp-testimonial-card {
+  min-height: 198px;
+}
+
+.lp-faq-item button {
+  font-size: 14px;
+  padding: 15px 17px;
+}
+
+.lp-faq-answer {
+  font-size: 13.5px;
+  padding: 0 17px;
+}
+
+.lp-faq-item.open .lp-faq-answer {
+  padding: 0 17px 17px;
+}
+
+.lp-final {
+  gap: 22px;
+}
+
+.lp-store-button {
+  border-radius: 19px;
+  min-width: min(100%, 204px);
+  padding: 10px 12px;
+}
+
+.lp-store-button strong {
+  font-size: 16px;
+}
+
+.lp-device-showcase {
+  min-height: 230px;
+}
+
+.lp-device-card {
+  height: 215px;
+  width: 116px;
+}
+
+.lp-device-card.android {
+  height: 232px;
+}
+
+.lp-footer {
+  padding: 24px 0 18px;
+}
+
+.lp-footer-grid,
+.lp-footer-brand,
+.lp-footer-column {
+  padding: 16px;
+}
+
+.lp-logo-parallax {
+  min-height: 66vh;
+}
+
+.lp-logo-parallax img {
+  height: clamp(130px, 23vw, 270px);
+  width: clamp(130px, 23vw, 270px);
+}
+
+.lp-logo-parallax span {
+  font-size: clamp(26px, 5vw, 62px);
+}
+
 @keyframes lp-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-14px); }
@@ -3072,6 +3333,23 @@ html { scroll-behavior: smooth; }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
+  .lp-section {
+    padding: 46px 0;
+  }
+  .lp-hero {
+    padding-top: 96px;
+  }
+  .lp-process-copy,
+  .lp-partner-intro,
+  .lp-faq-copy,
+  .lp-final {
+    padding: 22px;
+  }
+  .lp-price-card,
+  .lp-campaign-card,
+  .lp-participation-card {
+    padding: 17px;
+  }
   .lp-live-floating-card {
     bottom: 88px;
     right: 18px;
@@ -3120,8 +3398,8 @@ html { scroll-behavior: smooth; }
 
 @media (max-width: 767px) {
   .lp-stats { grid-template-columns: 1fr; }
-  .lp-section { padding: 44px 0; }
-  .lp-hero { padding-top: 104px; }
+  .lp-section { padding: 38px 0; }
+  .lp-hero { padding-top: 92px; padding-bottom: 42px; }
   .lp-button { width: 100%; }
   .lp-nav .lp-actions .lp-button {
     display: inline-flex;
@@ -3141,12 +3419,13 @@ html { scroll-behavior: smooth; }
     overflow-y: auto;
   }
   .lp-hero h1 {
+    font-size: clamp(31px, 8.2vw, 42px);
     min-height: 0;
   }
   .lp-typewriter-line {
     border-radius: 18px;
-    font-size: clamp(22px, 7.2vw, 44px);
-    padding: 6px 10px;
+    font-size: clamp(20px, 6.6vw, 38px);
+    padding: 5px 9px;
   }
   .lp-typewriter-text {
     max-width: none;
@@ -3185,7 +3464,7 @@ html { scroll-behavior: smooth; }
   .lp-contact-form,
   .lp-footer-brand,
   .lp-footer-column {
-    padding: 18px;
+    padding: 16px;
   }
   .lp-support-grid { grid-template-columns: 1fr; }
   .lp-store-button { width: 100%; }
@@ -3203,13 +3482,13 @@ html { scroll-behavior: smooth; }
   .lp-participation-card {
     border-radius: 22px;
     min-height: auto;
-    padding: 18px;
+    padding: 16px;
   }
 
   .lp-step-icon,
   .lp-feature-icon {
-    height: 54px;
-    width: 54px;
+    height: 48px;
+    width: 48px;
   }
 
   .lp-step-body {
@@ -3291,10 +3570,10 @@ html { scroll-behavior: smooth; }
     min-height: 36px;
     padding: 0 9px;
   }
-  .lp-hero { padding-top: 92px; }
+  .lp-hero { padding-top: 86px; }
   .lp-typewriter-line {
-    font-size: clamp(19px, 6.6vw, 32px);
-    padding: 6px 8px;
+    font-size: clamp(18px, 6.1vw, 30px);
+    padding: 5px 8px;
   }
   .lp-typewriter-text {
     max-width: none;

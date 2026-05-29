@@ -74,6 +74,7 @@ type AppFeatureFlagState = {
 
 function formatMoney(value: number | null) { if (!value) return '0 FCFA'; return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA` }
 function formatDate(value: string) { if (!value) return 'Non défini'; return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
+function formatNumber(value: number) { return new Intl.NumberFormat('fr-FR').format(value) }
 function formatUnknownError(error: unknown, fallback: string) { if (error instanceof Error) return error.message; if (error && typeof error === 'object') { const payload = error as SupabaseLikeError; return [payload.message, payload.details, payload.hint, payload.code].filter((item) => typeof item === 'string' && item.length > 0).join(' · ') || fallback } return typeof error === 'string' && error.length > 0 ? error : fallback }
 function isMissingTableError(error: unknown, tableName: string) { if (!error || typeof error !== 'object') return false; const payload = error as SupabaseLikeError; const message = String(payload.message ?? ''); return payload.code === 'PGRST205' && message.includes(`'public.${tableName}'`) }
 function createClientUuid() { if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID(); return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => { const random = Math.floor(Math.random() * 16); const value = char === 'x' ? random : (random & 0x3) | 0x8; return value.toString(16) }) }
@@ -273,6 +274,35 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
       return matchesSearch && matchesStatus && matchesType
     })
   }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnersData.winners])
+  const winnersStats = useMemo(() => {
+    const pending = winnersData.winners.filter((winner) => winner.status === 'pending')
+    const sent = winnersData.winners.filter((winner) => winner.status === 'sent')
+    const received = winnersData.winners.filter((winner) => winner.status === 'received')
+    const live = winnersData.winners.filter((winner) => winner.isLiveContest)
+    const contest = winnersData.winners.filter((winner) => !winner.isLiveContest)
+    const totalValue = winnersData.winners.reduce(
+      (total, winner) => total + winner.prizeValue,
+      0,
+    )
+    const paidValue = winnersData.winners
+      .filter((winner) => winner.status === 'sent' || winner.status === 'received')
+      .reduce((total, winner) => total + winner.prizeValue, 0)
+    const missingPayment = winnersData.winners.filter(
+      (winner) => !winner.paymentNumber.trim(),
+    )
+
+    return {
+      total: winnersData.winners.length,
+      pending: pending.length,
+      sent: sent.length,
+      received: received.length,
+      live: live.length,
+      contest: contest.length,
+      totalValue,
+      paidValue,
+      missingPayment: missingPayment.length,
+    }
+  }, [winnersData.winners])
 
   const loadWinners = useCallback(async () => {
     setIsWinnersLoading(true)
@@ -783,6 +813,47 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
             </div>
           </div>
         ) : null}
+
+        <section
+          aria-label={historyMode ? 'Statistiques de l’historique des gains' : 'Statistiques des gagnants'}
+          className="settings-overview rewards-stats-overview"
+        >
+          <article className="settings-overview-card featured">
+            <span className="settings-overview-icon">G</span>
+            <div>
+              <small>{historyMode ? 'Gains enregistrés' : 'Gagnants'}</small>
+              <strong>{formatNumber(winnersStats.total)}</strong>
+              <p>
+                {formatNumber(winnersStats.pending)} en attente ·{' '}
+                {formatNumber(winnersStats.sent + winnersStats.received)} traités
+              </p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">V</span>
+            <div>
+              <small>Valeur totale</small>
+              <strong>{formatMoney(winnersStats.totalValue)}</strong>
+              <p>{formatMoney(winnersStats.paidValue)} déjà marqué payé/reçu.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">Q</span>
+            <div>
+              <small>Origine</small>
+              <strong>{formatNumber(winnersStats.contest)} concours</strong>
+              <p>{formatNumber(winnersStats.live)} gain(s) issus des Quiz Live.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">M</span>
+            <div>
+              <small>Paiement</small>
+              <strong>{formatNumber(winnersStats.missingPayment)}</strong>
+              <p>Gagnant(s) sans numéro de paiement renseigné.</p>
+            </div>
+          </article>
+        </section>
 
         <section className="panel">
           <div className="section-heading">

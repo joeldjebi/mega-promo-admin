@@ -38,6 +38,7 @@ import { SuperAdminWinnersPage } from './features/winners/SuperAdminWinnersPage'
 import { SuperAdminUsersPage } from './features/users/SuperAdminUsersPage'
 import { LandingPage as PublicLandingPage } from './features/landing/LandingPage'
 import { LegalPage as PublicLegalPage } from './features/landing/LegalPage'
+import { PartnerContestsPanel } from './features/partnerAdmin/contests/PartnerContestsPanel'
 import { supabase } from './lib/supabase'
 import { registerWebPushToken } from './lib/webPush'
 
@@ -144,6 +145,23 @@ type PartnerSubscriptionHistoryItem = {
   expiresAt: string
   paymentMethod: string
   createdAt: string
+}
+type PartnerAvailablePlan = {
+  id: string
+  key: string
+  name: string
+  description: string
+  price: number
+  durationDays: number
+  maxContests: number | null
+  maxBoosts: number | null
+  canCreateQuiz: boolean
+  canCreatePronostic: boolean
+  canAccessStats: boolean
+  canBeFeatured: boolean
+  isActive: boolean
+  orderIndex: number
+  benefits: string[]
 }
 type PartnerProfileFormState = {
   companyName: string
@@ -414,6 +432,7 @@ function normalizeAllowedPlayerPlanKeys(value: unknown): PlayerPlanAccessKey[] {
   }
   return Array.from(allowed)
 }
+
 const PARTNER_AUTH_ROUTE = '/auth/partner'
 const SUPER_ADMIN_AUTH_ROUTE = '/access/mp-sa-console'
 const SUPER_ADMIN_ROUTE = '/mp-control/super-admin'
@@ -839,6 +858,52 @@ async function fetchPartnerSubscriptionHistory(
     expiresAt: (subscription.expires_at as string | null) ?? '',
     paymentMethod: (subscription.payment_method as string | null) ?? '',
     createdAt: (subscription.created_at as string | null) ?? '',
+  }))
+}
+
+async function fetchPartnerAvailablePlans(): Promise<PartnerAvailablePlan[]> {
+  const [plansResponse, benefitsResponse] = await Promise.all([
+    supabase
+      .from('partner_plans')
+      .select(
+        'id, key, name, description, price, duration_days, max_contests, max_boosts, can_create_quiz, can_create_pronostic, can_access_stats, can_be_featured, is_active, order_index',
+      )
+      .eq('is_active', true)
+      .order('order_index', { ascending: true }),
+    supabase
+      .from('partner_plan_benefits')
+      .select('plan_id, label, order_index')
+      .order('order_index', { ascending: true }),
+  ])
+
+  if (plansResponse.error) throw plansResponse.error
+  if (benefitsResponse.error) throw benefitsResponse.error
+
+  const benefitsByPlan = new Map<string, string[]>()
+  for (const benefit of benefitsResponse.data ?? []) {
+    const planId = benefit.plan_id as string
+    const planBenefits = benefitsByPlan.get(planId) ?? []
+    const label = (benefit.label as string | null) ?? ''
+    if (label) planBenefits.push(label)
+    benefitsByPlan.set(planId, planBenefits)
+  }
+
+  return (plansResponse.data ?? []).map((plan) => ({
+    id: plan.id as string,
+    key: (plan.key as string | null) ?? '',
+    name: (plan.name as string | null) ?? 'Forfait',
+    description: (plan.description as string | null) ?? '',
+    price: (plan.price as number | null) ?? 0,
+    durationDays: (plan.duration_days as number | null) ?? 30,
+    maxContests: (plan.max_contests as number | null) ?? null,
+    maxBoosts: (plan.max_boosts as number | null) ?? null,
+    canCreateQuiz: (plan.can_create_quiz as boolean | null) ?? false,
+    canCreatePronostic: (plan.can_create_pronostic as boolean | null) ?? false,
+    canAccessStats: (plan.can_access_stats as boolean | null) ?? false,
+    canBeFeatured: (plan.can_be_featured as boolean | null) ?? false,
+    isActive: (plan.is_active as boolean | null) ?? true,
+    orderIndex: (plan.order_index as number | null) ?? 0,
+    benefits: benefitsByPlan.get(plan.id as string) ?? [],
   }))
 }
 
@@ -5098,6 +5163,7 @@ function PartnerPreview() {
   const [subscriptionHistory, setSubscriptionHistory] = useState<
     PartnerSubscriptionHistoryItem[]
   >([])
+  const [partnerPlans, setPartnerPlans] = useState<PartnerAvailablePlan[]>([])
   const [categories, setCategories] = useState<CategoryOption[]>([])
   const [types, setTypes] = useState<ContestTypeOption[]>([])
   const [contestForm, setContestForm] = useState<ContestFormState>(
@@ -5114,6 +5180,8 @@ function PartnerPreview() {
   const [partnerHistoryContestId, setPartnerHistoryContestId] = useState('all')
   const [partnerPlayerSearch, setPartnerPlayerSearch] = useState('')
   const [settingsError, setSettingsError] = useState('')
+  const [subscriptionRequestError, setSubscriptionRequestError] = useState('')
+  const [isRequestingSubscription, setIsRequestingSubscription] = useState(false)
   const [isProfileSaving, setIsProfileSaving] = useState(false)
   const [isPasswordSaving, setIsPasswordSaving] = useState(false)
   const [profileForm, setProfileForm] = useState<PartnerProfileFormState>({
@@ -5257,10 +5325,11 @@ function PartnerPreview() {
         data.user.id,
         data.user.email,
       )
-      const [nextContests, catalog, nextSubscriptions] = await Promise.all([
+      const [nextContests, catalog, nextSubscriptions, nextPartnerPlans] = await Promise.all([
         fetchPartnerDashboardContests(nextPartner.id),
         fetchPartnerContestCatalog(),
         fetchPartnerSubscriptionHistory(nextPartner.id),
+        fetchPartnerAvailablePlans(),
       ])
       const nextParticipations = await fetchPartnerParticipations(nextContests)
       if (!isMounted()) return
@@ -5269,6 +5338,7 @@ function PartnerPreview() {
       setParticipations(nextParticipations)
       setPlayers(buildPartnerPlayers(nextParticipations))
       setSubscriptionHistory(nextSubscriptions)
+      setPartnerPlans(nextPartnerPlans)
       setProfileForm({
         companyName: nextPartner.companyName,
         email: nextPartner.email,
@@ -5313,13 +5383,52 @@ function PartnerPreview() {
 
   useRealtimeRefresh(
     'partner-dashboard-realtime',
-    ['contests', 'participations', 'partner_subscriptions', 'partners'],
+    [
+      'contests',
+      'participations',
+      'partner_subscriptions',
+      'partners',
+      'partner_plans',
+      'partner_plan_benefits',
+    ],
     refreshPartnerDashboard,
   )
 
   async function handlePartnerLogout() {
     await supabase.auth.signOut()
     navigate(PARTNER_AUTH_ROUTE, { replace: true })
+  }
+
+  async function handlePartnerSubscriptionRequest(plan: PartnerAvailablePlan) {
+    if (!partner || isRequestingSubscription) return
+
+    setSubscriptionRequestError('')
+    setPartnerNotice('')
+    setIsRequestingSubscription(true)
+
+    try {
+      const { error } = await supabase.rpc('request_partner_subscription', {
+        p_partner_id: partner.id,
+        p_plan_id: plan.id,
+        p_payment_method: 'Demande depuis espace partenaire',
+      })
+
+      if (error) throw error
+
+      setPartnerNotice(
+        `Demande envoyée pour le forfait ${plan.name}. Le Super Admin pourra la valider après vérification du paiement.`,
+      )
+      await refreshPartnerDashboard()
+      setActivePartnerView('subscriptions')
+    } catch (subscriptionError) {
+      setSubscriptionRequestError(
+        subscriptionError instanceof Error
+          ? subscriptionError.message
+          : 'Impossible d’envoyer la demande d’abonnement.',
+      )
+    } finally {
+      setIsRequestingSubscription(false)
+    }
   }
 
   function openPartnerContestModal() {
@@ -5907,102 +6016,20 @@ function PartnerPreview() {
         ) : null}
 
         {activePartnerView === 'contests' ? (
-          <section className="partner-page-section">
-            <article className="panel">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Mes concours</p>
-                  <h2>Liste des concours enregistrés</h2>
-                </div>
-                <div className="section-heading-actions">
-                  <span className="pill">
-                    {formatNumber(filteredPartnerContests.length)} / {formatNumber(contests.length)}
-                  </span>
-                  <button
-                    className="primary-button"
-                    onClick={openPartnerContestModal}
-                    type="button"
-                  >
-                    Créer un concours
-                  </button>
-                </div>
-              </div>
-
-              <div className="contest-filter-bar compact">
-                <input
-                  className="search-input"
-                  onChange={(event) => setPartnerContestSearch(event.target.value)}
-                  placeholder="Rechercher un concours..."
-                  value={partnerContestSearch}
-                />
-                <select
-                  onChange={(event) => setPartnerContestStatusFilter(event.target.value)}
-                  value={partnerContestStatusFilter}
-                >
-                  <option value="all">Tous les statuts</option>
-                  <option value="pending">En attente</option>
-                  <option value="active">Actifs</option>
-                  <option value="inactive">Inactifs</option>
-                  <option value="draft">Draft</option>
-                </select>
-                <select
-                  onChange={(event) => setPartnerContestTypeFilter(event.target.value)}
-                  value={partnerContestTypeFilter}
-                >
-                  <option value="all">Tous les types</option>
-                  {types.map((type) => (
-                    <option key={type.key} value={type.key}>
-                      {type.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {filteredPartnerContests.length === 0 ? (
-                <p className="empty-panel-text">
-                  {contests.length > 0
-                    ? 'Aucun concours ne correspond aux filtres.'
-                    : 'Aucun concours n’est encore rattaché à ce partenaire.'}
-                </p>
-              ) : (
-                <div className="partner-dashboard-list">
-                  {filteredPartnerContests.map((contest) => (
-                    <article className="partner-dashboard-row" key={contest.id}>
-                      <div>
-                        <strong>{contest.title}</strong>
-                        <p>
-                          {contest.category} · {contest.type} · {formatMoney(contest.prizeValue)}
-                        </p>
-                      </div>
-                      <span className={`status-pill ${contest.status}`}>
-                        {contest.status}
-                      </span>
-                      <span>{formatNumber(contest.participants)} joueurs</span>
-                      <span>{contest.isBoosted ? 'Boosté' : 'Standard'}</span>
-                      <small>{formatDate(contest.endsAt)}</small>
-                      <div className="table-actions compact">
-                        <button
-                          className="table-action-button"
-                          onClick={() => openPartnerContestHistory(contest.id)}
-                          type="button"
-                        >
-                          Historique
-                        </button>
-                        <button
-                          className="table-action-button"
-                          disabled={contest.status !== 'pending'}
-                          onClick={() => openEditPartnerContestModal(contest)}
-                          type="button"
-                        >
-                          Modifier
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </article>
-          </section>
+          <PartnerContestsPanel
+            contests={contests}
+            filteredContests={filteredPartnerContests}
+            onCreate={openPartnerContestModal}
+            onEdit={openEditPartnerContestModal}
+            onHistory={openPartnerContestHistory}
+            onSearchChange={setPartnerContestSearch}
+            onStatusFilterChange={setPartnerContestStatusFilter}
+            onTypeFilterChange={setPartnerContestTypeFilter}
+            search={partnerContestSearch}
+            statusFilter={partnerContestStatusFilter}
+            typeFilter={partnerContestTypeFilter}
+            types={types}
+          />
         ) : null}
 
         {activePartnerView === 'history' ? (
@@ -6108,66 +6135,182 @@ function PartnerPreview() {
 
         {activePartnerView === 'subscriptions' ? (
           <section className="partner-page-section">
-            <article className="panel">
+            <article className="panel partner-subscription-panel">
               <div className="section-heading">
                 <div>
                   <p className="eyebrow">Abonnement</p>
-                  <h2>Historique des abonnements</h2>
+                  <h2>Forfait partenaire</h2>
                 </div>
-                <span className="status-pill active">Validé</span>
+                <span className={`status-pill ${partner.isActive ? 'active' : 'inactive'}`}>
+                  {partner.isActive ? 'Actif' : 'Inactif'}
+                </span>
               </div>
 
-              <div className="compact-list">
-                {subscriptionHistory.length > 0 ? (
-                  subscriptionHistory.map((subscription) => (
-                    <article key={subscription.id}>
-                      <div>
-                        <strong>{subscription.planName}</strong>
-                        <p>
-                          {subscription.paymentMethod || 'Paiement'} ·{' '}
-                          {formatMoney(subscription.amount)}
-                        </p>
-                      </div>
-                      <span className={`status-pill ${subscription.status}`}>
-                        {subscription.status}
-                      </span>
-                      <small>{formatDate(subscription.expiresAt)}</small>
-                    </article>
-                  ))
-                ) : (
-                  <article>
+              <div className="partner-subscription-hero">
+                <div>
+                  <span className="partner-subscription-kicker">Forfait actuel</span>
+                  <strong>{partner.subscriptionPlan || 'free'}</strong>
+                  <p>
+                    {partner.subscriptionExpiresAt
+                      ? `Expire le ${formatDate(partner.subscriptionExpiresAt)}`
+                      : 'Expiration non définie'}
+                  </p>
+                </div>
+                <div className="partner-subscription-score">
+                  <span>{formatNumber(dashboardStats.boostedContests)}</span>
+                  <small>concours boosté(s)</small>
+                </div>
+              </div>
+
+              <div className="partner-subscription-metrics">
+                <article>
+                  <div>
+                    <span>Campagnes</span>
+                    <strong>{formatNumber(contests.length)}</strong>
+                  </div>
+                  <p>Total enregistré</p>
+                </article>
+                <article>
+                  <div>
+                    <span>Participants</span>
+                    <strong>{formatNumber(dashboardStats.participations)}</strong>
+                  </div>
+                  <p>Depuis les concours</p>
+                </article>
+                <article>
+                  <div>
+                    <span>Secteur</span>
+                    <strong>{partner.sector || 'Non renseigné'}</strong>
+                  </div>
+                  <p>Suivi partenaire</p>
+                </article>
+              </div>
+
+              <div className="partner-plan-chooser">
+                <div className="section-heading compact-heading">
+                  <div>
+                    <p className="eyebrow">Choisir un forfait</p>
+                    <h3>Changer ou renouveler</h3>
+                  </div>
+                  <span className="pill">{formatNumber(partnerPlans.length)} offre(s)</span>
+                </div>
+
+                {subscriptionRequestError ? (
+                  <div className="dashboard-alert" role="alert">
                     <div>
-                      <strong>Aucun historique</strong>
-                      <p>Le forfait actuel est conservé dans le profil partenaire.</p>
+                      <strong>Demande impossible</strong>
+                      <p>{subscriptionRequestError}</p>
                     </div>
-                    <span>{partner.subscriptionPlan || 'free'}</span>
-                  </article>
+                  </div>
+                ) : null}
+
+                {partnerPlans.length > 0 ? (
+                  <div className="partner-plan-grid">
+                    {partnerPlans.map((plan) => {
+                      const isCurrentPlan =
+                        partner.subscriptionPlan.toLowerCase() === plan.name.toLowerCase()
+                          || partner.subscriptionPlan.toLowerCase() === plan.key.toLowerCase()
+                      return (
+                        <article
+                          className={`partner-plan-option ${isCurrentPlan ? 'current' : ''}`}
+                          key={plan.id}
+                        >
+                          <div className="partner-plan-option-head">
+                            <div>
+                              <span>{plan.key || 'forfait'}</span>
+                              <strong>{plan.name}</strong>
+                            </div>
+                            {isCurrentPlan ? (
+                              <small>Actuel</small>
+                            ) : null}
+                          </div>
+                          <p>{plan.description || 'Forfait partenaire MegaPromo.'}</p>
+                          <div className="partner-plan-price">
+                            <strong>{formatMoney(plan.price)}</strong>
+                            <span>{plan.durationDays} jours</span>
+                          </div>
+                          <div className="partner-plan-limits">
+                            <span>
+                              {plan.maxContests === null
+                                ? 'Concours illimités'
+                                : `${formatNumber(plan.maxContests)} concours`}
+                            </span>
+                            <span>
+                              {plan.maxBoosts === null
+                                ? 'Boosts illimités'
+                                : `${formatNumber(plan.maxBoosts)} boosts`}
+                            </span>
+                          </div>
+                          {plan.benefits.length > 0 ? (
+                            <ul>
+                              {plan.benefits.slice(0, 4).map((benefit) => (
+                                <li key={benefit}>{benefit}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          <button
+                            className={isCurrentPlan ? 'table-action-button' : 'primary-button'}
+                            disabled={isRequestingSubscription}
+                            onClick={() => handlePartnerSubscriptionRequest(plan)}
+                            type="button"
+                          >
+                            {isRequestingSubscription
+                              ? 'Envoi...'
+                              : isCurrentPlan
+                                ? 'Renouveler'
+                                : 'Choisir ce forfait'}
+                          </button>
+                        </article>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="partner-subscription-empty">
+                    <strong>Aucun forfait disponible</strong>
+                    <p>Les offres partenaires actives apparaîtront ici après configuration SA.</p>
+                  </div>
                 )}
-                <article>
+              </div>
+
+              <div className="partner-subscription-history">
+                <div className="section-heading compact-heading">
                   <div>
-                    <strong>Forfait</strong>
-                    <p>{partner.subscriptionPlan || 'free'}</p>
+                    <p className="eyebrow">Historique</p>
+                    <h3>Derniers abonnements</h3>
                   </div>
-                  <span>{dashboardStats.boostedContests} boost</span>
-                </article>
-                <article>
-                  <div>
-                    <strong>Secteur</strong>
-                    <p>{partner.sector || 'Non renseigné'}</p>
+                  <span className="pill">{formatNumber(subscriptionHistory.length)} lignes</span>
+                </div>
+
+                {subscriptionHistory.length > 0 ? (
+                  <div className="subscription-list partner-subscription-list">
+                    {subscriptionHistory.map((subscription) => (
+                      <article className="subscription-row partner-subscription-row" key={subscription.id}>
+                        <div>
+                          <strong>{subscription.planName}</strong>
+                          <p>
+                            {subscription.paymentMethod || 'Paiement'} ·{' '}
+                            {formatMoney(subscription.amount)}
+                          </p>
+                          <small>
+                            Du {formatDate(subscription.startsAt)} au{' '}
+                            {formatDate(subscription.expiresAt)}
+                          </small>
+                        </div>
+                        <span className={`status-pill ${subscription.status}`}>
+                          {subscription.status}
+                        </span>
+                      </article>
+                    ))}
                   </div>
-                  <span>Actif</span>
-                </article>
-                <article>
-                  <div>
-                    <strong>Expiration</strong>
+                ) : (
+                  <div className="partner-subscription-empty">
+                    <strong>Aucun historique d’abonnement</strong>
                     <p>
-                      {partner.subscriptionExpiresAt
-                        ? formatDate(partner.subscriptionExpiresAt)
-                        : 'Non définie'}
+                      Le forfait actuel est visible ci-dessus. Les renouvellements
+                      apparaîtront ici dès leur activation.
                     </p>
                   </div>
-                  <span>Suivi SA</span>
-                </article>
+                )}
               </div>
             </article>
           </section>

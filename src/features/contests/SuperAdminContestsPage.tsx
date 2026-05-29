@@ -566,6 +566,37 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       (_, index) => normalizedFirstPage + index,
     )
   }, [contestPage, totalContestPages])
+  const contestStats = useMemo(() => {
+    const now = Date.now()
+    const active = contestsData.contests.filter((contest) => contest.status === 'active')
+    const pending = contestsData.contests.filter((contest) => contest.status === 'pending')
+    const live = contestsData.contests.filter((contest) => contest.isLive)
+    const boosted = contestsData.contests.filter((contest) => contest.isBoosted)
+    const totalParticipants = contestsData.contests.reduce(
+      (total, contest) => total + (contest.isLive ? contest.registeredCount : contest.participants),
+      0,
+    )
+    const totalPrizeValue = contestsData.contests.reduce(
+      (total, contest) => total + contest.prizeValue,
+      0,
+    )
+    const endingSoon = contestsData.contests.filter((contest) => {
+      if (!contest.endsAt || contest.status !== 'active') return false
+      const endsAt = new Date(contest.endsAt).getTime()
+      return Number.isFinite(endsAt) && endsAt >= now && endsAt <= now + 24 * 60 * 60 * 1000
+    })
+
+    return {
+      total: contestsData.contests.length,
+      active: active.length,
+      pending: pending.length,
+      live: live.length,
+      boosted: boosted.length,
+      totalParticipants,
+      totalPrizeValue,
+      endingSoon: endingSoon.length,
+    }
+  }, [contestsData.contests])
 
   const loadContests = useCallback(async () => {
     setIsContestsLoading(true)
@@ -1155,6 +1186,43 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
             </div>
           </div>
         ) : null}
+
+        <section className="settings-overview contest-stats-overview" aria-label="Statistiques des concours">
+          <article className="settings-overview-card featured">
+            <span className="settings-overview-icon">C</span>
+            <div>
+              <small>Total concours</small>
+              <strong>{formatNumber(contestStats.total)}</strong>
+              <p>
+                {formatNumber(contestStats.active)} actifs · {formatNumber(contestStats.pending)} en attente
+              </p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">P</span>
+            <div>
+              <small>Participants</small>
+              <strong>{formatNumber(contestStats.totalParticipants)}</strong>
+              <p>Inscriptions QL et participations concours cumulées.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">Q</span>
+            <div>
+              <small>Quiz Live</small>
+              <strong>{formatNumber(contestStats.live)}</strong>
+              <p>{formatNumber(contestStats.boosted)} concours mis en avant.</p>
+            </div>
+          </article>
+          <article className="settings-overview-card">
+            <span className="settings-overview-icon">G</span>
+            <div>
+              <small>Gains</small>
+              <strong>{formatMoney(contestStats.totalPrizeValue)}</strong>
+              <p>{formatNumber(contestStats.endingSoon)} finissent dans les prochaines 24h.</p>
+            </div>
+          </article>
+        </section>
 
         <section className="panel contests-page-panel">
           <div className="section-heading">
