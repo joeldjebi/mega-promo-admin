@@ -111,6 +111,37 @@ function normalizeGeneratedQuestions(
     .filter((item): item is GeneratedQuestion => item !== null)
 }
 
+async function logSystemEvent(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  payload: {
+    level?: 'info' | 'warning' | 'error'
+    action: string
+    message: string
+    adminId?: string | null
+    metadata?: Record<string, unknown>
+  },
+) {
+  try {
+    await supabaseAdmin.rpc('log_system_event', {
+      p_level: payload.level ?? 'info',
+      p_source: 'edge_function',
+      p_feature: 'live_quiz_ai',
+      p_action: payload.action,
+      p_message: payload.message,
+      p_user_id: null,
+      p_admin_id: payload.adminId ?? null,
+      p_partner_id: null,
+      p_entity_type: null,
+      p_entity_id: null,
+      p_metadata: payload.metadata ?? {},
+      p_ip_address: null,
+      p_user_agent: 'supabase-edge/generate-live-quiz-questions',
+    })
+  } catch (error) {
+    console.warn('[MegaPromo][openaiQuiz][systemLogFailed]', error)
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -158,6 +189,12 @@ Deno.serve(async (request) => {
   const { data: authData, error: authError } =
     await supabaseAdmin.auth.getUser(token)
   if (authError || !authData.user) {
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'unauthorized',
+      message: 'Appel non autorise generation questions IA.',
+      metadata: { reason: authError?.message ?? 'missing_user' },
+    })
     return jsonResponse({ ok: false, error: 'Unauthorized' }, 401)
   }
 
@@ -168,6 +205,13 @@ Deno.serve(async (request) => {
     .maybeSingle()
   if (profileError) {
     console.error('[MegaPromo][openaiQuiz] profile_error', profileError)
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'profile_fetch_failed',
+      message: 'Echec recuperation profil admin generation IA.',
+      adminId: authData.user.id,
+      metadata: { error: profileError.message },
+    })
     return jsonResponse({ ok: false, error: profileError.message }, 500)
   }
 
@@ -181,6 +225,13 @@ Deno.serve(async (request) => {
       userId: authData.user.id,
       role,
       isActive: profile?.is_active,
+    })
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'forbidden',
+      message: 'Generation questions IA refusee.',
+      adminId: authData.user.id,
+      metadata: { role, is_active: profile?.is_active },
     })
     return jsonResponse({ ok: false, error: 'Forbidden' }, 403)
   }
@@ -273,6 +324,20 @@ Deno.serve(async (request) => {
   const openAiPayload = await openAiResponse.json()
   if (!openAiResponse.ok) {
     console.error('[MegaPromo][openaiQuiz] error', openAiPayload)
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'openai_generation_failed',
+      message: 'Echec generation OpenAI questions QL.',
+      adminId: authData.user.id,
+      metadata: {
+        model,
+        category,
+        topic,
+        difficulty,
+        question_count: questionCount,
+        status: openAiResponse.status,
+      },
+    })
     return jsonResponse(
       {
         ok: false,
@@ -288,6 +353,18 @@ Deno.serve(async (request) => {
   try {
     parsed = JSON.parse(text)
   } catch {
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'openai_invalid_json',
+      message: 'Reponse OpenAI non JSON pour questions QL.',
+      adminId: authData.user.id,
+      metadata: {
+        model,
+        category,
+        topic,
+        raw_length: text.length,
+      },
+    })
     return jsonResponse(
       { ok: false, error: 'Reponse OpenAI non JSON.', raw: text },
       502,
@@ -301,11 +378,33 @@ Deno.serve(async (request) => {
     timeLimit,
   )
   if (questions.length === 0) {
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'no_usable_questions',
+      message: 'Generation IA sans question exploitable.',
+      adminId: authData.user.id,
+      metadata: { model, category, topic, difficulty, question_count: questionCount },
+    })
     return jsonResponse(
       { ok: false, error: 'Aucune question exploitable generee.', raw: parsed },
       502,
     )
   }
+
+  await logSystemEvent(supabaseAdmin, {
+    action: 'generate_questions',
+    message: 'Questions QL generees par IA.',
+    adminId: authData.user.id,
+    metadata: {
+      model,
+      category,
+      topic,
+      difficulty,
+      requested_count: questionCount,
+      generated_count: questions.length,
+      time_limit: timeLimit,
+    },
+  })
 
   return jsonResponse({
     ok: true,

@@ -167,6 +167,40 @@ function firebaseFailureSummary(response: unknown) {
     .join(' · ')
 }
 
+async function logSystemEvent(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  payload: {
+    level?: 'info' | 'warning' | 'error'
+    action: string
+    message: string
+    userId?: string | null
+    adminId?: string | null
+    entityType?: string | null
+    entityId?: string | null
+    metadata?: Record<string, unknown>
+  },
+) {
+  try {
+    await supabaseAdmin.rpc('log_system_event', {
+      p_level: payload.level ?? 'info',
+      p_source: 'edge_function',
+      p_feature: 'push',
+      p_action: payload.action,
+      p_message: payload.message,
+      p_user_id: payload.userId ?? null,
+      p_admin_id: payload.adminId ?? null,
+      p_partner_id: null,
+      p_entity_type: payload.entityType ?? null,
+      p_entity_id: payload.entityId ?? null,
+      p_metadata: payload.metadata ?? {},
+      p_ip_address: null,
+      p_user_agent: 'supabase-edge/send-push-notifications',
+    })
+  } catch (error) {
+    console.warn('[MegaPromo][push][systemLogFailed]', error)
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -194,6 +228,12 @@ Deno.serve(async (request) => {
     await supabaseAdmin.auth.getUser(token)
 
   if (authError || !authData.user) {
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'unauthorized',
+      message: 'Appel non autorise de la fonction push.',
+      metadata: { reason: authError?.message ?? 'missing_user' },
+    })
     return jsonResponse({ ok: false, error: 'Unauthorized' }, 401)
   }
 
@@ -240,6 +280,13 @@ Deno.serve(async (request) => {
 
   const { data: users, error: usersError } = await targetQuery.limit(5000)
   if (usersError) {
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'resolve_targets_failed',
+      message: 'Echec resolution destinataires push.',
+      adminId: authData.user.id,
+      metadata: { error: usersError.message, type: payload.type ?? 'info' },
+    })
     return jsonResponse({ ok: false, error: usersError.message }, 500)
   }
 
@@ -270,6 +317,18 @@ Deno.serve(async (request) => {
           : 'Aucun fcm_token trouvé pour la cible.',
     }
     console.log('[MegaPromo][push] response', response)
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'no_tokens',
+      message: 'Push prepare sans token FCM disponible.',
+      adminId: authData.user.id,
+      metadata: {
+        type: payload.type ?? 'info',
+        target_users: users?.length ?? 0,
+        platforms: targetPlatforms,
+        audience: payload.audience ?? 'users',
+      },
+    })
     return jsonResponse(response)
   }
 
@@ -370,6 +429,21 @@ Deno.serve(async (request) => {
       results,
     }
     console.log('[MegaPromo][push] response', response)
+    await logSystemEvent(supabaseAdmin, {
+      level: failed === 0 ? 'info' : 'warning',
+      action: 'send_batch',
+      message: 'Traitement push mobile termine.',
+      adminId: authData.user.id,
+      metadata: {
+        type: payload.type ?? 'info',
+        sent,
+        failed,
+        target_users: users?.length ?? 0,
+        tokens: tokens.length,
+        platforms: targetPlatforms,
+        failed_samples: response.failedSamples?.map((sample) => sample.summary),
+      },
+    })
     return jsonResponse(response)
   } catch (error) {
     const response = {
@@ -379,6 +453,17 @@ Deno.serve(async (request) => {
       error: error instanceof Error ? error.message : 'Push impossible.',
     }
     console.error('[MegaPromo][push] response', response)
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'send_batch_failed',
+      message: 'Echec traitement push mobile.',
+      adminId: authData.user.id,
+      metadata: {
+        type: payload.type ?? 'info',
+        failed: tokens.length,
+        error: response.error,
+      },
+    })
     return jsonResponse(response, 500)
   }
 })

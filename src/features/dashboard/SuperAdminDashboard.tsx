@@ -4,6 +4,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type DashboardNavItem = {
   label: string
@@ -794,6 +795,14 @@ export function SuperAdminDashboard({
     setIsReviewSafeSaving(false)
 
     if (error) {
+      void logError({
+        feature: 'review_safe',
+        action: 'toggle_failed',
+        message: 'Echec de mise a jour du mode review safe.',
+        entityType: 'app_feature_flag',
+        entityId: 'app_review_safe',
+        metadata: { next_is_enabled: nextIsEnabled, error: error.message },
+      })
       setDashboardError(error.message)
       return
     }
@@ -807,6 +816,16 @@ export function SuperAdminDashboard({
         ? 'Mode review safe activé en temps réel sur l’application.'
         : 'Mode review safe désactivé en temps réel sur l’application.',
     )
+    void logAdminAction({
+      feature: 'review_safe',
+      action: nextIsEnabled ? 'enabled' : 'disabled',
+      message: nextIsEnabled
+        ? 'Mode review safe active par le SA.'
+        : 'Mode review safe desactive par le SA.',
+      entityType: 'app_feature_flag',
+      entityId: 'app_review_safe',
+      metadata: { is_enabled: nextIsEnabled },
+    })
   }
 
   return (

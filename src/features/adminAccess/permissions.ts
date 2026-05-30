@@ -83,6 +83,11 @@ export const adminPermissionFeatures: AdminPermissionFeature[] = [
     description: 'Actions sensibles et nettoyage des données.',
   },
   {
+    key: 'system_logs',
+    label: 'Logs système',
+    description: 'Observabilité, audit et événements techniques/métier.',
+  },
+  {
     key: 'admin_access',
     label: 'Admins et permissions',
     description: 'Rôles, permissions et comptes administrateurs.',

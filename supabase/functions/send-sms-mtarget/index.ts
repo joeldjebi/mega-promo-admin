@@ -145,6 +145,37 @@ async function sendMtargetSms(msisdn: string, message: string, sender: string) {
   }
 }
 
+async function logSystemEvent(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  payload: {
+    level?: 'info' | 'warning' | 'error'
+    action: string
+    message: string
+    adminId?: string | null
+    metadata?: Record<string, unknown>
+  },
+) {
+  try {
+    await supabaseAdmin.rpc('log_system_event', {
+      p_level: payload.level ?? 'info',
+      p_source: 'edge_function',
+      p_feature: 'sms',
+      p_action: payload.action,
+      p_message: payload.message,
+      p_user_id: null,
+      p_admin_id: payload.adminId ?? null,
+      p_partner_id: null,
+      p_entity_type: null,
+      p_entity_id: null,
+      p_metadata: payload.metadata ?? {},
+      p_ip_address: null,
+      p_user_agent: 'supabase-edge/send-sms-mtarget',
+    })
+  } catch (error) {
+    console.warn('[MegaPromo][sms-mtarget][systemLogFailed]', error)
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -174,6 +205,12 @@ Deno.serve(async (request) => {
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unauthorized'
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'unauthorized',
+      message: 'Appel non autorise de la fonction SMS.',
+      metadata: { reason: message },
+    })
     return jsonResponse({ ok: false, error: message }, message === 'Forbidden' ? 403 : 401)
   }
 
@@ -233,6 +270,19 @@ Deno.serve(async (request) => {
       results,
     }
     console.log('[MegaPromo][sms-mtarget] response', response)
+    await logSystemEvent(supabaseAdmin, {
+      level: failed === 0 ? 'info' : 'warning',
+      action: 'send_batch',
+      message: 'Traitement SMS termine.',
+      metadata: {
+        audience: payload.audience,
+        recipients: recipients.length,
+        sent,
+        failed,
+        sender,
+        message_length: message.length,
+      },
+    })
     return jsonResponse(response, failed === 0 ? 200 : 207)
   } catch (error) {
     const response = {
@@ -242,6 +292,12 @@ Deno.serve(async (request) => {
       error: error instanceof Error ? error.message : 'SMS impossible.',
     }
     console.error('[MegaPromo][sms-mtarget] response', response)
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'send_batch_failed',
+      message: 'Echec traitement SMS.',
+      metadata: { error: response.error },
+    })
     return jsonResponse(response, 500)
   }
 })

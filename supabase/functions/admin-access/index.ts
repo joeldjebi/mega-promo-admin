@@ -283,6 +283,40 @@ async function upsertRoleDirect(
   return { ok: true, roleId }
 }
 
+async function logSystemEvent(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  payload: {
+    level?: 'info' | 'warning' | 'error'
+    action: string
+    message: string
+    adminId?: string | null
+    userId?: string | null
+    entityType?: string | null
+    entityId?: string | null
+    metadata?: Record<string, unknown>
+  },
+) {
+  try {
+    await supabaseAdmin.rpc('log_system_event', {
+      p_level: payload.level ?? 'info',
+      p_source: 'edge_function',
+      p_feature: 'admin_access',
+      p_action: payload.action,
+      p_message: payload.message,
+      p_user_id: payload.userId ?? null,
+      p_admin_id: payload.adminId ?? null,
+      p_partner_id: null,
+      p_entity_type: payload.entityType ?? null,
+      p_entity_id: payload.entityId ?? null,
+      p_metadata: payload.metadata ?? {},
+      p_ip_address: null,
+      p_user_agent: 'supabase-edge/admin-access',
+    })
+  } catch (error) {
+    console.warn('[MegaPromo][admin-access][systemLogFailed]', error)
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -326,6 +360,15 @@ Deno.serve(async (request) => {
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unauthorized'
+    await logSystemEvent(supabaseAdmin, {
+      level: 'warning',
+      action: 'unauthorized',
+      message: 'Appel non autorise de la fonction admin-access.',
+      metadata: {
+        reason: message,
+        requested_action: payload?.action ?? null,
+      },
+    })
     return badRequest(message, message === 'Forbidden' ? 403 : 401)
   }
 
@@ -335,6 +378,13 @@ Deno.serve(async (request) => {
     }
 
     if (!caller.canWrite) {
+      await logSystemEvent(supabaseAdmin, {
+        level: 'warning',
+        action: 'permission_denied',
+        message: 'Permission admin-access refusee.',
+        adminId: caller.userId,
+        metadata: { requested_action: payload.action },
+      })
       return badRequest('Permission admin_access.write requise.', 403)
     }
 
@@ -369,17 +419,44 @@ Deno.serve(async (request) => {
           message.includes('Could not find the function')
         if (!rpcMissing) throw roleError
 
-        return jsonResponse(
-          await upsertRoleDirect(
-            supabaseAdmin,
-            caller.userId,
-            payload.role ?? {},
-            name,
-            permissions,
-          ),
+        const fallbackResult = await upsertRoleDirect(
+          supabaseAdmin,
+          caller.userId,
+          payload.role ?? {},
+          name,
+          permissions,
         )
+        await logSystemEvent(supabaseAdmin, {
+          action: 'upsert_role',
+          message: 'Role admin cree ou modifie via fallback direct.',
+          adminId: caller.userId,
+          entityType: 'admin_role',
+          entityId: fallbackResult.roleId,
+          metadata: {
+            name,
+            permissions_count: permissions.length,
+            is_active: payload.role?.isActive !== false,
+          },
+        })
+        return jsonResponse(fallbackResult)
       }
 
+      await logSystemEvent(supabaseAdmin, {
+        action: 'upsert_role',
+        message: 'Role admin cree ou modifie.',
+        adminId: caller.userId,
+        entityType: 'admin_role',
+        entityId: String(
+          (result as { roleId?: string; id?: string } | null)?.roleId ??
+            payload.role?.id ??
+            '',
+        ),
+        metadata: {
+          name,
+          permissions_count: permissions.length,
+          is_active: payload.role?.isActive !== false,
+        },
+      })
       return jsonResponse(result ?? { ok: true })
     }
 
@@ -442,6 +519,18 @@ Deno.serve(async (request) => {
         )
       if (userError) throw userError
 
+      await logSystemEvent(supabaseAdmin, {
+        action: 'create_admin',
+        message: 'Compte admin cree ou rattache.',
+        adminId: caller.userId,
+        userId,
+        entityType: 'admin_user',
+        entityId: userId,
+        metadata: {
+          role_id: roleId,
+          is_active: payload.admin?.isActive !== false,
+        },
+      })
       return jsonResponse({ ok: true, userId })
     }
 
@@ -463,11 +552,33 @@ Deno.serve(async (request) => {
         .eq('id', userId)
       if (error) throw error
 
+      await logSystemEvent(supabaseAdmin, {
+        action: 'update_admin',
+        message: 'Compte admin mis a jour.',
+        adminId: caller.userId,
+        userId,
+        entityType: 'admin_user',
+        entityId: userId,
+        metadata: {
+          role_id: roleId,
+          is_active: payload.admin?.isActive !== false,
+        },
+      })
       return jsonResponse({ ok: true })
     }
 
     return badRequest('Action inconnue.')
   } catch (error) {
+    await logSystemEvent(supabaseAdmin, {
+      level: 'error',
+      action: 'action_failed',
+      message: 'Echec action admin-access.',
+      adminId: caller.userId,
+      metadata: {
+        requested_action: payload.action,
+        error: errorMessage(error, 'Action admin impossible.'),
+      },
+    })
     return badRequest(errorMessage(error, 'Action admin impossible.'), 500)
   }
 })

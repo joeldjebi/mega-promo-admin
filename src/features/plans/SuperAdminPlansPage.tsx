@@ -5,6 +5,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type PlansNavItem = { label: string; href: string; icon: string; permission: string }
 type SuperAdminPlansPageProps = { authRoute: string; rootRoute: string; navItems: PlansNavItem[] }
@@ -697,6 +698,14 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
     setIsPlansAccessSaving(false)
 
     if (error) {
+      void logError({
+        feature: 'profile_sections',
+        action: 'toggle_player_subscriptions_failed',
+        message: 'Echec changement acces forfaits profil joueur.',
+        entityType: 'app_feature_flag',
+        entityId: 'player_subscriptions',
+        metadata: { next_is_enabled: nextIsEnabled, error: error.message },
+      })
       setPlansError(error.message)
       return
     }
@@ -704,6 +713,16 @@ export function SuperAdminPlansPage({ authRoute, rootRoute, navItems }: SuperAdm
     setPlansAccessFlag({
       isEnabled: nextIsEnabled,
       updatedAt: new Date().toISOString(),
+    })
+    void logAdminAction({
+      feature: 'profile_sections',
+      action: nextIsEnabled
+        ? 'player_subscriptions_enabled'
+        : 'player_subscriptions_disabled',
+      message: 'Acces forfaits profil joueur modifie par le SA.',
+      entityType: 'app_feature_flag',
+      entityId: 'player_subscriptions',
+      metadata: { is_enabled: nextIsEnabled },
     })
   }
 

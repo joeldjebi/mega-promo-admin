@@ -4,6 +4,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type UsersNavItem = {
   label: string
@@ -385,6 +386,14 @@ export function SuperAdminUsersPage({
     setIsCoordinatesFlagSaving(false)
 
     if (error) {
+      void logError({
+        feature: 'profile_sections',
+        action: 'toggle_coordinates_failed',
+        message: 'Echec changement visibilite Coordonnees profil joueur.',
+        entityType: 'app_feature_flag',
+        entityId: 'player_profile_coordinates',
+        metadata: { next_is_enabled: nextIsEnabled, error: error.message },
+      })
       setUsersError(error.message)
       return
     }
@@ -398,6 +407,14 @@ export function SuperAdminUsersPage({
         ? 'Le bouton Coordonnées est visible dans le profil joueur.'
         : 'Le bouton Coordonnées est masqué dans le profil joueur.',
     )
+    void logAdminAction({
+      feature: 'profile_sections',
+      action: nextIsEnabled ? 'coordinates_enabled' : 'coordinates_disabled',
+      message: 'Visibilite Coordonnees profil joueur modifiee par le SA.',
+      entityType: 'app_feature_flag',
+      entityId: 'player_profile_coordinates',
+      metadata: { is_enabled: nextIsEnabled },
+    })
   }
 
   async function handleLogout() {

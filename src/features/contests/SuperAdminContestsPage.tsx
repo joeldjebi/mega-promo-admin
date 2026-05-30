@@ -5,6 +5,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type ContestsNavItem = { label: string; href: string; icon: string; permission: string }
 type SuperAdminContestsPageProps = { authRoute: string; rootRoute: string; contestsRoute: string; navItems: ContestsNavItem[] }
@@ -884,8 +885,37 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       }
 
       await loadContests()
+      void logAdminAction({
+        feature: 'contests',
+        action: editingContestId ? 'update' : 'create',
+        message: editingContestId
+          ? 'Concours modifie par le SA.'
+          : 'Concours cree par le SA.',
+        entityType: 'contest',
+        entityId: savedContestId,
+        metadata: {
+          title,
+          status: payload.status,
+          type: payload.type,
+          is_live: payload.is_live,
+          reward_catalog_id: payload.reward_catalog_id,
+          winners_count: payload.winners_count,
+        },
+      })
       closeContestModal()
     } catch (error) {
+      void logError({
+        feature: 'contests',
+        action: editingContestId ? 'update_failed' : 'create_failed',
+        message: 'Echec enregistrement concours par le SA.',
+        entityType: 'contest',
+        entityId: editingContestId ?? null,
+        metadata: {
+          title: contestForm.title,
+          is_live: contestForm.isLive,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
       setContestError(
         error instanceof Error
           ? error.message
@@ -905,9 +935,26 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       .eq('id', contest.id)
 
     if (error) {
+      void logError({
+        feature: 'contests',
+        action: 'status_update_failed',
+        message: 'Echec changement statut concours.',
+        entityType: 'contest',
+        entityId: contest.id,
+        metadata: { title: contest.title, next_status: nextStatus, error: error.message },
+      })
       setContestsError(error.message)
       return
     }
+
+    void logAdminAction({
+      feature: 'contests',
+      action: 'status_update',
+      message: 'Statut concours modifie par le SA.',
+      entityType: 'contest',
+      entityId: contest.id,
+      metadata: { title: contest.title, previous_status: contest.status, next_status: nextStatus },
+    })
 
     if (nextStatus === 'active' && contest.partnerId) {
       try {
@@ -968,9 +1015,26 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     const { error } = await supabase.from('contests').delete().eq('id', contest.id)
 
     if (error) {
+      void logError({
+        feature: 'contests',
+        action: 'delete_failed',
+        message: 'Echec suppression concours.',
+        entityType: 'contest',
+        entityId: contest.id,
+        metadata: { title: contest.title, error: error.message },
+      })
       setContestsError(error.message)
       return
     }
+
+    void logAdminAction({
+      feature: 'contests',
+      action: 'delete',
+      message: 'Concours supprime par le SA.',
+      entityType: 'contest',
+      entityId: contest.id,
+      metadata: { title: contest.title, is_live: contest.isLive },
+    })
 
     await loadContests()
   }
@@ -1000,11 +1064,23 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       .neq('id', '00000000-0000-0000-0000-000000000000')
 
     if (error) {
+      void logError({
+        feature: 'contests',
+        action: 'delete_all_failed',
+        message: 'Echec suppression globale concours/QL.',
+        metadata: { total_contests: totalContests, error: error.message },
+      })
       setContestsError(error.message)
       setIsDeletingAllContests(false)
       return
     }
 
+    void logAdminAction({
+      feature: 'contests',
+      action: 'delete_all',
+      message: 'Suppression globale des concours/QL executee par le SA.',
+      metadata: { total_contests: totalContests },
+    })
     setContestsNotice(`${totalContests} concours/QL supprimé(s).`)
     setIsDeleteAllModalOpen(false)
     setDeleteAllConfirmation('')
@@ -1036,6 +1112,18 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       const winnerLimit = Math.max(1, contest.winnersCount || 1)
 
       await loadContests()
+      void logAdminAction({
+        feature: 'winners',
+        action: 'generate_from_contest',
+        message: 'Generation automatique de gagnants lancee par le SA.',
+        entityType: 'contest',
+        entityId: contest.id,
+        metadata: {
+          contest_title: contest.title,
+          generated_count: generatedCount,
+          winner_limit: winnerLimit,
+        },
+      })
       if (generatedCount > 0) {
         setContestsNotice(
           `${generatedCount} gagnant(s) candidat(s) généré(s). Valide-les dans l’onglet Gagnants.`,
@@ -1046,6 +1134,17 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
         )
       }
     } catch (error) {
+      void logError({
+        feature: 'winners',
+        action: 'generate_from_contest_failed',
+        message: 'Echec generation automatique de gagnants.',
+        entityType: 'contest',
+        entityId: contest.id,
+        metadata: {
+          contest_title: contest.title,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
       setContestsError(
         error instanceof Error
           ? error.message

@@ -5,6 +5,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type NotificationTarget = 'all' | 'active' | 'premium' | 'single' | 'selected'
 type NotificationFormState = {
@@ -605,6 +606,23 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
       setSuccess(
         `${targetIds.length} notification(s) créée(s).${pushSummary}${smsSummary}`,
       )
+      void logAdminAction({
+        feature: 'notifications',
+        action: 'send_batch',
+        message: 'Notification envoyee depuis le SA.',
+        entityType: 'notification_batch',
+        entityId: batchId,
+        metadata: {
+          target: form.target,
+          type: form.type,
+          target_count: targetIds.length,
+          send_push: form.sendPush,
+          send_sms: form.sendSms,
+          push_summary: pushSummary.trim(),
+          sms_summary: smsSummary.trim(),
+          has_contest_id: Boolean(form.contestId.trim()),
+        },
+      })
       setNotificationHistory(await fetchNotificationHistory())
       setForm({
         target: 'all',
@@ -619,6 +637,18 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
         smsMessage: '',
       })
     } catch (error) {
+      void logError({
+        feature: 'notifications',
+        action: 'send_batch_failed',
+        message: 'Echec envoi notification depuis le SA.',
+        metadata: {
+          target: form.target,
+          type: form.type,
+          send_push: form.sendPush,
+          send_sms: form.sendSms,
+          error: formatUnknownError(error, 'Envoi impossible.'),
+        },
+      })
       setError(error instanceof Error ? error.message : 'Envoi impossible.')
     } finally {
       setIsSending(false)

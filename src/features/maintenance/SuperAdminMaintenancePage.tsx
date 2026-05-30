@@ -4,6 +4,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type SupabaseLikeError = {
   message?: unknown
@@ -145,9 +146,36 @@ export function SuperAdminMaintenancePage({ authRoute, rootRoute, settingsRoute,
           result?.deleted ?? 0
         }.`,
       )
+      void logAdminAction({
+        feature: 'maintenance',
+        action: 'clear_scope',
+        message: 'Action de maintenance executee par le SA.',
+        entityType: 'maintenance_scope',
+        entityId: action.scope,
+        metadata: {
+          scope: action.scope,
+          deleted: result?.deleted ?? 0,
+          label: action.title,
+        },
+      })
       setConfirmation('')
       setPendingAction(null)
     } catch (error) {
+      void logError({
+        feature: 'maintenance',
+        action: 'clear_scope_failed',
+        message: 'Echec execution action de maintenance.',
+        entityType: 'maintenance_scope',
+        entityId: action.scope,
+        metadata: {
+          scope: action.scope,
+          label: action.title,
+          error: formatUnknownError(
+            error,
+            'Impossible d’exécuter cette action de maintenance.',
+          ),
+        },
+      })
       setMaintenanceError(
         formatUnknownError(
           error,

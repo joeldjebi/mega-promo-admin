@@ -34,12 +34,15 @@ import { SuperAdminLandingPage } from './features/landingAdmin/SuperAdminLanding
 import { SuperAdminMaintenancePage } from './features/maintenance/SuperAdminMaintenancePage'
 import { SuperAdminNotificationsPage } from './features/notifications/SuperAdminNotificationsPage'
 import { SuperAdminSettingsPage } from './features/settings/SuperAdminSettingsPage'
+import { SuperAdminSentryIssuesPage } from './features/sentry/SuperAdminSentryIssuesPage'
+import { SuperAdminSystemLogsPage } from './features/systemLogs/SuperAdminSystemLogsPage'
 import { SuperAdminWinnersPage } from './features/winners/SuperAdminWinnersPage'
 import { SuperAdminUsersPage } from './features/users/SuperAdminUsersPage'
 import { LandingPage as PublicLandingPage } from './features/landing/LandingPage'
 import { LegalPage as PublicLegalPage } from './features/landing/LegalPage'
 import { PartnerContestsPanel } from './features/partnerAdmin/contests/PartnerContestsPanel'
 import { supabase } from './lib/supabase'
+import { logAdminAction, logError, logPartnerAction } from './lib/systemLogger'
 import { registerWebPushToken } from './lib/webPush'
 
 type AuthRole = 'super-admin' | 'partner'
@@ -452,6 +455,8 @@ const SUPER_ADMIN_ACCESS_ROUTE = `${SUPER_ADMIN_ROUTE}/admin-access`
 const SUPER_ADMIN_LANDING_ROUTE = `${SUPER_ADMIN_ROUTE}/landing`
 const SUPER_ADMIN_SETTINGS_ROUTE = `${SUPER_ADMIN_ROUTE}/settings`
 const SUPER_ADMIN_MAINTENANCE_ROUTE = `${SUPER_ADMIN_ROUTE}/maintenance`
+const SUPER_ADMIN_SYSTEM_LOGS_ROUTE = `${SUPER_ADMIN_ROUTE}/system-logs`
+const SUPER_ADMIN_SENTRY_ROUTE = `${SUPER_ADMIN_SYSTEM_LOGS_ROUTE}/sentry`
 
 function useRealtimeRefresh(
   channelName: string,
@@ -561,6 +566,7 @@ const navItems = [
   { label: 'Landing', href: SUPER_ADMIN_LANDING_ROUTE, icon: 'L', permission: 'landing' },
   { label: 'Paramètres', href: SUPER_ADMIN_SETTINGS_ROUTE, icon: 'S', permission: 'settings' },
   { label: 'Maintenance', href: SUPER_ADMIN_MAINTENANCE_ROUTE, icon: 'M', permission: 'maintenance' },
+  { label: 'Logs système', href: SUPER_ADMIN_SYSTEM_LOGS_ROUTE, icon: 'O', permission: 'system_logs' },
 ]
 
 function getVisibleNavItems(profile: { permissions?: string[] } | null) {
@@ -1950,6 +1956,14 @@ function App() {
           path={SUPER_ADMIN_MAINTENANCE_ROUTE}
           element={<ProtectedSuperAdminRoute page="maintenance" />}
         />
+        <Route
+          path={SUPER_ADMIN_SYSTEM_LOGS_ROUTE}
+          element={<ProtectedSuperAdminRoute page="system-logs" />}
+        />
+        <Route
+          path={SUPER_ADMIN_SENTRY_ROUTE}
+          element={<ProtectedSuperAdminRoute page="sentry" />}
+        />
         <Route path="/partner" element={<PartnerPreview />} />
         <Route path="*" element={<Navigate to={PARTNER_AUTH_ROUTE} replace />} />
       </Routes>
@@ -2159,6 +2173,8 @@ function ProtectedSuperAdminRoute({
     | 'landing'
     | 'settings'
     | 'maintenance'
+    | 'system-logs'
+    | 'sentry'
 }) {
   const adminAuth = useAdminAuth()
 
@@ -2193,6 +2209,10 @@ function ProtectedSuperAdminRoute({
           ? 'reward_catalog'
           : page === 'admin-access'
             ? 'admin_access'
+            : page === 'system-logs'
+              ? 'system_logs'
+            : page === 'sentry'
+              ? 'system_logs'
             : page
 
   if (
@@ -2362,6 +2382,25 @@ function ProtectedSuperAdminRoute({
         navItems={navItems}
         rootRoute={SUPER_ADMIN_ROUTE}
         settingsRoute={SUPER_ADMIN_SETTINGS_ROUTE}
+      />
+    )
+  }
+  if (page === 'system-logs') {
+    return (
+      <SuperAdminSystemLogsPage
+        authRoute={SUPER_ADMIN_AUTH_ROUTE}
+        navItems={navItems}
+        rootRoute={SUPER_ADMIN_ROUTE}
+        sentryRoute={SUPER_ADMIN_SENTRY_ROUTE}
+      />
+    )
+  }
+  if (page === 'sentry') {
+    return (
+      <SuperAdminSentryIssuesPage
+        authRoute={SUPER_ADMIN_AUTH_ROUTE}
+        navItems={navItems}
+        systemLogsRoute={SUPER_ADMIN_SYSTEM_LOGS_ROUTE}
       />
     )
   }
@@ -2573,10 +2612,39 @@ function SuperAdminUserDetailPage() {
       }
 
       await loadUserDetail()
+      void logAdminAction({
+        feature: 'users',
+        action: 'kyc_status_update',
+        message: 'Statut KYC joueur mis a jour par le SA.',
+        userId: request.userId,
+        entityType: 'kyc_request',
+        entityId: request.id,
+        metadata: {
+          previous_status: request.status,
+          next_status: nextStatus,
+          push_warning: pushWarning,
+        },
+      })
       setNotice(
         `Statut KYC mis à jour : ${playerKycStatusLabel(nextStatus)}.${pushWarning}`,
       )
     } catch (updateError) {
+      void logError({
+        feature: 'users',
+        action: 'kyc_status_update_failed',
+        message: 'Echec mise a jour statut KYC joueur.',
+        userId: request.userId,
+        entityType: 'kyc_request',
+        entityId: request.id,
+        metadata: {
+          previous_status: request.status,
+          next_status: nextStatus,
+          error: formatUnknownError(
+            updateError,
+            'Impossible de mettre à jour le statut KYC.',
+          ),
+        },
+      })
       setError(
         formatUnknownError(updateError, 'Impossible de mettre à jour le statut KYC.'),
       )
@@ -2631,12 +2699,42 @@ function SuperAdminUserDetailPage() {
         paymentReference: '',
       })
       await loadUserDetail()
+      void logAdminAction({
+        feature: 'subscriptions',
+        action: 'assign_player_subscription',
+        message: 'Forfait joueur active par le SA.',
+        userId: user.id,
+        entityType: 'player_plan',
+        entityId: selectedPlan.id,
+        metadata: {
+          plan_name: selectedPlan.name,
+          amount: selectedPlan.price,
+          duration_days: selectedPlan.durationDays,
+          payment_method: paymentMethod || 'Validation SA',
+          has_payment_reference: Boolean(paymentReference),
+        },
+      })
       setNotice(
         `Forfait ${selectedPlan.name} activé jusqu’au ${formatDate(
           expiresAt.toISOString(),
         )}.`,
       )
     } catch (subscriptionError) {
+      void logError({
+        feature: 'subscriptions',
+        action: 'assign_player_subscription_failed',
+        message: 'Echec activation forfait joueur par le SA.',
+        userId: user.id,
+        entityType: 'player_plan',
+        entityId: selectedPlan.id,
+        metadata: {
+          plan_name: selectedPlan.name,
+          error: formatUnknownError(
+            subscriptionError,
+            'Impossible de mettre à jour le forfait du joueur.',
+          ),
+        },
+      })
       setError(
         formatUnknownError(
           subscriptionError,
@@ -5420,7 +5518,35 @@ function PartnerPreview() {
       )
       await refreshPartnerDashboard()
       setActivePartnerView('subscriptions')
+      void logPartnerAction({
+        feature: 'partner_subscriptions',
+        action: 'request_subscription',
+        message: 'Demande abonnement partenaire envoyee.',
+        partnerId: partner.id,
+        entityType: 'partner_plan',
+        entityId: plan.id,
+        metadata: {
+          plan_name: plan.name,
+          amount: plan.price,
+          payment_method: 'Demande depuis espace partenaire',
+        },
+      })
     } catch (subscriptionError) {
+      void logError({
+        source: 'web_partner',
+        feature: 'partner_subscriptions',
+        action: 'request_subscription_failed',
+        message: 'Echec demande abonnement partenaire.',
+        partnerId: partner.id,
+        entityType: 'partner_plan',
+        entityId: plan.id,
+        metadata: {
+          plan_name: plan.name,
+          error: subscriptionError instanceof Error
+            ? subscriptionError.message
+            : String(subscriptionError),
+        },
+      })
       setSubscriptionRequestError(
         subscriptionError instanceof Error
           ? subscriptionError.message

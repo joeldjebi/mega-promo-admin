@@ -5,6 +5,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type WinnersNavItem = { label: string; href: string; icon: string; permission: string }
 type SuperAdminWinnersPageProps = { authRoute: string; rootRoute: string; contestsRoute: string; navItems: WinnersNavItem[]; historyMode?: boolean }
@@ -390,6 +391,14 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     setIsRewardsFlagSaving(false)
 
     if (error) {
+      void logError({
+        feature: 'profile_sections',
+        action: 'toggle_rewards_failed',
+        message: 'Echec changement visibilite Recompenses profil joueur.',
+        entityType: 'app_feature_flag',
+        entityId: 'player_profile_rewards',
+        metadata: { next_is_enabled: nextIsEnabled, error: error.message },
+      })
       setWinnersError(error.message)
       return
     }
@@ -403,6 +412,14 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
         ? 'Le bouton Récompenses est visible dans le profil joueur.'
         : 'Le bouton Récompenses est masqué dans le profil joueur.',
     )
+    void logAdminAction({
+      feature: 'profile_sections',
+      action: nextIsEnabled ? 'rewards_enabled' : 'rewards_disabled',
+      message: 'Visibilite Recompenses profil joueur modifiee par le SA.',
+      entityType: 'app_feature_flag',
+      entityId: 'player_profile_rewards',
+      metadata: { is_enabled: nextIsEnabled },
+    })
   }
 
   async function handleLogout() {
@@ -544,8 +561,38 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
       }
 
       await loadWinners()
+      void logAdminAction({
+        feature: 'winners',
+        action: editingWinnerId ? 'update' : 'create',
+        message: editingWinnerId
+          ? 'Gain gagnant modifie par le SA.'
+          : 'Gain gagnant cree par le SA.',
+        userId: winnerForm.userId,
+        entityType: 'winner',
+        entityId: editingWinnerId ?? null,
+        metadata: {
+          contest_id: winnerForm.contestId,
+          status: winnerForm.status,
+          prize_value: prizeValue,
+          has_payment_number: Boolean(winnerForm.paymentNumber.trim()),
+          payment_method: winnerForm.paymentMethod.trim() || null,
+        },
+      })
       closeWinnerModal()
     } catch (error) {
+      void logError({
+        feature: 'winners',
+        action: editingWinnerId ? 'update_failed' : 'create_failed',
+        message: 'Echec enregistrement gain gagnant.',
+        userId: winnerForm.userId || null,
+        entityType: 'winner',
+        entityId: editingWinnerId ?? null,
+        metadata: {
+          contest_id: winnerForm.contestId,
+          status: winnerForm.status,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
       setWinnerError(
         error instanceof Error
           ? error.message
@@ -596,9 +643,37 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
       .eq('id', winner.id)
 
     if (error) {
+      void logError({
+        feature: 'winners',
+        action: 'status_update_failed',
+        message: 'Echec changement statut gain gagnant.',
+        userId: winner.userId,
+        entityType: 'winner',
+        entityId: winner.id,
+        metadata: {
+          previous_status: winner.status,
+          next_status: status,
+          error: error.message,
+        },
+      })
       setWinnersError(error.message)
       return
     }
+
+    void logAdminAction({
+      feature: 'winners',
+      action: 'status_update',
+      message: 'Statut gain gagnant modifie par le SA.',
+      userId: winner.userId,
+      entityType: 'winner',
+      entityId: winner.id,
+      metadata: {
+        previous_status: winner.status,
+        next_status: status,
+        has_payment_number: Boolean(paymentNumber),
+        payment_method: paymentMethod || null,
+      },
+    })
 
     if (
       status === 'sent' &&
@@ -693,7 +768,27 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
           ? 'Demande envoyée au joueur.'
           : 'Demande créée, mais le push mobile n’a pas été confirmé.',
       )
+      void logAdminAction({
+        feature: 'winners',
+        action: 'payment_method_request',
+        message: 'Demande numero Mobile Money envoyee au joueur.',
+        userId,
+        metadata: { user_label: userLabel, sent, failed },
+      })
     } catch (error) {
+      void logError({
+        feature: 'winners',
+        action: 'payment_method_request_failed',
+        message: 'Echec demande numero Mobile Money au joueur.',
+        userId,
+        metadata: {
+          user_label: userLabel,
+          error: formatUnknownError(
+            error,
+            'Impossible d’envoyer la demande de numéro Mobile Money.',
+          ),
+        },
+      })
       setWinnersError(
         formatUnknownError(
           error,
@@ -712,10 +807,33 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     const { error } = await supabase.from('winners').delete().eq('id', winner.id)
 
     if (error) {
+      void logError({
+        feature: 'winners',
+        action: 'delete_failed',
+        message: 'Echec suppression gain gagnant.',
+        userId: winner.userId,
+        entityType: 'winner',
+        entityId: winner.id,
+        metadata: { user_label: winner.userLabel, error: error.message },
+      })
       setWinnersError(error.message)
       return
     }
 
+    void logAdminAction({
+      feature: 'winners',
+      action: 'delete',
+      message: 'Gain gagnant supprime par le SA.',
+      userId: winner.userId,
+      entityType: 'winner',
+      entityId: winner.id,
+      metadata: {
+        user_label: winner.userLabel,
+        contest_title: winner.contestTitle,
+        status: winner.status,
+        prize_value: winner.prizeValue,
+      },
+    })
     await loadWinners()
   }
 

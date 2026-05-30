@@ -4,6 +4,7 @@ import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
+import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type SupabaseLikeError = {
   message?: string
@@ -318,12 +319,45 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
 
       await loadSubscriptionHistory()
       const pushWarning = await sendSubscriptionStatusPush(subscription, nextStatus)
+      void logAdminAction({
+        feature: 'subscriptions',
+        action: 'update_status',
+        message: 'Statut abonnement joueur mis a jour par le SA.',
+        userId: subscription.userId,
+        entityType: 'player_subscription',
+        entityId: subscription.id,
+        metadata: {
+          user_label: subscription.userLabel,
+          plan_name: subscription.planName,
+          previous_status: subscription.status,
+          next_status: nextStatus,
+          push_warning: pushWarning,
+        },
+      })
       setHistoryNotice(
         `Statut de l’abonnement ${subscription.planName} mis à jour : ${subscriptionStatusLabel(
           nextStatus,
         )}.${pushWarning}`,
       )
     } catch (error) {
+      void logError({
+        feature: 'subscriptions',
+        action: 'update_status_failed',
+        message: 'Echec mise a jour statut abonnement joueur.',
+        userId: subscription.userId,
+        entityType: 'player_subscription',
+        entityId: subscription.id,
+        metadata: {
+          user_label: subscription.userLabel,
+          plan_name: subscription.planName,
+          previous_status: subscription.status,
+          next_status: nextStatus,
+          error: formatUnknownError(
+            error,
+            'Impossible de mettre à jour le statut de l’abonnement.',
+          ),
+        },
+      })
       setHistoryError(
         formatUnknownError(
           error,
@@ -359,10 +393,39 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
       if (error) throw error
 
       await loadSubscriptionHistory()
+      void logAdminAction({
+        feature: 'subscriptions',
+        action: 'delete',
+        message: 'Historique abonnement joueur supprime par le SA.',
+        userId: subscription.userId,
+        entityType: 'player_subscription',
+        entityId: subscription.id,
+        metadata: {
+          user_label: subscription.userLabel,
+          plan_name: subscription.planName,
+          status: subscription.status,
+        },
+      })
       setHistoryNotice(
         `Abonnement ${subscription.planName} supprimé pour ${subscription.userLabel}.`,
       )
     } catch (error) {
+      void logError({
+        feature: 'subscriptions',
+        action: 'delete_failed',
+        message: 'Echec suppression historique abonnement joueur.',
+        userId: subscription.userId,
+        entityType: 'player_subscription',
+        entityId: subscription.id,
+        metadata: {
+          user_label: subscription.userLabel,
+          plan_name: subscription.planName,
+          error: formatUnknownError(
+            error,
+            "Impossible de supprimer l'abonnement.",
+          ),
+        },
+      })
       setHistoryError(
         formatUnknownError(
           error,

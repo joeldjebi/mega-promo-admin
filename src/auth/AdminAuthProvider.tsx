@@ -9,7 +9,9 @@ import {
   supabase,
 } from '../lib/supabase'
 import { registerAdminWebPushToken } from '../lib/webPush'
+import { captureSentryException, setSentryUser } from '../lib/sentry'
 import {
+  AdminAuthError,
   resolveSuperAdminSession,
   signInSuperAdmin,
   signOutSuperAdmin,
@@ -56,6 +58,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       setUser(resolved?.user ?? null)
       setProfile(resolved?.profile ?? null)
       setSupabaseAdminPermissions(resolved?.profile?.permissions ?? null)
+      setSentryUser(resolved?.user?.id ?? null, resolved?.profile?.role ?? null)
       setStatus(resolved ? 'authenticated' : 'unauthenticated')
       if (resolved?.user) {
         void registerAdminWebPushToken(resolved.user.id).catch((error) => {
@@ -64,9 +67,16 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.warn('[MegaPromo][SA Auth] session rejected', error)
+      if (!(error instanceof AdminAuthError)) {
+        captureSentryException(error, {
+          feature: 'auth',
+          action: 'admin_session_rejected',
+        })
+      }
       setUser(null)
       setProfile(null)
       setSupabaseAdminPermissions(null)
+      setSentryUser(null)
       setStatus('unauthenticated')
     }
   }, [isPartnerArea])
@@ -86,6 +96,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           setUser(resolved?.user ?? null)
           setProfile(resolved?.profile ?? null)
           setSupabaseAdminPermissions(resolved?.profile?.permissions ?? null)
+          setSentryUser(resolved?.user?.id ?? null, resolved?.profile?.role ?? null)
           setStatus(resolved ? 'authenticated' : 'unauthenticated')
           if (resolved?.user) {
             void registerAdminWebPushToken(resolved.user.id).catch((error) => {
@@ -94,9 +105,16 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           }
         } catch (error) {
           console.warn('[MegaPromo][SA Auth] auth state rejected', error)
+          if (!(error instanceof AdminAuthError)) {
+            captureSentryException(error, {
+              feature: 'auth',
+              action: 'admin_auth_state_rejected',
+            })
+          }
           setUser(null)
           setProfile(null)
           setSupabaseAdminPermissions(null)
+          setSentryUser(null)
           setStatus('unauthenticated')
         }
       })()
@@ -136,6 +154,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         setUser(result.user)
         setProfile(result.profile)
         setSupabaseAdminPermissions(result.profile.permissions)
+        setSentryUser(result.user.id, result.profile.role)
         setStatus('authenticated')
         void registerAdminWebPushToken(result.user.id).catch((error) => {
           console.warn('[MegaPromo][FCM][web] token non enregistré', error)
@@ -146,6 +165,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
         setProfile(null)
         setSupabaseAdminPermissions(null)
+        setSentryUser(null)
         setStatus('unauthenticated')
       },
       refresh: loadSession,
