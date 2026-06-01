@@ -22,7 +22,10 @@ import {
   buildLastSevenDaysTrend,
 } from './features/dashboard/SuperAdminDashboard'
 import { SuperAdminCategoriesPage } from './features/categories/SuperAdminCategoriesPage'
-import { SuperAdminContestsPage } from './features/contests/SuperAdminContestsPage'
+import {
+  SuperAdminContestsPage,
+  SuperAdminLiveSeriesPage,
+} from './features/contests/SuperAdminContestsPage'
 import { SuperAdminCountriesPage } from './features/countries/SuperAdminCountriesPage'
 import { SuperAdminPartnersPage } from './features/partners/SuperAdminPartnersPage'
 import { SuperAdminPlansPage } from './features/plans/SuperAdminPlansPage'
@@ -1897,6 +1900,10 @@ function App() {
           element={<ProtectedSuperAdminRoute page="contests" />}
         />
         <Route
+          path={`${SUPER_ADMIN_CONTESTS_ROUTE}/series/:seriesId`}
+          element={<ProtectedSuperAdminRoute page="contest-series" />}
+        />
+        <Route
           path={`${SUPER_ADMIN_CONTESTS_ROUTE}/:contestId/history`}
           element={<ProtectedSuperAdminRoute page="contest-history" />}
         />
@@ -2158,6 +2165,7 @@ function ProtectedSuperAdminRoute({
     | 'countries'
     | 'sectors'
     | 'contests'
+    | 'contest-series'
     | 'contest-history'
     | 'contest-game'
     | 'partners'
@@ -2197,7 +2205,7 @@ function ProtectedSuperAdminRoute({
   }
 
   const pagePermission =
-    page === 'contest-history' || page === 'contest-game'
+    page === 'contest-history' || page === 'contest-game' || page === 'contest-series'
       ? 'contests'
       : page === 'user-detail'
         ? 'users'
@@ -2255,6 +2263,16 @@ function ProtectedSuperAdminRoute({
   if (page === 'contests') {
     return (
       <SuperAdminContestsPage
+        authRoute={SUPER_ADMIN_AUTH_ROUTE}
+        contestsRoute={SUPER_ADMIN_CONTESTS_ROUTE}
+        navItems={navItems}
+        rootRoute={SUPER_ADMIN_ROUTE}
+      />
+    )
+  }
+  if (page === 'contest-series') {
+    return (
+      <SuperAdminLiveSeriesPage
         authRoute={SUPER_ADMIN_AUTH_ROUTE}
         contestsRoute={SUPER_ADMIN_CONTESTS_ROUTE}
         navItems={navItems}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useParams } from 'react-router-dom'
 import { adminRoleLabel } from '../../auth/admin-auth'
 import { useAdminAuth } from '../../auth/useAdminAuth'
 import { hasAdminPermission } from '../adminAccess/permissions'
@@ -9,9 +9,11 @@ import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type ContestsNavItem = { label: string; href: string; icon: string; permission: string }
 type SuperAdminContestsPageProps = { authRoute: string; rootRoute: string; contestsRoute: string; navItems: ContestsNavItem[] }
+type SuperAdminLiveSeriesPageProps = SuperAdminContestsPageProps
 type ContestType = string
 type ContestStatus = 'draft' | 'pending' | 'active' | 'inactive'
 type PlayerPlanAccessKey = 'free' | 'premium' | 'vip'
+type LiveQuizScheduleMode = 'single' | 'series'
 type ContestItem = {
   id: string
   title: string
@@ -39,11 +41,18 @@ type ContestItem = {
   isLive: boolean
   liveStartsAt: string
   liveStatus: string
+  rewardMetadata: Record<string, unknown>
+  liveSeriesId: string
+  liveSeriesIndex: number | null
+  liveSeriesCount: number | null
+  liveSeriesParentTitle: string
   registeredCount: number
   connectedCount: number
   currentQuestionIndex: number
   participants: number
 }
+type ContestListItem = ContestItem & { seriesItems?: ContestItem[] }
+
 type PartnerOption = {
   id: string
   name: string
@@ -98,6 +107,10 @@ type ContestFormState = {
   isLive: boolean
   liveStartsAt: string
   liveStatus: string
+  liveScheduleMode: LiveQuizScheduleMode
+  liveSeriesCount: string
+  liveSeriesIntervalMinutes: string
+  liveEstimatedDurationSeconds: string
 }
 type ContestsData = {
   contests: ContestItem[]
@@ -190,6 +203,131 @@ function createClientUuid() { if (typeof crypto !== 'undefined' && 'randomUUID' 
 function toDatetimeLocalValue(date: Date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16) }
 function isoToDatetimeLocalValue(value: string) { if (!value) return ''; return toDatetimeLocalValue(new Date(value)) }
 function hasContestEnded(endsAt: string) { const endDate = new Date(endsAt); return !Number.isNaN(endDate.getTime()) && endDate <= new Date() }
+function liveStatusLabel(status: string) {
+  const normalized = status.toLowerCase()
+  if (normalized === 'playing' || normalized === 'active' || normalized === 'open') return 'En direct'
+  if (normalized === 'waiting') return 'Prochain QL'
+  if (normalized === 'ended' || normalized === 'completed' || normalized === 'finished') return 'Terminé'
+  if (normalized === 'queued') return 'En file'
+  return 'Programmé'
+}
+
+function liveStatusClass(status: string) {
+  const normalized = status.toLowerCase()
+  if (normalized === 'playing' || normalized === 'active' || normalized === 'open') return 'active'
+  if (normalized === 'waiting') return 'pending'
+  if (normalized === 'ended' || normalized === 'completed' || normalized === 'finished') return 'inactive'
+  return 'draft'
+}
+
+
+function liveSeriesSummaryStatus(items: ContestItem[]) {
+  const statuses = items.map((item) => item.liveStatus.toLowerCase())
+  if (statuses.some((status) => ['playing', 'active', 'open'].includes(status))) {
+    return 'playing'
+  }
+  if (statuses.includes('waiting')) return 'waiting'
+  if (statuses.every((status) => ['ended', 'completed', 'finished'].includes(status))) {
+    return 'ended'
+  }
+  return items[0]?.liveStatus || 'scheduled'
+}
+
+function sortLiveSeriesItems(items: ContestItem[]) {
+  return [...items].sort((a, b) => {
+    const aIndex = a.liveSeriesIndex ?? Number.MAX_SAFE_INTEGER
+    const bIndex = b.liveSeriesIndex ?? Number.MAX_SAFE_INTEGER
+    if (aIndex !== bIndex) return aIndex - bIndex
+    return new Date(a.liveStartsAt || a.startsAt || a.endsAt).getTime() -
+      new Date(b.liveStartsAt || b.startsAt || b.endsAt).getTime()
+  })
+}
+
+function inferLiveSeriesFromTitle(contest: ContestItem) {
+  const match = contest.title.match(/^(.*?)(?:\s+#(\d+))(.*)$/)
+  if (!match) return null
+
+  const prefix = match[1].trim()
+  const index = Number(match[2])
+  const suffix = match[3].trim()
+  if (!Number.isInteger(index) || index <= 0 || prefix.length === 0) return null
+
+  const parentTitle = `${prefix}${suffix ? ` ${suffix}` : ''}`.replace(/\s+/g, ' ').trim()
+  return {
+    key: `title:${contest.type}:${contest.categoryId}:${contest.rewardCatalogId}:${parentTitle.toLowerCase()}`,
+    index,
+    parentTitle,
+  }
+}
+
+function groupContestSeries(contests: ContestItem[]): ContestListItem[] {
+  const groups = new Map<string, ContestItem[]>()
+  const singles: ContestListItem[] = []
+
+  for (const contest of contests) {
+    if (!contest.isLive) {
+      singles.push(contest)
+      continue
+    }
+
+    const inferredSeries = contest.liveSeriesId
+      ? null
+      : inferLiveSeriesFromTitle(contest)
+    const seriesKey = contest.liveSeriesId || inferredSeries?.key || ''
+
+    if (seriesKey) {
+      const normalizedContest = inferredSeries
+        ? {
+            ...contest,
+            liveSeriesId: seriesKey,
+            liveSeriesIndex: contest.liveSeriesIndex ?? inferredSeries.index,
+            liveSeriesParentTitle:
+              contest.liveSeriesParentTitle || inferredSeries.parentTitle,
+          }
+        : contest
+      groups.set(seriesKey, [...(groups.get(seriesKey) ?? []), normalizedContest])
+    } else {
+      singles.push(contest)
+    }
+  }
+
+  const groupedSeries = Array.from(groups.entries()).flatMap(([, items]) => {
+    if (items.length < 2) return items
+
+    const sortedItems = sortLiveSeriesItems(items)
+    const first = sortedItems[0]
+    const last = sortedItems[sortedItems.length - 1] ?? first
+    const summaryStatus = liveSeriesSummaryStatus(sortedItems)
+    return [{
+      ...first,
+      title:
+        first.liveSeriesParentTitle ||
+        first.title.replace(/\s+#\d+(?=\s|$)/, '').replace(/\s+/g, ' ').trim(),
+      liveStatus: summaryStatus,
+      startsAt: first.startsAt,
+      liveStartsAt: first.liveStartsAt,
+      endsAt: last.endsAt,
+      registeredCount: sortedItems.reduce(
+        (total, item) => total + item.registeredCount,
+        0,
+      ),
+      connectedCount: sortedItems.reduce(
+        (total, item) => total + item.connectedCount,
+        0,
+      ),
+      participants: sortedItems.reduce((total, item) => total + item.participants, 0),
+      liveSeriesCount: first.liveSeriesCount || sortedItems.length,
+      seriesItems: sortedItems,
+    } satisfies ContestListItem]
+  })
+
+  return [...groupedSeries, ...singles].sort((a, b) => {
+    const aDate = new Date(a.liveStartsAt || a.startsAt || a.endsAt).getTime()
+    const bDate = new Date(b.liveStartsAt || b.startsAt || b.endsAt).getTime()
+    return bDate - aDate
+  })
+}
+
 function getVisibleContestNavItems(permissions: string[] | undefined, navItems: ContestsNavItem[]) { return navItems.filter((item) => hasAdminPermission(permissions, item.permission, 'read')) }
 function useRealtimeRefresh(channelName: string, tables: string[], onRefresh: () => void | Promise<void>) { const tablesKey = tables.join('|'); useEffect(() => { let refreshTimeout = 0; const scheduleRefresh = () => { window.clearTimeout(refreshTimeout); refreshTimeout = window.setTimeout(() => { void onRefresh() }, 350) }; const channel = supabase.channel(channelName); tables.forEach((table) => { channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh) }); channel.subscribe(); return () => { window.clearTimeout(refreshTimeout); void supabase.removeChannel(channel) } }, [channelName, tablesKey, onRefresh]) }
 async function fetchContestsData(): Promise<ContestsData> {
@@ -204,7 +342,7 @@ async function fetchContestsData(): Promise<ContestsData> {
       supabase
         .from('contests')
         .select(
-          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, reward_catalog_id, reward_type, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index, created_at',
+          'id, partner_id, title, description, image_url, brand_logo_url, brand_name, type, category, category_id, status, prize_description, prize_value, reward_catalog_id, reward_type, reward_metadata, winners_count, max_participants, starts_at, ends_at, is_boosted, allowed_player_plan_keys, is_live, live_starts_at, live_status, registered_count, connected_count, current_question_index, created_at',
         )
         .order('created_at', { ascending: false }),
       supabase
@@ -296,6 +434,26 @@ async function fetchContestsData(): Promise<ContestsData> {
       const id = contest.id as string
       const categoryId = contest.category_id as string | null
       const partnerId = contest.partner_id as string | null
+      const rewardMetadata =
+        contest.reward_metadata && typeof contest.reward_metadata === 'object'
+          ? (contest.reward_metadata as Record<string, unknown>)
+          : {}
+      const liveSeriesId =
+        typeof rewardMetadata.live_series_id === 'string'
+          ? rewardMetadata.live_series_id
+          : ''
+      const liveSeriesIndex =
+        typeof rewardMetadata.live_series_index === 'number'
+          ? rewardMetadata.live_series_index
+          : null
+      const liveSeriesCount =
+        typeof rewardMetadata.live_series_count === 'number'
+          ? rewardMetadata.live_series_count
+          : null
+      const liveSeriesParentTitle =
+        typeof rewardMetadata.live_series_parent_title === 'string'
+          ? rewardMetadata.live_series_parent_title
+          : ''
 
       return {
         id,
@@ -332,6 +490,11 @@ async function fetchContestsData(): Promise<ContestsData> {
         isLive: (contest.is_live as boolean | null) ?? false,
         liveStartsAt: (contest.live_starts_at as string | null) ?? '',
         liveStatus: (contest.live_status as string | null) ?? 'scheduled',
+        rewardMetadata,
+        liveSeriesId,
+        liveSeriesIndex,
+        liveSeriesCount,
+        liveSeriesParentTitle,
         registeredCount: (contest.registered_count as number | null) ?? 0,
         connectedCount: (contest.connected_count as number | null) ?? 0,
         currentQuestionIndex:
@@ -371,6 +534,10 @@ function createDefaultContestForm(): ContestFormState {
     isLive: false,
     liveStartsAt: '',
     liveStatus: 'scheduled',
+    liveScheduleMode: 'single',
+    liveSeriesCount: '1',
+    liveSeriesIntervalMinutes: '180',
+    liveEstimatedDurationSeconds: '100',
   }
 }
 
@@ -399,6 +566,10 @@ function contestToForm(contest: ContestItem): ContestFormState {
     isLive: contest.isLive,
     liveStartsAt: isoToDatetimeLocalValue(contest.liveStartsAt),
     liveStatus: contest.liveStatus || 'scheduled',
+    liveScheduleMode: 'single',
+    liveSeriesCount: '1',
+    liveSeriesIntervalMinutes: '180',
+    liveEstimatedDurationSeconds: '100',
   }
 }
 
@@ -519,6 +690,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
   )
   const [contestError, setContestError] = useState('')
   const [isSavingContest, setIsSavingContest] = useState(false)
+  const [isProcessingLiveQueue, setIsProcessingLiveQueue] = useState(false)
   const [contestSearch, setContestSearch] = useState('')
   const [contestStatusFilter, setContestStatusFilter] = useState('all')
   const [contestTypeFilter, setContestTypeFilter] = useState('all')
@@ -551,13 +723,17 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     contestTypeFilter,
     contestsData.contests,
   ])
-  const totalContestPages = Math.max(1, Math.ceil(filteredContests.length / pageSize))
+  const displayContests = useMemo(
+    () => groupContestSeries(filteredContests),
+    [filteredContests],
+  )
+  const totalContestPages = Math.max(1, Math.ceil(displayContests.length / pageSize))
   const paginatedContests = useMemo(() => {
     const startIndex = contestPage * pageSize
-    return filteredContests.slice(startIndex, startIndex + pageSize)
-  }, [contestPage, filteredContests])
-  const contestResultsStart = filteredContests.length === 0 ? 0 : contestPage * pageSize + 1
-  const contestResultsEnd = Math.min(filteredContests.length, contestPage * pageSize + paginatedContests.length)
+    return displayContests.slice(startIndex, startIndex + pageSize)
+  }, [contestPage, displayContests])
+  const contestResultsStart = displayContests.length === 0 ? 0 : contestPage * pageSize + 1
+  const contestResultsEnd = Math.min(displayContests.length, contestPage * pageSize + paginatedContests.length)
   const contestPaginationPages = useMemo(() => {
     const firstPage = Math.max(0, contestPage - 2)
     const lastPage = Math.min(totalContestPages - 1, firstPage + 4)
@@ -733,6 +909,44 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     }
   }
 
+  async function handleProcessLiveQuizQueue() {
+    setContestsError('')
+    setContestsNotice('')
+    setIsProcessingLiveQueue(true)
+
+    try {
+      const { data, error } = await supabase.rpc('process_live_quiz_events')
+      if (error) throw error
+      await loadContests()
+      const changedCount = Number(data ?? 0)
+      setContestsNotice(
+        changedCount > 0
+          ? `File QL recalculée : ${changedCount} changement(s) appliqué(s).`
+          : 'File QL déjà à jour.',
+      )
+      void logAdminAction({
+        feature: 'contests',
+        action: 'process_live_quiz_queue',
+        message: 'File Quiz Live recalculée par le SA.',
+        metadata: { changed_count: changedCount },
+      })
+    } catch (error) {
+      void logError({
+        feature: 'contests',
+        action: 'process_live_quiz_queue_failed',
+        message: 'Echec recalcul file Quiz Live par le SA.',
+        metadata: { error: error instanceof Error ? error.message : String(error) },
+      })
+      setContestsError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de recalculer la file Quiz Live.',
+      )
+    } finally {
+      setIsProcessingLiveQueue(false)
+    }
+  }
+
   async function handleContestSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setContestError('')
@@ -813,18 +1027,31 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       return
     }
 
-    if (contestForm.isLive && contestForm.liveStatus !== 'ended') {
-      const openLiveQuiz = contestsData.contests.find((contest) => {
-        if (contest.id === editingContestId) return false
-        if (!contest.isLive) return false
-        if (contest.liveStatus === 'ended') return false
-        return !['inactive', 'ended', 'completed', 'finished'].includes(contest.status)
-      })
+    const liveSeriesCount = Number(contestForm.liveSeriesCount)
+    const liveSeriesIntervalMinutes = Number(contestForm.liveSeriesIntervalMinutes)
+    const liveEstimatedDurationSeconds = Number(contestForm.liveEstimatedDurationSeconds)
+    const shouldCreateLiveSeries =
+      contestForm.isLive && !editingContestId && contestForm.liveScheduleMode === 'series'
 
-      if (openLiveQuiz) {
-        setContestError(
-          `Termine d'abord le Quiz Live "${openLiveQuiz.title}" avant d'en créer un nouveau.`,
-        )
+    if (shouldCreateLiveSeries) {
+      if (!Number.isInteger(liveSeriesCount) || liveSeriesCount < 2 || liveSeriesCount > 48) {
+        setContestError('La série QL doit contenir entre 2 et 48 Quiz Live.')
+        return
+      }
+
+      if (
+        !Number.isFinite(liveSeriesIntervalMinutes) ||
+        liveSeriesIntervalMinutes < 5
+      ) {
+        setContestError('L’intervalle entre deux QL doit être au moins de 5 minutes.')
+        return
+      }
+
+      if (
+        !Number.isFinite(liveEstimatedDurationSeconds) ||
+        liveEstimatedDurationSeconds < 10
+      ) {
+        setContestError('La durée estimée d’un QL doit être au moins de 10 secondes.')
         return
       }
     }
@@ -832,9 +1059,20 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     setIsSavingContest(true)
 
     try {
-      const payload = {
+      const buildPayload = ({
+        slotIndex,
+        slotLiveStartsAt,
+        slotEndsAt,
+      }: {
+        slotIndex: number
+        slotLiveStartsAt: Date
+        slotEndsAt: Date
+      }) => ({
         partner_id: contestForm.partnerId || null,
-        title,
+        title:
+          shouldCreateLiveSeries && liveSeriesCount > 1
+            ? `${title} #${slotIndex}`
+            : title,
         description,
         image_url: contestForm.imageUrl.trim() || null,
         type: contestForm.type,
@@ -854,31 +1092,95 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
         prize_value: prizeValue,
         winners_count: winnersCount,
         max_participants: maxParticipants,
-        starts_at: startsAt.toISOString(),
-        ends_at: endsAt.toISOString(),
+        starts_at: contestForm.isLive ? slotLiveStartsAt.toISOString() : startsAt.toISOString(),
+        ends_at: contestForm.isLive ? slotEndsAt.toISOString() : endsAt.toISOString(),
         is_boosted: contestForm.isBoosted,
         allowed_player_plan_keys: contestForm.allowedPlayerPlanKeys,
         is_live: contestForm.isLive,
-        live_starts_at: contestForm.isLive ? liveStartsAt.toISOString() : null,
-        live_status: contestForm.isLive ? contestForm.liveStatus : 'scheduled',
-      }
-      const savedContestId = editingContestId || createClientUuid()
-      const { error } = editingContestId
-        ? await supabase.from('contests').update(payload).eq('id', editingContestId)
-        : await supabase.from('contests').insert({
-            ...payload,
-            id: savedContestId,
+        live_starts_at: contestForm.isLive ? slotLiveStartsAt.toISOString() : null,
+        live_status: contestForm.isLive
+          ? editingContestId
+            ? contestForm.liveStatus || 'scheduled'
+            : 'scheduled'
+          : 'scheduled',
+        reward_metadata: shouldCreateLiveSeries
+          ? {
+              live_series_id: liveSeriesId,
+              live_series_index: slotIndex,
+              live_series_count: liveSeriesCount,
+              live_series_parent_title: title,
+              live_series_interval_minutes: liveSeriesIntervalMinutes,
+              live_estimated_duration_seconds: liveEstimatedDurationSeconds,
+            }
+          : undefined,
+      })
+
+      const savedContestIds: string[] = []
+      const liveSeriesId = shouldCreateLiveSeries ? createClientUuid() : ''
+      const primaryContestId = editingContestId || createClientUuid()
+
+      if (shouldCreateLiveSeries) {
+        const rows = Array.from({ length: liveSeriesCount }, (_, index) => {
+          const slotLiveStartsAt = new Date(
+            liveStartsAt.getTime() +
+              index *
+                (liveEstimatedDurationSeconds * 1000 +
+                  liveSeriesIntervalMinutes * 60 * 1000),
+          )
+          const slotEndsAt = new Date(
+            slotLiveStartsAt.getTime() + liveEstimatedDurationSeconds * 1000,
+          )
+          const id = createClientUuid()
+          savedContestIds.push(id)
+          return {
+            ...buildPayload({
+              slotIndex: index + 1,
+              slotLiveStartsAt,
+              slotEndsAt,
+            }),
+            id,
             views_count: 0,
             shares_count: 0,
             created_at: new Date().toISOString(),
-          })
+          }
+        })
 
-      if (error) throw error
+        const { error } = await supabase.from('contests').insert(rows)
+        if (error) throw error
+      } else {
+        const payload = buildPayload({
+          slotIndex: 1,
+          slotLiveStartsAt: liveStartsAt,
+          slotEndsAt: contestForm.isLive ? endsAt : endsAt,
+        })
+        savedContestIds.push(primaryContestId)
+        const { error } = editingContestId
+          ? await supabase.from('contests').update(payload).eq('id', editingContestId)
+          : await supabase.from('contests').insert({
+              ...payload,
+              id: primaryContestId,
+              views_count: 0,
+              shares_count: 0,
+              created_at: new Date().toISOString(),
+            })
 
-      if (payload.status === 'active') {
+        if (error) throw error
+      }
+
+      if (contestForm.isLive) {
+        try {
+          await supabase.rpc('process_live_quiz_events')
+        } catch (queueError) {
+          console.warn('[MegaPromo][liveQuizQueue][processError]', queueError)
+        }
+      }
+
+      if (contestForm.status === 'active') {
         await sendContestPlayersPush({
-          contestId: savedContestId,
-          title,
+          contestId: savedContestIds[0] ?? primaryContestId,
+          title: shouldCreateLiveSeries
+            ? `${title} · ${liveSeriesCount} Quiz Live programmés`
+            : title,
           isLive: contestForm.isLive,
           isUpdate: Boolean(editingContestId),
         })
@@ -887,19 +1189,22 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       await loadContests()
       void logAdminAction({
         feature: 'contests',
-        action: editingContestId ? 'update' : 'create',
+        action: editingContestId ? 'update' : shouldCreateLiveSeries ? 'create_live_series' : 'create',
         message: editingContestId
           ? 'Concours modifie par le SA.'
-          : 'Concours cree par le SA.',
+          : shouldCreateLiveSeries
+            ? 'Serie de Quiz Live creee par le SA.'
+            : 'Concours cree par le SA.',
         entityType: 'contest',
-        entityId: savedContestId,
+        entityId: savedContestIds[0] ?? primaryContestId,
         metadata: {
           title,
-          status: payload.status,
-          type: payload.type,
-          is_live: payload.is_live,
-          reward_catalog_id: payload.reward_catalog_id,
-          winners_count: payload.winners_count,
+          status: contestForm.status,
+          type: contestForm.type,
+          is_live: contestForm.isLive,
+          live_series_count: shouldCreateLiveSeries ? liveSeriesCount : 1,
+          reward_catalog_id: selectedReward.id,
+          winners_count: winnersCount,
         },
       })
       closeContestModal()
@@ -1153,8 +1458,13 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     }
   }
 
-  function handleContestTableAction(contest: ContestItem, action: string) {
+  function handleContestTableAction(contest: ContestListItem, action: string) {
     if (!action) return
+
+    if (action === 'series' && contest.seriesItems && contest.seriesItems.length > 0) {
+      navigate(`${contestsRoute}/series/${encodeURIComponent(contest.liveSeriesId)}`)
+      return
+    }
 
     if (action === 'edit') {
       openEditContestModal(contest)
@@ -1256,6 +1566,14 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
             >
               Tout supprimer
             </button>
+            <button
+              className="logout-button"
+              disabled={isProcessingLiveQueue}
+              onClick={handleProcessLiveQuizQueue}
+              type="button"
+            >
+              {isProcessingLiveQueue ? 'Recalcul...' : 'Recalculer file QL'}
+            </button>
             <button className="primary-button" onClick={openContestModal} type="button">
               Nouveau concours
             </button>
@@ -1330,7 +1648,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
               <h2>Liste des concours</h2>
             </div>
             <span className="pill">
-              {isContestsLoading ? 'Chargement' : `${paginatedContests.length} / ${filteredContests.length}`}
+              {isContestsLoading ? 'Chargement' : `${paginatedContests.length} / ${displayContests.length}`}
             </span>
           </div>
 
@@ -1388,17 +1706,26 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
               <span>Actions</span>
             </div>
             {paginatedContests.length > 0 ? (
-              paginatedContests.map((contest) => (
-                <div className="premium-contest-row" key={contest.id}>
+              paginatedContests.map((contest) => {
+                const seriesCount = contest.seriesItems?.length ?? 0
+                const rowLiveStatus = seriesCount > 0
+                  ? liveSeriesSummaryStatus(contest.seriesItems ?? [])
+                  : contest.liveStatus
+                return (
+                <div className="premium-contest-row" key={contest.liveSeriesId || contest.id}>
                   <div>
                     <strong>{contest.title}</strong>
                     <p>
                       {contest.partner} · {contest.category}
+                      {seriesCount > 1 ? ` · Série de ${seriesCount} QL` : ''}
                     </p>
                   </div>
                   <span className="contest-type-pill">{contest.type}</span>
-                  <span className={`contest-type-pill ${contest.isLive ? 'live' : 'muted'}`}>
-                    {contest.isLive ? 'LIVE' : '-'}
+                  <span
+                    className={`contest-type-pill ${contest.isLive ? liveStatusClass(rowLiveStatus) : 'muted'}`}
+                    title={contest.isLive ? formatDate(contest.liveStartsAt) : undefined}
+                  >
+                    {contest.isLive ? liveStatusLabel(rowLiveStatus) : '-'}
                   </span>
                   <div>
                     <strong>{contest.rewardLabel}</strong>
@@ -1415,6 +1742,15 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                     {contest.status}
                   </span>
                   <div className="contest-actions">
+                    {seriesCount > 1 ? (
+                      <button
+                        className="table-action-button"
+                        onClick={() => navigate(`${contestsRoute}/series/${encodeURIComponent(contest.liveSeriesId)}`)}
+                        type="button"
+                      >
+                        Détails série
+                      </button>
+                    ) : null}
                     <select
                       aria-label={`Actions pour ${contest.title}`}
                       className="table-action-select"
@@ -1426,7 +1762,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                     >
                       <option value="">Actions</option>
                       <option value="edit">Modifier</option>
-                      <option value="game">Configurer</option>
+                      {seriesCount > 1 ? null : <option value="game">Configurer</option>}
                       <option value="history">Historique</option>
                       <option value="generate">Générer gagnants</option>
                       <option value="status">
@@ -1436,7 +1772,8 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                     </select>
                   </div>
                 </div>
-              ))
+                )
+              })
             ) : (
               <p className="empty-panel-text">
                 {isContestsLoading
@@ -1451,7 +1788,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
           <div className="pagination-row">
             <span>
               {formatNumber(contestResultsStart)}-{formatNumber(contestResultsEnd)} sur{' '}
-              {formatNumber(filteredContests.length)}
+              {formatNumber(displayContests.length)}
             </span>
             <div className="pagination-controls">
               <button
@@ -1541,6 +1878,261 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
   )
 }
 
+
+export function SuperAdminLiveSeriesPage({
+  authRoute,
+  contestsRoute,
+  navItems,
+  rootRoute,
+}: SuperAdminLiveSeriesPageProps) {
+  const adminAuth = useAdminAuth()
+  const navigate = useNavigate()
+  const { seriesId = '' } = useParams()
+  const decodedSeriesId = decodeURIComponent(seriesId)
+  const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [contestsData, setContestsData] = useState<ContestsData>({
+    contests: [],
+    categories: [],
+    partners: [],
+    types: [],
+    rewards: [],
+  })
+
+  const loadSeries = useCallback(async () => {
+    setIsLoading(true)
+    setError('')
+    try {
+      setContestsData(await fetchContestsData())
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Impossible de charger la série QL.',
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadSeries()
+  }, [loadSeries])
+
+  useRealtimeRefresh(
+    'sa-live-series-detail-realtime',
+    ['contests', 'questions', 'live_quiz_registrations', 'live_sessions'],
+    loadSeries,
+  )
+
+  async function handleLogout() {
+    await adminAuth.logout()
+    navigate(authRoute, { replace: true })
+  }
+
+  const series = useMemo(() => {
+    return groupContestSeries(contestsData.contests).find(
+      (contest) => contest.liveSeriesId === decodedSeriesId,
+    )
+  }, [contestsData.contests, decodedSeriesId])
+
+  const items = series?.seriesItems ? sortLiveSeriesItems(series.seriesItems) : []
+  const title = series?.title ?? 'Série Quiz Live'
+  const summaryStatus = items.length > 0 ? liveSeriesSummaryStatus(items) : 'scheduled'
+  const totalRegistered = items.reduce((total, item) => total + item.registeredCount, 0)
+  const totalConnected = items.reduce((total, item) => total + item.connectedCount, 0)
+  const firstStart = items[0]?.liveStartsAt || items[0]?.startsAt || ''
+  const lastEnd = items[items.length - 1]?.endsAt || ''
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">M</span>
+          <div>
+            <strong>MegaPromo</strong>
+            <small>{adminRoleLabel(adminAuth.profile)}</small>
+          </div>
+        </div>
+
+        <nav className="nav-list" aria-label="Navigation super admin">
+          <span className="nav-section-label">Pilotage</span>
+          {getVisibleContestNavItems(adminAuth.profile?.permissions, navItems).slice(0, 6).map((item) => (
+            <NavLink end={item.href === rootRoute} to={item.href} key={item.label}>
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+          <span className="nav-section-label">Système</span>
+          {getVisibleContestNavItems(adminAuth.profile?.permissions, navItems).slice(6).map((item) => (
+            <NavLink to={item.href} key={item.label}>
+              <span className="nav-icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="sidebar-card">
+          <span>Série QL</span>
+          <strong>{items.length} Quiz Live</strong>
+          <p>Chaque horaire possède ses propres questions et son propre suivi.</p>
+        </div>
+      </aside>
+
+      <section className="workspace">
+        <header className="dashboard-topbar">
+          <div>
+            <p className="eyebrow">Quiz Live programmable</p>
+            <h1>{title}</h1>
+            <p className="page-subtitle">
+              Configure chaque QL de la série séparément. La file automatique active
+              toujours le prochain horaire.
+            </p>
+          </div>
+
+          <div className="topbar-actions">
+            <button className="logout-button" onClick={() => navigate(contestsRoute)} type="button">
+              Retour aux concours
+            </button>
+            <div className="admin-chip">
+              <span>{adminName.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{adminName}</strong>
+                <small>Session vérifiée</small>
+              </div>
+            </div>
+            <button className="logout-button" onClick={handleLogout} type="button">
+              Déconnexion
+            </button>
+          </div>
+        </header>
+
+        {error ? (
+          <div className="dashboard-alert" role="alert">
+            <div>
+              <strong>Série indisponible</strong>
+              <p>{error}</p>
+            </div>
+            <button onClick={loadSeries} type="button">Réessayer</button>
+          </div>
+        ) : null}
+
+        {!error && !isLoading && !series ? (
+          <div className="dashboard-alert" role="alert">
+            <div>
+              <strong>Série introuvable</strong>
+              <p>Cette série QL n’existe pas ou n’est plus disponible.</p>
+            </div>
+            <button onClick={() => navigate(contestsRoute)} type="button">
+              Retour
+            </button>
+          </div>
+        ) : null}
+
+        {series ? (
+          <>
+            <section className="settings-overview contest-stats-overview" aria-label="Statistiques série QL">
+              <article className="settings-overview-card featured">
+                <span className="settings-overview-icon">Q</span>
+                <div>
+                  <small>QL dans la série</small>
+                  <strong>{formatNumber(items.length)}</strong>
+                  <p>{liveStatusLabel(summaryStatus)}</p>
+                </div>
+              </article>
+              <article className="settings-overview-card">
+                <span className="settings-overview-icon">D</span>
+                <div>
+                  <small>Premier départ</small>
+                  <strong>{formatDate(firstStart)}</strong>
+                  <p>Dernière fin : {formatDate(lastEnd)}</p>
+                </div>
+              </article>
+              <article className="settings-overview-card">
+                <span className="settings-overview-icon">I</span>
+                <div>
+                  <small>Inscriptions</small>
+                  <strong>{formatNumber(totalRegistered)}</strong>
+                  <p>{formatNumber(totalConnected)} connecté(s) actuellement.</p>
+                </div>
+              </article>
+              <article className="settings-overview-card">
+                <span className="settings-overview-icon">G</span>
+                <div>
+                  <small>Gain par QL</small>
+                  <strong>{series.rewardLabel}</strong>
+                  <p>{formatMoney(series.prizeValue)}</p>
+                </div>
+              </article>
+            </section>
+
+            <section className="panel contests-page-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Configuration</p>
+                  <h2>QL de la série</h2>
+                </div>
+                <span className={`status-pill ${liveStatusClass(summaryStatus)}`}>
+                  {liveStatusLabel(summaryStatus)}
+                </span>
+              </div>
+
+              <div className="contest-context-note">
+                <strong>Questions indépendantes</strong>
+                <p>
+                  Chaque QL est joué séparément dans l’application. Clique sur
+                  “Configurer questions” pour préparer les questions du créneau choisi.
+                </p>
+              </div>
+
+              <div className="premium-contest-table">
+                <div className="premium-contest-head">
+                  <span>QL</span>
+                  <span>Départ</span>
+                  <span>Fin</span>
+                  <span>Statut</span>
+                  <span>Inscrits</span>
+                  <span>Actions</span>
+                </div>
+                {items.map((item) => (
+                  <div className="premium-contest-row" key={item.id}>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <p>Créneau #{item.liveSeriesIndex ?? '-'}</p>
+                    </div>
+                    <p>{formatDate(item.liveStartsAt || item.startsAt)}</p>
+                    <p>{formatDate(item.endsAt)}</p>
+                    <span className={`status-pill ${liveStatusClass(item.liveStatus)}`}>
+                      {liveStatusLabel(item.liveStatus)}
+                    </span>
+                    <p>{item.registeredCount} inscrit(s)</p>
+                    <div className="contest-actions">
+                      <button
+                        className="table-action-button"
+                        onClick={() => navigate(`${contestsRoute}/${item.id}/game`)}
+                        type="button"
+                      >
+                        Configurer questions
+                      </button>
+                      <button
+                        className="table-action-button"
+                        onClick={() => navigate(`${contestsRoute}/${item.id}/history`)}
+                        type="button"
+                      >
+                        Historique
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        ) : null}
+      </section>
+    </main>
+  )
+}
 
 function ContestModal({
   categories,
@@ -1693,7 +2285,7 @@ function ContestModal({
 
           <div className="contest-context-note">
             <label className="switch-row inline-switch">
-              <span>Quiz Live</span>
+              <span>Quiz Live programmable</span>
               <input
                 checked={form.isLive}
                 onChange={(event) =>
@@ -1701,47 +2293,124 @@ function ContestModal({
                     ...form,
                     isLive: event.target.checked,
                     type: event.target.checked ? 'quiz' : form.type,
-                    liveStartsAt:
-                      form.liveStartsAt || form.startsAt,
+                    liveStartsAt: form.liveStartsAt || form.startsAt,
+                    liveStatus: event.target.checked ? form.liveStatus || 'scheduled' : 'scheduled',
                   })
                 }
                 type="checkbox"
               />
             </label>
             <p>
-              Active ce mode pour un événement à heure fixe : inscription,
-              salle d’attente et questions jouées en même temps.
+              Le SA programme seulement les heures de départ. MegaPromo active
+              automatiquement le prochain QL en salle d’attente, puis le passe en direct.
+              Les autres QL restent visibles mais non réservables.
             </p>
           </div>
 
           {form.isLive ? (
-            <div className="form-grid two-columns">
-              <label>
-                <span>Date et heure du live</span>
-                <input
-                  onChange={(event) =>
-                    onChange({ ...form, liveStartsAt: event.target.value })
-                  }
-                  type="datetime-local"
-                  value={form.liveStartsAt || form.startsAt}
-                />
-              </label>
+            <>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Départ du Quiz Live</span>
+                  <input
+                    onChange={(event) =>
+                      onChange({ ...form, liveStartsAt: event.target.value })
+                    }
+                    type="datetime-local"
+                    value={form.liveStartsAt || form.startsAt}
+                  />
+                  <small className="form-help">
+                    Pour une série, c’est l’heure du premier QL.
+                  </small>
+                </label>
 
-              <label>
-                <span>Statut live</span>
-                <select
-                  onChange={(event) =>
-                    onChange({ ...form, liveStatus: event.target.value })
-                  }
-                  value={form.liveStatus}
-                >
-                  <option value="scheduled">Programmé</option>
-                  <option value="waiting">Salle d’attente</option>
-                  <option value="playing">En cours</option>
-                  <option value="ended">Terminé</option>
-                </select>
-              </label>
-            </div>
+                <label>
+                  <span>Statut live automatique</span>
+                  <input readOnly value={liveStatusLabel(form.liveStatus || 'scheduled')} />
+                  <small className="form-help">
+                    Ne pas modifier manuellement : la file QL gère Programmé,
+                    Prochain QL, En direct et Terminé.
+                  </small>
+                </label>
+              </div>
+
+              {mode === 'create' ? (
+                <div className="contest-context-note">
+                  <label>
+                    <span>Programmation QL</span>
+                    <select
+                      onChange={(event) =>
+                        onChange({
+                          ...form,
+                          liveScheduleMode: event.target.value as LiveQuizScheduleMode,
+                          liveSeriesCount:
+                            event.target.value === 'series' ? form.liveSeriesCount : '1',
+                        })
+                      }
+                      value={form.liveScheduleMode}
+                    >
+                      <option value="single">Créer un seul QL</option>
+                      <option value="series">Créer une série de plusieurs QL</option>
+                    </select>
+                    <small className="form-help">
+                      Tous les QL créés seront en statut Programmé. Le système choisira
+                      automatiquement le prochain QL.
+                    </small>
+                  </label>
+
+                  {form.liveScheduleMode === 'series' ? (
+                    <div className="form-grid three-columns">
+                      <label>
+                        <span>Nombre de QL</span>
+                        <input
+                          min="2"
+                          max="48"
+                          onChange={(event) =>
+                            onChange({ ...form, liveSeriesCount: event.target.value })
+                          }
+                          type="number"
+                          value={form.liveSeriesCount}
+                        />
+                      </label>
+
+                      <label>
+                        <span>Intervalle après la fin</span>
+                        <select
+                          onChange={(event) =>
+                            onChange({
+                              ...form,
+                              liveSeriesIntervalMinutes: event.target.value,
+                            })
+                          }
+                          value={form.liveSeriesIntervalMinutes}
+                        >
+                          <option value="30">30 minutes</option>
+                          <option value="60">1 heure</option>
+                          <option value="180">3 heures</option>
+                          <option value="1440">24 heures</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Durée estimée d’un QL</span>
+                        <input
+                          min="10"
+                          onChange={(event) =>
+                            onChange({
+                              ...form,
+                              liveEstimatedDurationSeconds: event.target.value,
+                            })
+                          }
+                          type="number"
+                          value={form.liveEstimatedDurationSeconds}
+                        />
+                        <small className="form-help">Ex : 5 questions × 20 sec = 100.</small>
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
           ) : null}
 
           <label>
@@ -1953,6 +2622,12 @@ function ContestModal({
                 type="datetime-local"
                 value={form.endsAt}
               />
+              {form.isLive ? (
+                <small className="form-help">
+                  QL unique : fin du live. Série : chaque fin est calculée avec la
+                  durée estimée du QL.
+                </small>
+              ) : null}
             </label>
 
             <label>
@@ -2015,9 +2690,11 @@ function ContestModal({
             >
               {isSaving
                 ? 'Enregistrement...'
-                : mode === 'create'
-                  ? 'Créer le concours'
-                  : 'Enregistrer'}
+                : mode === 'create' && form.isLive && form.liveScheduleMode === 'series'
+                  ? 'Créer la série QL'
+                  : mode === 'create'
+                    ? 'Créer le concours'
+                    : 'Enregistrer'}
             </button>
           </div>
         </form>
