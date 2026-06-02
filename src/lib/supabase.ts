@@ -46,6 +46,8 @@ const tablePermissionFeatures: Record<string, string> = {
   player_plan_benefits: 'plans',
   player_plans: 'plans',
   player_subscriptions: 'users',
+  question_bank_categories: 'contests',
+  question_banks: 'contests',
   questions: 'contests',
   reward_catalog: 'reward_catalog',
   reward_types: 'reward_catalog',

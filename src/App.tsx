@@ -29,6 +29,7 @@ import {
 import { SuperAdminCountriesPage } from './features/countries/SuperAdminCountriesPage'
 import { SuperAdminPartnersPage } from './features/partners/SuperAdminPartnersPage'
 import { SuperAdminPlansPage } from './features/plans/SuperAdminPlansPage'
+import { SuperAdminQuestionBanksPage } from './features/questionBanks/SuperAdminQuestionBanksPage'
 import { SuperAdminRewardCatalogPage } from './features/rewardCatalog/SuperAdminRewardCatalogPage'
 import { SuperAdminRewardHistoryPage } from './features/rewardHistory/SuperAdminRewardHistoryPage'
 import { SuperAdminSubscriptionHistoryPage } from './features/subscriptionHistory/SuperAdminSubscriptionHistoryPage'
@@ -446,6 +447,7 @@ const SUPER_ADMIN_CATEGORIES_ROUTE = `${SUPER_ADMIN_ROUTE}/categories`
 const SUPER_ADMIN_COUNTRIES_ROUTE = `${SUPER_ADMIN_ROUTE}/countries`
 const SUPER_ADMIN_SECTORS_ROUTE = `${SUPER_ADMIN_ROUTE}/sectors`
 const SUPER_ADMIN_CONTESTS_ROUTE = `${SUPER_ADMIN_ROUTE}/contests`
+const SUPER_ADMIN_QUESTION_BANKS_ROUTE = `${SUPER_ADMIN_ROUTE}/question-banks`
 const SUPER_ADMIN_PARTNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/partners`
 const SUPER_ADMIN_PLANS_ROUTE = `${SUPER_ADMIN_ROUTE}/plans`
 const SUPER_ADMIN_WINNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/winners`
@@ -556,6 +558,7 @@ const navItems = [
   { label: 'Joueurs', href: SUPER_ADMIN_USERS_ROUTE, icon: 'J', permission: 'users' },
   { label: 'Partenaires', href: SUPER_ADMIN_PARTNERS_ROUTE, icon: 'P', permission: 'partners' },
   { label: 'Concours', href: SUPER_ADMIN_CONTESTS_ROUTE, icon: 'C', permission: 'contests' },
+  { label: 'Banques questions', href: SUPER_ADMIN_QUESTION_BANKS_ROUTE, icon: 'Q', permission: 'contests' },
   { label: 'Catégories', href: SUPER_ADMIN_CATEGORIES_ROUTE, icon: 'G', permission: 'categories' },
   { label: 'Pays', href: SUPER_ADMIN_COUNTRIES_ROUTE, icon: 'Y', permission: 'countries' },
   { label: 'Secteurs', href: SUPER_ADMIN_SECTORS_ROUTE, icon: 'T', permission: 'sectors' },
@@ -1900,6 +1903,10 @@ function App() {
           element={<ProtectedSuperAdminRoute page="contests" />}
         />
         <Route
+          path={SUPER_ADMIN_QUESTION_BANKS_ROUTE}
+          element={<ProtectedSuperAdminRoute page="question-banks" />}
+        />
+        <Route
           path={`${SUPER_ADMIN_CONTESTS_ROUTE}/series/:seriesId`}
           element={<ProtectedSuperAdminRoute page="contest-series" />}
         />
@@ -2165,6 +2172,7 @@ function ProtectedSuperAdminRoute({
     | 'countries'
     | 'sectors'
     | 'contests'
+    | 'question-banks'
     | 'contest-series'
     | 'contest-history'
     | 'contest-game'
@@ -2205,7 +2213,10 @@ function ProtectedSuperAdminRoute({
   }
 
   const pagePermission =
-    page === 'contest-history' || page === 'contest-game' || page === 'contest-series'
+    page === 'contest-history' ||
+    page === 'contest-game' ||
+    page === 'contest-series' ||
+    page === 'question-banks'
       ? 'contests'
       : page === 'user-detail'
         ? 'users'
@@ -2265,6 +2276,15 @@ function ProtectedSuperAdminRoute({
       <SuperAdminContestsPage
         authRoute={SUPER_ADMIN_AUTH_ROUTE}
         contestsRoute={SUPER_ADMIN_CONTESTS_ROUTE}
+        navItems={navItems}
+        rootRoute={SUPER_ADMIN_ROUTE}
+      />
+    )
+  }
+  if (page === 'question-banks') {
+    return (
+      <SuperAdminQuestionBanksPage
+        authRoute={SUPER_ADMIN_AUTH_ROUTE}
         navItems={navItems}
         rootRoute={SUPER_ADMIN_ROUTE}
       />
