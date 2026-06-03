@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import { Navigate, NavLink, useNavigate } from 'react-router-dom'
 
 import { hasAdminPermission } from '../adminAccess/permissions'
@@ -99,6 +99,17 @@ const emptyQuestionForm: QuestionForm = {
 }
 
 const CATEGORY_QUESTIONS_PAGE_SIZE = 8
+const csvQuestionColumns = [
+  'question_text',
+  'option_a',
+  'option_b',
+  'option_c',
+  'option_d',
+  'correct_answer',
+  'points',
+  'time_limit',
+  'difficulty',
+]
 
 function normalizeText(value: string) {
   return value.trim()
@@ -106,6 +117,98 @@ function normalizeText(value: string) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('fr-FR').format(value)
+}
+
+function formatMissingBankLabel(bankId: string) {
+  if (!bankId) return 'Banque non liée'
+  return `Banque introuvable (${bankId.slice(0, 8)}...)`
+}
+
+function parseCsvLine(line: string) {
+  const values: string[] = []
+  let current = ''
+  let isQuoted = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    const nextChar = line[index + 1]
+    if (char === '"' && isQuoted && nextChar === '"') {
+      current += '"'
+      index += 1
+      continue
+    }
+    if (char === '"') {
+      isQuoted = !isQuoted
+      continue
+    }
+    if (char === ',' && !isQuoted) {
+      values.push(current.trim())
+      current = ''
+      continue
+    }
+    current += char
+  }
+  values.push(current.trim())
+  return values
+}
+
+function normalizeCsvHeader(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+function readCsvField(row: Record<string, string>, keys: string[], fallback = '') {
+  for (const key of keys) {
+    const value = row[key]
+    if (value !== undefined && value !== '') return value
+  }
+  return fallback
+}
+
+function parseQuestionCsv(text: string) {
+  const lines = text
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return []
+
+  const firstRow = parseCsvLine(lines[0]).map(normalizeCsvHeader)
+  const hasHeader = firstRow.some((column) =>
+    ['question_text', 'question', 'option_a', 'reponse_a', 'answer_a'].includes(column),
+  )
+  const headers = hasHeader ? firstRow : csvQuestionColumns
+  const dataLines = hasHeader ? lines.slice(1) : lines
+
+  return dataLines
+    .map((line) => {
+      const values = parseCsvLine(line)
+      return headers.reduce<Record<string, string>>((row, header, index) => {
+        row[header] = values[index]?.trim() ?? ''
+        return row
+      }, {})
+    })
+    .map((row) => ({
+      questionText: readCsvField(row, ['question_text', 'question', 'libelle', 'question_text_fr']),
+      optionA: readCsvField(row, ['option_a', 'reponse_a', 'answer_a', 'a']),
+      optionB: readCsvField(row, ['option_b', 'reponse_b', 'answer_b', 'b']),
+      optionC: readCsvField(row, ['option_c', 'reponse_c', 'answer_c', 'c']),
+      optionD: readCsvField(row, ['option_d', 'reponse_d', 'answer_d', 'd']),
+      correctAnswer: readCsvField(row, ['correct_answer', 'bonne_reponse', 'answer', 'correct'], 'A')
+        .slice(0, 1)
+        .toUpperCase(),
+      points: Number(readCsvField(row, ['points'], '10')) || 10,
+      timeLimit: Number(readCsvField(row, ['time_limit', 'temps_limite', 'seconds'], '20')) || 20,
+      difficulty: readCsvField(row, ['difficulty', 'difficulte', 'niveau']),
+    }))
+    .filter(
+      (question) =>
+        question.questionText &&
+        question.optionA &&
+        question.optionB &&
+        question.optionC &&
+        question.optionD &&
+        ['A', 'B', 'C', 'D'].includes(question.correctAnswer),
+    )
 }
 
 async function loadQuestionBankData() {
@@ -195,7 +298,6 @@ export function SuperAdminQuestionBanksPage({
   const bankFormPanelRef = useRef<HTMLElement | null>(null)
   const bankNameInputRef = useRef<HTMLInputElement | null>(null)
   const categoryQuestionEditPanelRef = useRef<HTMLFormElement | null>(null)
-  const questionFormPanelRef = useRef<HTMLFormElement | null>(null)
   const [banks, setBanks] = useState<QuestionBank[]>([])
   const [categories, setCategories] = useState<CategoryOption[]>([])
   const [questions, setQuestions] = useState<BankQuestion[]>([])
@@ -209,6 +311,10 @@ export function SuperAdminQuestionBanksPage({
   const [isSavingBank, setIsSavingBank] = useState(false)
   const [isSavingQuestion, setIsSavingQuestion] = useState(false)
   const [isBankFormVisible, setIsBankFormVisible] = useState(false)
+  const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false)
+  const [csvImportBankIds, setCsvImportBankIds] = useState<string[]>([])
+  const [isImportingCsv, setIsImportingCsv] = useState(false)
+  const [csvImportSummary, setCsvImportSummary] = useState('')
 
   const canRead = hasAdminPermission(adminAuth.profile?.permissions, 'contests', 'read')
   const visibleNavItems = useMemo(
@@ -245,6 +351,17 @@ export function SuperAdminQuestionBanksPage({
     if (!selectedBankId) return []
     return questions.filter((question) => question.bankId === selectedBankId)
   }, [questions, selectedBankId])
+
+  const missingQuestionBankIds = useMemo(() => {
+    const readableBankIds = new Set(banks.map((bank) => bank.id))
+    return Array.from(
+      new Set(
+        questions
+          .map((question) => question.bankId)
+          .filter((bankId) => bankId && !readableBankIds.has(bankId)),
+      ),
+    )
+  }, [banks, questions])
 
   const selectedCategoryQuestions = useMemo(() => {
     if (!selectedCategoryId) return []
@@ -297,6 +414,12 @@ export function SuperAdminQuestionBanksPage({
           ? nextSelectedBankId
           : data.banks[0]?.id ?? ''
       setSelectedBankId(validSelected)
+      setCsvImportBankIds((current) => {
+        const validIds = current.filter((bankId) =>
+          data.banks.some((bank) => bank.id === bankId),
+        )
+        return validIds.length > 0 ? validIds : validSelected ? [validSelected] : []
+      })
       setQuestionForm((current) => ({
         ...current,
         bankId: validSelected,
@@ -356,17 +479,31 @@ export function SuperAdminQuestionBanksPage({
     }, 40)
   }
 
-  function startCreateQuestion() {
+  function startCreateQuestion(bankId = selectedBankId) {
+    const bank = banks.find((item) => item.id === bankId)
+    if (!bank) {
+      setError('Sélectionne une banque avant d’ajouter une question.')
+      return
+    }
+    setError('')
+    setSelectedBankId(bank.id)
+    setSelectedCategoryId(bank.categoryIds[0] ?? selectedCategoryId)
+    setQuestionForm({
+      ...emptyQuestionForm,
+      bankId: bank.id,
+      categoryId: bank?.categoryIds[0] ?? '',
+    })
+    setIsQuestionModalOpen(true)
+  }
+
+  function cancelQuestionEdit() {
+    setIsQuestionModalOpen(false)
     const bank = banks.find((item) => item.id === selectedBankId)
     setQuestionForm({
       ...emptyQuestionForm,
       bankId: selectedBankId,
       categoryId: bank?.categoryIds[0] ?? '',
     })
-  }
-
-  function cancelQuestionEdit() {
-    startCreateQuestion()
   }
 
   function selectBank(bank: QuestionBank) {
@@ -400,13 +537,17 @@ export function SuperAdminQuestionBanksPage({
 
   function startEditQuestion(question: BankQuestion) {
     const questionBank = banks.find((bank) => bank.id === question.bankId)
-    if (questionBank) {
-      setSelectedBankId(questionBank.id)
-      setSelectedCategoryId(question.categoryId || questionBank.categoryIds[0] || selectedCategoryId)
+    const categoryBank = question.categoryId
+      ? banks.find((bank) => bank.categoryIds.includes(question.categoryId))
+      : null
+    const editableBank = questionBank ?? categoryBank ?? null
+    if (editableBank) {
+      setSelectedBankId(editableBank.id)
+      setSelectedCategoryId(question.categoryId || editableBank.categoryIds[0] || selectedCategoryId)
     }
     setQuestionForm({
       id: question.id,
-      bankId: question.bankId,
+      bankId: editableBank?.id ?? question.bankId,
       questionText: question.questionText,
       optionA: question.optionA,
       optionB: question.optionB,
@@ -419,11 +560,28 @@ export function SuperAdminQuestionBanksPage({
       categoryId: question.categoryId,
       isActive: question.isActive,
     })
+    setIsQuestionModalOpen(true)
     window.setTimeout(() => {
-      const targetForm = categoryQuestionEditPanelRef.current ?? questionFormPanelRef.current
-      targetForm?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      targetForm?.querySelector('textarea')?.focus()
+      categoryQuestionEditPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      categoryQuestionEditPanelRef.current?.querySelector('textarea')?.focus()
     }, 40)
+  }
+
+  function updateQuestionBank(bankId: string) {
+    const nextBank = banks.find((bank) => bank.id === bankId)
+    setQuestionForm((current) => {
+      const categoryStillAllowed =
+        !current.categoryId || nextBank?.categoryIds.includes(current.categoryId)
+      return {
+        ...current,
+        bankId,
+        categoryId: categoryStillAllowed ? current.categoryId : nextBank?.categoryIds[0] ?? '',
+      }
+    })
+    if (nextBank) {
+      setSelectedBankId(nextBank.id)
+      setSelectedCategoryId(nextBank.categoryIds[0] ?? selectedCategoryId)
+    }
   }
 
   function toggleBankCategory(categoryId: string) {
@@ -450,6 +608,75 @@ export function SuperAdminQuestionBanksPage({
       ...current,
       categoryIds: [],
     }))
+  }
+
+  function toggleCsvImportBank(bankId: string) {
+    setCsvImportSummary('')
+    setCsvImportBankIds((current) =>
+      current.includes(bankId)
+        ? current.filter((id) => id !== bankId)
+        : [...current, bankId],
+    )
+  }
+
+  async function importQuestionsFromCsv(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    const targetBanks = banks.filter((bank) => csvImportBankIds.includes(bank.id))
+    if (targetBanks.length === 0) {
+      setError('Sélectionne au moins une banque avant de charger le CSV.')
+      return
+    }
+
+    setIsImportingCsv(true)
+    setError('')
+    setCsvImportSummary('')
+    try {
+      const csvText = await file.text()
+      const parsedQuestions = parseQuestionCsv(csvText)
+      if (parsedQuestions.length === 0) {
+        setError(
+          'Aucune question valide trouvée. Colonnes attendues: question_text, option_a, option_b, option_c, option_d, correct_answer, points, time_limit, difficulty.',
+        )
+        return
+      }
+
+      const payload = targetBanks.flatMap((bank) => {
+        const categoryId = bank.categoryIds[0] ?? null
+        return parsedQuestions.map((question, index) => ({
+          contest_id: null,
+          question_bank_id: bank.id,
+          category_id: categoryId,
+          question_scope: 'bank',
+          question_text: question.questionText,
+          option_a: question.optionA,
+          option_b: question.optionB,
+          option_c: question.optionC,
+          option_d: question.optionD,
+          correct_answer: question.correctAnswer,
+          points: Math.max(question.points, 0),
+          time_limit: Math.max(question.timeLimit, 5),
+          order_index: index + 1,
+          difficulty: question.difficulty || null,
+          is_active: true,
+        }))
+      })
+
+      const { error: insertError } = await supabase.from('questions').insert(payload)
+      if (insertError) throw insertError
+
+      setCsvImportSummary(
+        `${formatNumber(payload.length)} question(s) importée(s) dans ${formatNumber(
+          targetBanks.length,
+        )} banque(s).`,
+      )
+      await refreshData(targetBanks[0]?.id ?? selectedBankId)
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'Import CSV impossible.')
+    } finally {
+      setIsImportingCsv(false)
+    }
   }
 
   async function saveBank(event: FormEvent<HTMLFormElement>) {
@@ -516,6 +743,10 @@ export function SuperAdminQuestionBanksPage({
       setError('Sélectionne une banque avant d’ajouter une question.')
       return
     }
+    if (!banks.some((bank) => bank.id === questionForm.bankId)) {
+      setError('Sélectionne une banque lisible avant d’enregistrer cette question.')
+      return
+    }
     if (!normalizeText(questionForm.questionText)) {
       setError('La question est obligatoire.')
       return
@@ -540,7 +771,10 @@ export function SuperAdminQuestionBanksPage({
         difficulty: normalizeText(questionForm.difficulty) || null,
         is_active: questionForm.isActive,
       }
-      if (questionForm.id) {
+      const wasEditing = Boolean(questionForm.id)
+      const nextBankId = questionForm.bankId
+      const nextCategoryId = questionForm.categoryId
+      if (wasEditing) {
         const { error: updateError } = await supabase
           .from('questions')
           .update(payload)
@@ -550,8 +784,21 @@ export function SuperAdminQuestionBanksPage({
         const { error: insertError } = await supabase.from('questions').insert(payload)
         if (insertError) throw insertError
       }
-      startCreateQuestion()
-      await refreshData(questionForm.bankId)
+      await refreshData(nextBankId)
+      if (wasEditing) {
+        setIsQuestionModalOpen(false)
+        setQuestionForm({
+          ...emptyQuestionForm,
+          bankId: nextBankId,
+          categoryId: nextCategoryId,
+        })
+      } else {
+        setQuestionForm({
+          ...emptyQuestionForm,
+          bankId: nextBankId,
+          categoryId: nextCategoryId,
+        })
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Impossible d’enregistrer la question.')
     } finally {
@@ -646,6 +893,14 @@ export function SuperAdminQuestionBanksPage({
           </div>
         ) : null}
 
+        {missingQuestionBankIds.length > 0 ? (
+          <div className="form-error" role="alert">
+            {formatNumber(missingQuestionBankIds.length)} banque(s) référencée(s) par
+            des questions sont introuvables dans le catalogue. Vérifie que les seeds
+            des banques ont été exécutés sur le même Supabase que cette interface.
+          </div>
+        ) : null}
+
         <section className="settings-overview question-bank-stats-overview" aria-label="Statistiques des banques de questions">
           <article className="settings-overview-card featured">
             <span className="settings-overview-icon">Q</span>
@@ -735,7 +990,7 @@ export function SuperAdminQuestionBanksPage({
                   <p>
                     {summary.banks.length > 0
                       ? summary.banks.map((bank) => bank.name).join(' · ')
-                      : 'Questions détectées, banque non lisible dans le catalogue'}
+                      : 'Questions détectées, banque introuvable dans le catalogue'}
                   </p>
                 </article>
               ))}
@@ -785,7 +1040,7 @@ export function SuperAdminQuestionBanksPage({
                           </p>
                         </div>
                         <span>{question.correctAnswer}</span>
-                        <span>{questionBank?.name ?? 'Banque non lisible'}</span>
+                        <span>{questionBank?.name ?? formatMissingBankLabel(question.bankId)}</span>
                         <span className={`status-pill ${question.isActive ? 'active' : 'inactive'}`}>
                           {question.isActive ? 'Active' : 'Inactive'}
                         </span>
@@ -899,8 +1154,21 @@ export function SuperAdminQuestionBanksPage({
               </div>
               <div className="table-actions compact">
                 {selectedBank ? (
-                  <button className="ghost-button" type="button" onClick={() => startEditBank(selectedBank)}>
+                  <button
+                    className="question-bank-secondary-action"
+                    type="button"
+                    onClick={() => startEditBank(selectedBank)}
+                  >
                     Modifier sélection
+                  </button>
+                ) : null}
+                {selectedBank ? (
+                  <button
+                    className="question-bank-secondary-action"
+                    type="button"
+                    onClick={() => startCreateQuestion(selectedBank.id)}
+                  >
+                    Ajouter une question
                   </button>
                 ) : null}
                 <button className="table-action-button" type="button" onClick={() => setIsBankFormVisible(false)}>
@@ -915,6 +1183,62 @@ export function SuperAdminQuestionBanksPage({
                 Une banque regroupe des questions réutilisables. Les JCQ des catégories
                 liées pourront piocher automatiquement dedans.
               </p>
+            </div>
+
+            <div className="question-bank-csv-import-panel">
+              <div className="question-bank-csv-import-heading">
+                <div>
+                  <span className="eyebrow">Import CSV</span>
+                  <strong>Ajouter plusieurs questions</strong>
+                  <p>
+                    Sélectionne une ou plusieurs banques, puis charge un CSV. Les
+                    questions seront ajoutées dans chaque banque sélectionnée.
+                  </p>
+                </div>
+                <label className={`question-bank-secondary-action ${isImportingCsv ? 'disabled' : ''}`}>
+                  {isImportingCsv ? 'Import en cours...' : 'Charger un CSV'}
+                  <input
+                    accept=".csv,text/csv"
+                    disabled={isImportingCsv}
+                    type="file"
+                    onChange={importQuestionsFromCsv}
+                  />
+                </label>
+              </div>
+
+              <div className="question-bank-csv-bank-picker">
+                {banks.map((bank) => (
+                  <label
+                    className={csvImportBankIds.includes(bank.id) ? 'selected' : ''}
+                    key={bank.id}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={csvImportBankIds.includes(bank.id)}
+                      onChange={() => toggleCsvImportBank(bank.id)}
+                    />
+                    <span>
+                      <strong>{bank.name}</strong>
+                      <small>
+                        {bank.categoryIds
+                          .map((categoryId) => categoriesById.get(categoryId))
+                          .filter(Boolean)
+                          .join(' · ') || 'Catégorie libre'}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <p className="question-bank-csv-helper">
+                Colonnes acceptées: question_text, option_a, option_b, option_c,
+                option_d, correct_answer, points, time_limit, difficulty.
+              </p>
+              {csvImportSummary ? (
+                <div className="form-success" role="status">
+                  {csvImportSummary}
+                </div>
+              ) : null}
             </div>
 
             <form className="category-form contest-form" onSubmit={saveBank}>
@@ -938,39 +1262,49 @@ export function SuperAdminQuestionBanksPage({
                 />
               </label>
 
-              <div className="question-bank-field-heading">
-                <div>
-                  <strong>Catégories associées</strong>
-                  <span>
-                    Ces catégories de JCQ pourront utiliser les questions de cette banque.
-                  </span>
+              <div className="question-bank-category-association-card">
+                <div className="question-bank-field-heading">
+                  <div>
+                    <span className="eyebrow">Routage des JCQ</span>
+                    <strong>Catégories associées</strong>
+                    <span>
+                      Les JCQ de ces catégories pourront tirer leurs questions dans cette banque.
+                    </span>
+                  </div>
+                  <div className="question-bank-category-actions">
+                    <small>
+                      {formatNumber(bankForm.categoryIds.length)} / {formatNumber(categories.length)} liées
+                    </small>
+                    <button type="button" onClick={selectAllBankCategories}>
+                      Tout sélectionner
+                    </button>
+                    <button type="button" onClick={clearBankCategories}>
+                      Vider
+                    </button>
+                  </div>
                 </div>
-                <div className="question-bank-category-actions">
-                  <small>
-                    {formatNumber(bankForm.categoryIds.length)} / {formatNumber(categories.length)}
-                  </small>
-                  <button type="button" onClick={selectAllBankCategories}>
-                    Tout sélectionner
-                  </button>
-                  <button type="button" onClick={clearBankCategories}>
-                    Vider
-                  </button>
+
+                <div className="question-bank-category-picker">
+                  {categories.map((category) => {
+                    const isSelected = bankForm.categoryIds.includes(category.id)
+                    return (
+                      <label className={isSelected ? 'selected' : ''} key={category.id}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleBankCategory(category.id)}
+                        />
+                        <span className="question-bank-category-mark">
+                          {category.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <span className="question-bank-category-copy">
+                          <strong>{category.name}</strong>
+                          <small>{isSelected ? 'Associée à cette banque' : 'Disponible'}</small>
+                        </span>
+                      </label>
+                    )
+                  })}
                 </div>
-              </div>
-              <div className="question-bank-category-picker">
-                {categories.map((category) => (
-                  <label
-                    className={bankForm.categoryIds.includes(category.id) ? 'selected' : ''}
-                    key={category.id}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bankForm.categoryIds.includes(category.id)}
-                      onChange={() => toggleBankCategory(category.id)}
-                    />
-                    {category.name}
-                  </label>
-                ))}
               </div>
 
               <label className="inline-toggle">
@@ -997,8 +1331,8 @@ export function SuperAdminQuestionBanksPage({
                 <span>+</span>
                 <strong>Créer ou modifier une banque</strong>
                 <p>
-                  Ouvre le formulaire pour créer une famille de questions ou modifier
-                  la banque sélectionnée dans le tableau.
+                  Ouvre le formulaire pour modifier les catégories d’une banque ou
+                  importer des questions par fichier CSV.
                 </p>
               </div>
               <div className="contest-actions">
@@ -1006,294 +1340,31 @@ export function SuperAdminQuestionBanksPage({
                   Créer une banque
                 </button>
                 {selectedBank ? (
-                  <button className="ghost-button" type="button" onClick={() => startEditBank(selectedBank)}>
+                  <button
+                    className="question-bank-secondary-action"
+                    type="button"
+                    onClick={() => startEditBank(selectedBank)}
+                  >
                     Modifier sélection
+                  </button>
+                ) : null}
+                {selectedBank ? (
+                  <button
+                    className="question-bank-secondary-action"
+                    type="button"
+                    onClick={() => startCreateQuestion(selectedBank.id)}
+                  >
+                    Ajouter une question
                   </button>
                 ) : null}
               </div>
             </section>
           )}
 
-          <section className="panel categories-page-panel question-bank-form-panel">
-            <div className="panel-heading">
-              <div>
-                <span className="eyebrow">Questions</span>
-                <h2>{selectedBank?.name ?? 'Aucune banque sélectionnée'}</h2>
-              </div>
-              <button className="ghost-button" type="button" onClick={startCreateQuestion} disabled={!selectedBankId}>
-                Nouvelle question
-              </button>
-            </div>
-
-            {!selectedBank ? (
-              <div className="question-bank-empty-panel">
-                <span>?</span>
-                <strong>Sélectionne une banque</strong>
-                <p>
-                  Choisis une banque dans le tableau pour consulter ses questions ou
-                  crée une nouvelle famille avant d’ajouter des questions.
-                </p>
-                <button className="primary-button" type="button" onClick={startCreateBank}>
-                  Créer une banque
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="question-bank-question-summary">
-                  <div>
-                    <span className="eyebrow">Questions enregistrées</span>
-                    <h3>{formatNumber(bankQuestions.length)} question(s)</h3>
-                    <p>
-                      Ces questions sont disponibles pour le tirage serveur des JCQ
-                      liés à cette banque.
-                    </p>
-                  </div>
-                  <button className="primary-button" type="button" onClick={startCreateQuestion}>
-                    Ajouter une question
-                  </button>
-                </div>
-
-                <div className="premium-contest-table question-bank-question-table question-bank-question-table-top">
-                  <div className="premium-contest-head">
-                    <span>Question</span>
-                    <span>Réponse</span>
-                    <span>Catégorie</span>
-                    <span>Statut</span>
-                    <span>Actions</span>
-                  </div>
-                  {bankQuestions.length === 0 ? (
-                    <p className="empty-panel-text">Aucune question dans cette banque.</p>
-                  ) : (
-                    bankQuestions.map((question) => (
-                      <div className="premium-contest-row" key={question.id}>
-                        <div>
-                          <strong>{question.questionText}</strong>
-                          <p>
-                            {question.points} pts · {question.timeLimit}s ·{' '}
-                            {question.difficulty || 'niveau libre'}
-                          </p>
-                        </div>
-                        <span>{question.correctAnswer}</span>
-                        <span>{categoriesById.get(question.categoryId) ?? 'Toutes'}</span>
-                        <span className={`status-pill ${question.isActive ? 'active' : 'inactive'}`}>
-                          {question.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                        <div className="contest-actions">
-                          <button className="ghost-button" type="button" onClick={() => startEditQuestion(question)}>
-                            Modifier
-                          </button>
-                          <button className="danger-button" type="button" onClick={() => void deleteQuestion(question)}>
-                            Supprimer
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <form
-                  className={`category-form contest-form question-bank-question-form ${
-                    questionForm.id ? 'is-editing' : ''
-                  }`}
-                  ref={questionFormPanelRef}
-                  onSubmit={saveQuestion}
-                >
-                  <div className="question-bank-editing-banner">
-                    <div>
-                      <span className="eyebrow">
-                        {questionForm.id ? 'Modification' : 'Nouvelle question'}
-                      </span>
-                      <strong>
-                        {questionForm.id
-                          ? 'Mettre à jour cette question'
-                          : 'Ajouter une question à la banque'}
-                      </strong>
-                    </div>
-                    {questionForm.id ? (
-                      <button className="table-action-button" type="button" onClick={cancelQuestionEdit}>
-                        Annuler
-                      </button>
-                    ) : null}
-                  </div>
-                  <label>
-                    Question
-                    <textarea
-                      value={questionForm.questionText}
-                      onChange={(event) =>
-                        setQuestionForm((current) => ({ ...current, questionText: event.target.value }))
-                      }
-                      placeholder="Ex: Quel service permet..."
-                    />
-                  </label>
-                  <div className="form-grid">
-                    <label>
-                      Réponse A
-                      <input
-                        value={questionForm.optionA}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, optionA: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Réponse B
-                      <input
-                        value={questionForm.optionB}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, optionB: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Réponse C
-                      <input
-                        value={questionForm.optionC}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, optionC: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Réponse D
-                      <input
-                        value={questionForm.optionD}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, optionD: event.target.value }))
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="form-grid">
-                    <label>
-                      Bonne réponse
-                      <select
-                        value={questionForm.correctAnswer}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, correctAnswer: event.target.value }))
-                        }
-                      >
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
-                        <option value="D">D</option>
-                      </select>
-                    </label>
-                    <label>
-                      Points
-                      <input
-                        type="number"
-                        min="0"
-                        value={questionForm.points}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, points: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Temps limite
-                      <input
-                        type="number"
-                        min="5"
-                        value={questionForm.timeLimit}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, timeLimit: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Catégorie précise
-                      <select
-                        value={questionForm.categoryId}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, categoryId: event.target.value }))
-                        }
-                      >
-                        <option value="">Toutes les catégories liées</option>
-                        {selectedBank.categoryIds.map((categoryId) => (
-                          <option key={categoryId} value={categoryId}>
-                            {categoriesById.get(categoryId) ?? 'Catégorie'}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="form-grid">
-                    <label>
-                      Difficulté
-                      <input
-                        value={questionForm.difficulty}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, difficulty: event.target.value }))
-                        }
-                        placeholder="facile, moyen, expert..."
-                      />
-                    </label>
-                    <label className="inline-toggle">
-                      <input
-                        type="checkbox"
-                        checked={questionForm.isActive}
-                        onChange={(event) =>
-                          setQuestionForm((current) => ({ ...current, isActive: event.target.checked }))
-                        }
-                      />
-                      Question active
-                    </label>
-                  </div>
-                  <div className="contest-actions">
-                    <button className="primary-button" type="submit" disabled={isSavingQuestion || !selectedBankId}>
-                      {isSavingQuestion
-                        ? 'Enregistrement...'
-                        : questionForm.id
-                          ? 'Mettre à jour la question'
-                          : 'Enregistrer la question'}
-                    </button>
-                    {questionForm.id ? (
-                      <button className="table-action-button" type="button" onClick={cancelQuestionEdit}>
-                        Annuler
-                      </button>
-                    ) : null}
-                  </div>
-                </form>
-
-                <div className="premium-contest-table question-bank-question-table">
-                  <div className="premium-contest-head">
-                    <span>Question</span>
-                    <span>Réponse</span>
-                    <span>Catégorie</span>
-                    <span>Statut</span>
-                    <span>Actions</span>
-                  </div>
-                  {bankQuestions.length === 0 ? (
-                    <p className="empty-state">Aucune question dans cette banque.</p>
-                  ) : (
-                    bankQuestions.map((question) => (
-                      <div className="premium-contest-row" key={question.id}>
-                        <div>
-                          <strong>{question.questionText}</strong>
-                          <p>{question.points} pts · {question.timeLimit}s · {question.difficulty || 'niveau libre'}</p>
-                        </div>
-                        <span>{question.correctAnswer}</span>
-                        <span>{categoriesById.get(question.categoryId) ?? 'Toutes'}</span>
-                        <span>{question.isActive ? 'Active' : 'Inactive'}</span>
-                        <div className="contest-actions">
-                          <button className="ghost-button" type="button" onClick={() => startEditQuestion(question)}>
-                            Modifier
-                          </button>
-                          <button className="danger-button" type="button" onClick={() => void deleteQuestion(question)}>
-                            Supprimer
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </>
-            )}
-          </section>
         </div>
       </section>
 
-      {questionForm.id ? (
+      {isQuestionModalOpen ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={cancelQuestionEdit}>
           <section
             className="contest-modal question-bank-question-modal"
@@ -1304,8 +1375,10 @@ export function SuperAdminQuestionBanksPage({
           >
             <div className="modal-header">
               <div>
-                <span className="eyebrow">Modification</span>
-                <h2 id="question-bank-edit-title">Mettre à jour la question</h2>
+                <span className="eyebrow">{questionForm.id ? 'Modification' : 'Nouvelle question'}</span>
+                <h2 id="question-bank-edit-title">
+                  {questionForm.id ? 'Mettre à jour la question' : 'Ajouter une question'}
+                </h2>
                 <p className="modal-subtitle">
                   {questionFormBank?.name ?? 'Banque de questions'} ·{' '}
                   {categoriesById.get(questionForm.categoryId) ?? 'Catégorie libre'}
@@ -1324,7 +1397,11 @@ export function SuperAdminQuestionBanksPage({
               <div className="question-bank-editing-banner">
                 <div>
                   <span className="eyebrow">Question sélectionnée</span>
-                  <strong>Modifie le libellé, les réponses ou les paramètres de jeu.</strong>
+                  <strong>
+                    {questionForm.id
+                      ? 'Modifie le libellé, les réponses ou les paramètres de jeu.'
+                      : 'Ajoute une question, puis enregistre pour saisir la suivante.'}
+                  </strong>
                 </div>
               </div>
 
@@ -1379,6 +1456,30 @@ export function SuperAdminQuestionBanksPage({
               </div>
 
               <div className="form-grid">
+                <label>
+                  Banque de questions
+                  <select
+                    value={questionForm.bankId}
+                    onChange={(event) => updateQuestionBank(event.target.value)}
+                  >
+                    <option value="">Sélectionner une banque</option>
+                    {questionForm.bankId && !questionFormBank ? (
+                      <option value={questionForm.bankId} disabled>
+                        {formatMissingBankLabel(questionForm.bankId)} - à remplacer
+                      </option>
+                    ) : null}
+                    {banks.length === 0 ? (
+                      <option value="" disabled>
+                        Aucune banque lisible
+                      </option>
+                    ) : null}
+                    {banks.map((bank) => (
+                      <option key={bank.id} value={bank.id}>
+                        {bank.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label>
                   Bonne réponse
                   <select
@@ -1461,7 +1562,11 @@ export function SuperAdminQuestionBanksPage({
 
               <div className="modal-actions">
                 <button className="primary-button" type="submit" disabled={isSavingQuestion}>
-                  {isSavingQuestion ? 'Enregistrement...' : 'Mettre à jour la question'}
+                  {isSavingQuestion
+                    ? 'Enregistrement...'
+                    : questionForm.id
+                      ? 'Mettre à jour la question'
+                      : 'Enregistrer et ajouter une autre'}
                 </button>
                 <button className="table-action-button" type="button" onClick={cancelQuestionEdit}>
                   Annuler
