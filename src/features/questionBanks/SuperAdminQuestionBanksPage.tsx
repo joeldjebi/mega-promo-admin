@@ -28,6 +28,7 @@ type QuestionBank = {
   id: string
   name: string
   description: string
+  questionsPerQuiz: number
   isActive: boolean
   createdAt: string
   categoryIds: string[]
@@ -54,6 +55,7 @@ type BankForm = {
   id: string
   name: string
   description: string
+  questionsPerQuiz: string
   categoryIds: string[]
   isActive: boolean
 }
@@ -78,6 +80,7 @@ const emptyBankForm: BankForm = {
   id: '',
   name: '',
   description: '',
+  questionsPerQuiz: '3',
   categoryIds: [],
   isActive: true,
 }
@@ -216,7 +219,7 @@ async function loadQuestionBankData() {
     await Promise.all([
       supabase
         .from('question_banks')
-        .select('id, name, description, is_active, created_at')
+        .select('id, name, description, questions_per_quiz, is_active, created_at')
         .order('created_at', { ascending: false }),
       supabase
         .from('categories')
@@ -257,6 +260,7 @@ async function loadQuestionBankData() {
     id: bank.id as string,
     name: (bank.name as string | null) ?? 'Banque',
     description: (bank.description as string | null) ?? '',
+    questionsPerQuiz: Number(bank.questions_per_quiz ?? 3),
     isActive: (bank.is_active as boolean | null) ?? true,
     createdAt: (bank.created_at as string | null) ?? '',
     categoryIds: categoryIdsByBank.get(bank.id as string) ?? [],
@@ -470,6 +474,7 @@ export function SuperAdminQuestionBanksPage({
       id: bank.id,
       name: bank.name,
       description: bank.description,
+      questionsPerQuiz: String(bank.questionsPerQuiz || 3),
       categoryIds: bank.categoryIds,
       isActive: bank.isActive,
     })
@@ -682,8 +687,13 @@ export function SuperAdminQuestionBanksPage({
   async function saveBank(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = normalizeText(bankForm.name)
+    const questionsPerQuiz = Number(bankForm.questionsPerQuiz)
     if (!name) {
       setError('Le nom de la banque est obligatoire.')
+      return
+    }
+    if (!Number.isFinite(questionsPerQuiz) || questionsPerQuiz < 1 || questionsPerQuiz > 50) {
+      setError('Le nombre de questions par JCQ doit être compris entre 1 et 50.')
       return
     }
     if (bankForm.categoryIds.length === 0) {
@@ -697,6 +707,7 @@ export function SuperAdminQuestionBanksPage({
       const payload = {
         name,
         description: normalizeText(bankForm.description) || null,
+        questions_per_quiz: Math.round(questionsPerQuiz),
         is_active: bankForm.isActive,
         updated_at: new Date().toISOString(),
       }
@@ -989,7 +1000,12 @@ export function SuperAdminQuestionBanksPage({
                   </div>
                   <p>
                     {summary.banks.length > 0
-                      ? summary.banks.map((bank) => bank.name).join(' · ')
+                      ? summary.banks
+                          .map(
+                            (bank) =>
+                              `${bank.name} · ${formatNumber(bank.questionsPerQuiz)} question(s)/JCQ`,
+                          )
+                          .join(' · ')
                       : 'Questions détectées, banque introuvable dans le catalogue'}
                   </p>
                 </article>
@@ -1132,6 +1148,9 @@ export function SuperAdminQuestionBanksPage({
               </span>
               <strong>{formatNumber(bankQuestions.length)} question(s)</strong>
               <small>
+                {formatNumber(selectedBank.questionsPerQuiz)} question(s) envoyée(s) par JCQ
+              </small>
+              <small>
                 {selectedBank.categoryIds
                   .map((categoryId) => categoriesById.get(categoryId))
                   .filter(Boolean)
@@ -1220,6 +1239,7 @@ export function SuperAdminQuestionBanksPage({
                     <span>
                       <strong>{bank.name}</strong>
                       <small>
+                        {formatNumber(bank.questionsPerQuiz)} question(s) par JCQ ·{' '}
                         {bank.categoryIds
                           .map((categoryId) => categoriesById.get(categoryId))
                           .filter(Boolean)
@@ -1259,6 +1279,23 @@ export function SuperAdminQuestionBanksPage({
                     setBankForm((current) => ({ ...current, description: event.target.value }))
                   }
                   placeholder="Explique à quoi sert cette famille de questions."
+                />
+              </label>
+              <label>
+                Questions envoyées par JCQ
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  step={1}
+                  value={bankForm.questionsPerQuiz}
+                  onChange={(event) =>
+                    setBankForm((current) => ({
+                      ...current,
+                      questionsPerQuiz: event.target.value,
+                    }))
+                  }
+                  placeholder="3"
                 />
               </label>
 
