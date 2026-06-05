@@ -38,11 +38,19 @@ type QuestionBank = {
 type BankQuestion = {
   id: string
   bankId: string
+  questionType: string
+  predictionType: string
+  predictionPayload: string
   questionText: string
+  questionImageUrl: string
   optionA: string
+  optionAImageUrl: string
   optionB: string
+  optionBImageUrl: string
   optionC: string
+  optionCImageUrl: string
   optionD: string
+  optionDImageUrl: string
   correctAnswer: string
   points: number
   timeLimit: number
@@ -63,11 +71,19 @@ type BankForm = {
 type QuestionForm = {
   id: string
   bankId: string
+  questionType: 'quiz' | 'pronostic'
+  predictionType: string
+  predictionPayload: string
   questionText: string
+  questionImageUrl: string
   optionA: string
+  optionAImageUrl: string
   optionB: string
+  optionBImageUrl: string
   optionC: string
+  optionCImageUrl: string
   optionD: string
+  optionDImageUrl: string
   correctAnswer: string
   points: string
   timeLimit: string
@@ -75,6 +91,14 @@ type QuestionForm = {
   categoryId: string
   isActive: boolean
 }
+
+type QuestionAnswerField = {
+  letter: 'A' | 'B' | 'C' | 'D'
+  textKey: 'optionA' | 'optionB' | 'optionC' | 'optionD'
+  imageKey: 'optionAImageUrl' | 'optionBImageUrl' | 'optionCImageUrl' | 'optionDImageUrl'
+}
+
+type QuestionMediaMode = 'text' | 'question_image' | 'answer_images' | 'mixed'
 
 const emptyBankForm: BankForm = {
   id: '',
@@ -88,11 +112,19 @@ const emptyBankForm: BankForm = {
 const emptyQuestionForm: QuestionForm = {
   id: '',
   bankId: '',
+  questionType: 'quiz',
+  predictionType: '',
+  predictionPayload: '',
   questionText: '',
+  questionImageUrl: '',
   optionA: '',
+  optionAImageUrl: '',
   optionB: '',
+  optionBImageUrl: '',
   optionC: '',
+  optionCImageUrl: '',
   optionD: '',
+  optionDImageUrl: '',
   correctAnswer: 'A',
   points: '10',
   timeLimit: '20',
@@ -102,6 +134,45 @@ const emptyQuestionForm: QuestionForm = {
 }
 
 const CATEGORY_QUESTIONS_PAGE_SIZE = 8
+const questionAnswerFields: QuestionAnswerField[] = [
+  { letter: 'A', textKey: 'optionA', imageKey: 'optionAImageUrl' },
+  { letter: 'B', textKey: 'optionB', imageKey: 'optionBImageUrl' },
+  { letter: 'C', textKey: 'optionC', imageKey: 'optionCImageUrl' },
+  { letter: 'D', textKey: 'optionD', imageKey: 'optionDImageUrl' },
+]
+const questionMediaModeOptions: Array<{
+  value: QuestionMediaMode
+  label: string
+  description: string
+}> = [
+  {
+    value: 'text',
+    label: 'Question texte',
+    description: 'Question et réponses en texte.',
+  },
+  {
+    value: 'question_image',
+    label: 'Question image',
+    description: 'Image à identifier, réponses en texte.',
+  },
+  {
+    value: 'answer_images',
+    label: 'Réponses images',
+    description: 'Question texte, choix en images.',
+  },
+  {
+    value: 'mixed',
+    label: 'Mixte',
+    description: 'Texte et images partout.',
+  },
+]
+const predictionTypeOptions = [
+  { value: 'match_winner', label: 'Résultat du match' },
+  { value: 'exact_score', label: 'Score exact' },
+  { value: 'over_under', label: 'Plus / moins de buts' },
+  { value: 'scorer', label: 'Buteur' },
+  { value: 'custom', label: 'Personnalisé' },
+]
 const csvQuestionColumns = [
   'question_text',
   'option_a',
@@ -113,9 +184,96 @@ const csvQuestionColumns = [
   'time_limit',
   'difficulty',
 ]
+const csvHeaderAliases = [
+  'question_text',
+  'question',
+  'question_image_url',
+  'question_image',
+  'prompt_image_url',
+  'option_a',
+  'option_a_image_url',
+  'reponse_a',
+  'answer_a',
+]
 
 function normalizeText(value: string) {
   return value.trim()
+}
+
+function normalizeOptionalUrl(value: string) {
+  return value.trim()
+}
+
+function stringifyJsonObject(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  return JSON.stringify(value, null, 2)
+}
+
+function parseJsonObject(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return {}
+  const parsed = JSON.parse(trimmed) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('La configuration pronostic doit être un objet JSON.')
+  }
+  return parsed as Record<string, unknown>
+}
+
+function hasMediaValue(value: string) {
+  return normalizeOptionalUrl(value).length > 0
+}
+
+function detectQuestionMediaMode(question: Pick<
+  QuestionForm,
+  | 'questionImageUrl'
+  | 'optionAImageUrl'
+  | 'optionBImageUrl'
+  | 'optionCImageUrl'
+  | 'optionDImageUrl'
+>) {
+  const hasQuestionImage = hasMediaValue(question.questionImageUrl)
+  const hasAnswerImage =
+    hasMediaValue(question.optionAImageUrl) ||
+    hasMediaValue(question.optionBImageUrl) ||
+    hasMediaValue(question.optionCImageUrl) ||
+    hasMediaValue(question.optionDImageUrl)
+
+  if (hasQuestionImage && hasAnswerImage) return 'mixed'
+  if (hasQuestionImage) return 'question_image'
+  if (hasAnswerImage) return 'answer_images'
+  return 'text'
+}
+
+function applyQuestionMediaMode(form: QuestionForm, mode: QuestionMediaMode): QuestionForm {
+  if (mode === 'mixed') return form
+  if (mode === 'question_image') {
+    return {
+      ...form,
+      questionText: '',
+      optionAImageUrl: '',
+      optionBImageUrl: '',
+      optionCImageUrl: '',
+      optionDImageUrl: '',
+    }
+  }
+  if (mode === 'answer_images') {
+    return {
+      ...form,
+      questionImageUrl: '',
+      optionA: '',
+      optionB: '',
+      optionC: '',
+      optionD: '',
+    }
+  }
+  return {
+    ...form,
+    questionImageUrl: '',
+    optionAImageUrl: '',
+    optionBImageUrl: '',
+    optionCImageUrl: '',
+    optionDImageUrl: '',
+  }
 }
 
 function formatNumber(value: number) {
@@ -176,9 +334,7 @@ function parseQuestionCsv(text: string) {
   if (lines.length === 0) return []
 
   const firstRow = parseCsvLine(lines[0]).map(normalizeCsvHeader)
-  const hasHeader = firstRow.some((column) =>
-    ['question_text', 'question', 'option_a', 'reponse_a', 'answer_a'].includes(column),
-  )
+  const hasHeader = firstRow.some((column) => csvHeaderAliases.includes(column))
   const headers = hasHeader ? firstRow : csvQuestionColumns
   const dataLines = hasHeader ? lines.slice(1) : lines
 
@@ -192,10 +348,20 @@ function parseQuestionCsv(text: string) {
     })
     .map((row) => ({
       questionText: readCsvField(row, ['question_text', 'question', 'libelle', 'question_text_fr']),
+      questionImageUrl: readCsvField(row, [
+        'question_image_url',
+        'question_image',
+        'image_question',
+        'prompt_image_url',
+      ]),
       optionA: readCsvField(row, ['option_a', 'reponse_a', 'answer_a', 'a']),
+      optionAImageUrl: readCsvField(row, ['option_a_image_url', 'image_a', 'reponse_a_image', 'answer_a_image']),
       optionB: readCsvField(row, ['option_b', 'reponse_b', 'answer_b', 'b']),
+      optionBImageUrl: readCsvField(row, ['option_b_image_url', 'image_b', 'reponse_b_image', 'answer_b_image']),
       optionC: readCsvField(row, ['option_c', 'reponse_c', 'answer_c', 'c']),
+      optionCImageUrl: readCsvField(row, ['option_c_image_url', 'image_c', 'reponse_c_image', 'answer_c_image']),
       optionD: readCsvField(row, ['option_d', 'reponse_d', 'answer_d', 'd']),
+      optionDImageUrl: readCsvField(row, ['option_d_image_url', 'image_d', 'reponse_d_image', 'answer_d_image']),
       correctAnswer: readCsvField(row, ['correct_answer', 'bonne_reponse', 'answer', 'correct'], 'A')
         .slice(0, 1)
         .toUpperCase(),
@@ -205,11 +371,11 @@ function parseQuestionCsv(text: string) {
     }))
     .filter(
       (question) =>
-        question.questionText &&
-        question.optionA &&
-        question.optionB &&
-        question.optionC &&
-        question.optionD &&
+        (question.questionText || question.questionImageUrl) &&
+        (question.optionA || question.optionAImageUrl) &&
+        (question.optionB || question.optionBImageUrl) &&
+        (question.optionC || question.optionCImageUrl) &&
+        (question.optionD || question.optionDImageUrl) &&
         ['A', 'B', 'C', 'D'].includes(question.correctAnswer),
     )
 }
@@ -230,7 +396,7 @@ async function loadQuestionBankData() {
       supabase
         .from('questions')
         .select(
-          'id, question_bank_id, category_id, question_text, option_a, option_b, option_c, option_d, correct_answer, points, time_limit, is_active, difficulty',
+          'id, question_bank_id, category_id, question_type, prediction_type, prediction_payload, question_text, question_image_url, option_a, option_a_image_url, option_b, option_b_image_url, option_c, option_c_image_url, option_d, option_d_image_url, correct_answer, points, time_limit, is_active, difficulty',
         )
         .not('question_bank_id', 'is', null)
         .order('created_at', { ascending: false }),
@@ -275,11 +441,19 @@ async function loadQuestionBankData() {
   const questions: BankQuestion[] = (questionsResponse.data ?? []).map((question) => ({
     id: question.id as string,
     bankId: (question.question_bank_id as string | null) ?? '',
+    questionType: (question.question_type as string | null) ?? 'quiz',
+    predictionType: (question.prediction_type as string | null) ?? '',
+    predictionPayload: stringifyJsonObject(question.prediction_payload),
     questionText: (question.question_text as string | null) ?? '',
+    questionImageUrl: (question.question_image_url as string | null) ?? '',
     optionA: (question.option_a as string | null) ?? '',
+    optionAImageUrl: (question.option_a_image_url as string | null) ?? '',
     optionB: (question.option_b as string | null) ?? '',
+    optionBImageUrl: (question.option_b_image_url as string | null) ?? '',
     optionC: (question.option_c as string | null) ?? '',
+    optionCImageUrl: (question.option_c_image_url as string | null) ?? '',
     optionD: (question.option_d as string | null) ?? '',
+    optionDImageUrl: (question.option_d_image_url as string | null) ?? '',
     correctAnswer: (question.correct_answer as string | null) ?? 'A',
     points: Number(question.points ?? 10),
     timeLimit: Number(question.time_limit ?? 20),
@@ -308,6 +482,7 @@ export function SuperAdminQuestionBanksPage({
   const [selectedBankId, setSelectedBankId] = useState('')
   const [bankForm, setBankForm] = useState<BankForm>(emptyBankForm)
   const [questionForm, setQuestionForm] = useState<QuestionForm>(emptyQuestionForm)
+  const [questionMediaMode, setQuestionMediaMode] = useState<QuestionMediaMode>('text')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [categoryQuestionsPage, setCategoryQuestionsPage] = useState(1)
   const [error, setError] = useState('')
@@ -498,6 +673,7 @@ export function SuperAdminQuestionBanksPage({
       bankId: bank.id,
       categoryId: bank?.categoryIds[0] ?? '',
     })
+    setQuestionMediaMode('text')
     setIsQuestionModalOpen(true)
   }
 
@@ -509,6 +685,7 @@ export function SuperAdminQuestionBanksPage({
       bankId: selectedBankId,
       categoryId: bank?.categoryIds[0] ?? '',
     })
+    setQuestionMediaMode('text')
   }
 
   function selectBank(bank: QuestionBank) {
@@ -550,21 +727,31 @@ export function SuperAdminQuestionBanksPage({
       setSelectedBankId(editableBank.id)
       setSelectedCategoryId(question.categoryId || editableBank.categoryIds[0] || selectedCategoryId)
     }
-    setQuestionForm({
+    const nextForm: QuestionForm = {
       id: question.id,
       bankId: editableBank?.id ?? question.bankId,
+      questionType: question.questionType === 'pronostic' ? 'pronostic' : 'quiz',
+      predictionType: question.predictionType,
+      predictionPayload: question.predictionPayload,
       questionText: question.questionText,
+      questionImageUrl: question.questionImageUrl,
       optionA: question.optionA,
+      optionAImageUrl: question.optionAImageUrl,
       optionB: question.optionB,
+      optionBImageUrl: question.optionBImageUrl,
       optionC: question.optionC,
+      optionCImageUrl: question.optionCImageUrl,
       optionD: question.optionD,
+      optionDImageUrl: question.optionDImageUrl,
       correctAnswer: question.correctAnswer,
       points: String(question.points),
       timeLimit: String(question.timeLimit),
       difficulty: question.difficulty,
       categoryId: question.categoryId,
       isActive: question.isActive,
-    })
+    }
+    setQuestionMediaMode(detectQuestionMediaMode(nextForm))
+    setQuestionForm(nextForm)
     setIsQuestionModalOpen(true)
     window.setTimeout(() => {
       categoryQuestionEditPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -587,6 +774,11 @@ export function SuperAdminQuestionBanksPage({
       setSelectedBankId(nextBank.id)
       setSelectedCategoryId(nextBank.categoryIds[0] ?? selectedCategoryId)
     }
+  }
+
+  function updateQuestionMediaMode(mode: QuestionMediaMode) {
+    setQuestionMediaMode(mode)
+    setQuestionForm((current) => applyQuestionMediaMode(current, mode))
   }
 
   function toggleBankCategory(categoryId: string) {
@@ -642,7 +834,7 @@ export function SuperAdminQuestionBanksPage({
       const parsedQuestions = parseQuestionCsv(csvText)
       if (parsedQuestions.length === 0) {
         setError(
-          'Aucune question valide trouvée. Colonnes attendues: question_text, option_a, option_b, option_c, option_d, correct_answer, points, time_limit, difficulty.',
+          'Aucune question valide trouvée. Utilise au moins un texte ou une image pour la question et chaque réponse.',
         )
         return
       }
@@ -655,10 +847,15 @@ export function SuperAdminQuestionBanksPage({
           category_id: categoryId,
           question_scope: 'bank',
           question_text: question.questionText,
+          question_image_url: question.questionImageUrl || null,
           option_a: question.optionA,
+          option_a_image_url: question.optionAImageUrl || null,
           option_b: question.optionB,
+          option_b_image_url: question.optionBImageUrl || null,
           option_c: question.optionC,
+          option_c_image_url: question.optionCImageUrl || null,
           option_d: question.optionD,
+          option_d_image_url: question.optionDImageUrl || null,
           correct_answer: question.correctAnswer,
           points: Math.max(question.points, 0),
           time_limit: Math.max(question.timeLimit, 5),
@@ -758,9 +955,45 @@ export function SuperAdminQuestionBanksPage({
       setError('Sélectionne une banque lisible avant d’enregistrer cette question.')
       return
     }
-    if (!normalizeText(questionForm.questionText)) {
-      setError('La question est obligatoire.')
+    const questionText = normalizeText(questionForm.questionText)
+    const questionImageUrl = normalizeOptionalUrl(questionForm.questionImageUrl)
+    const optionA = normalizeText(questionForm.optionA)
+    const optionAImageUrl = normalizeOptionalUrl(questionForm.optionAImageUrl)
+    const optionB = normalizeText(questionForm.optionB)
+    const optionBImageUrl = normalizeOptionalUrl(questionForm.optionBImageUrl)
+    const optionC = normalizeText(questionForm.optionC)
+    const optionCImageUrl = normalizeOptionalUrl(questionForm.optionCImageUrl)
+    const optionD = normalizeText(questionForm.optionD)
+    const optionDImageUrl = normalizeOptionalUrl(questionForm.optionDImageUrl)
+
+    if (!questionText && !questionImageUrl) {
+      setError('Ajoute un texte ou une image pour la question.')
       return
+    }
+    if (!optionA && !optionAImageUrl) {
+      setError('La réponse A doit avoir un texte ou une image.')
+      return
+    }
+    if (!optionB && !optionBImageUrl) {
+      setError('La réponse B doit avoir un texte ou une image.')
+      return
+    }
+    if (!optionC && !optionCImageUrl) {
+      setError('La réponse C doit avoir un texte ou une image.')
+      return
+    }
+    if (!optionD && !optionDImageUrl) {
+      setError('La réponse D doit avoir un texte ou une image.')
+      return
+    }
+    let predictionPayload: Record<string, unknown> = {}
+    if (questionForm.questionType === 'pronostic') {
+      try {
+        predictionPayload = parseJsonObject(questionForm.predictionPayload)
+      } catch (parseError) {
+        setError(parseError instanceof Error ? parseError.message : 'Configuration pronostic invalide.')
+        return
+      }
     }
 
     setIsSavingQuestion(true)
@@ -771,11 +1004,25 @@ export function SuperAdminQuestionBanksPage({
         question_bank_id: questionForm.bankId,
         category_id: questionForm.categoryId || null,
         question_scope: 'bank',
-        question_text: normalizeText(questionForm.questionText),
-        option_a: normalizeText(questionForm.optionA),
-        option_b: normalizeText(questionForm.optionB),
-        option_c: normalizeText(questionForm.optionC),
-        option_d: normalizeText(questionForm.optionD),
+        question_type: questionForm.questionType,
+        prediction_type:
+          questionForm.questionType === 'pronostic'
+            ? normalizeText(questionForm.predictionType) || 'custom'
+            : null,
+        prediction_payload:
+          questionForm.questionType === 'pronostic' ? predictionPayload : {},
+        resolution_status:
+          questionForm.questionType === 'pronostic' ? 'pending' : 'not_required',
+        question_text: questionText,
+        question_image_url: questionImageUrl || null,
+        option_a: optionA,
+        option_a_image_url: optionAImageUrl || null,
+        option_b: optionB,
+        option_b_image_url: optionBImageUrl || null,
+        option_c: optionC,
+        option_c_image_url: optionCImageUrl || null,
+        option_d: optionD,
+        option_d_image_url: optionDImageUrl || null,
         correct_answer: questionForm.correctAnswer,
         points: Math.max(Number(questionForm.points) || 10, 0),
         time_limit: Math.max(Number(questionForm.timeLimit) || 20, 5),
@@ -798,12 +1045,14 @@ export function SuperAdminQuestionBanksPage({
       await refreshData(nextBankId)
       if (wasEditing) {
         setIsQuestionModalOpen(false)
+        setQuestionMediaMode('text')
         setQuestionForm({
           ...emptyQuestionForm,
           bankId: nextBankId,
           categoryId: nextCategoryId,
         })
       } else {
+        setQuestionMediaMode('text')
         setQuestionForm({
           ...emptyQuestionForm,
           bankId: nextBankId,
@@ -836,6 +1085,19 @@ export function SuperAdminQuestionBanksPage({
     await adminAuth.logout()
     navigate(authRoute, { replace: true })
   }
+
+  const shouldShowQuestionText =
+    questionMediaMode === 'text' ||
+    questionMediaMode === 'answer_images' ||
+    questionMediaMode === 'mixed'
+  const shouldShowQuestionImage =
+    questionMediaMode === 'question_image' || questionMediaMode === 'mixed'
+  const shouldShowAnswerText =
+    questionMediaMode === 'text' ||
+    questionMediaMode === 'question_image' ||
+    questionMediaMode === 'mixed'
+  const shouldShowAnswerImages =
+    questionMediaMode === 'answer_images' || questionMediaMode === 'mixed'
 
   return (
     <main className="app-shell">
@@ -1251,8 +1513,10 @@ export function SuperAdminQuestionBanksPage({
               </div>
 
               <p className="question-bank-csv-helper">
-                Colonnes acceptées: question_text, option_a, option_b, option_c,
-                option_d, correct_answer, points, time_limit, difficulty.
+                Colonnes acceptées: question_text, question_image_url, option_a,
+                option_a_image_url, option_b, option_b_image_url, option_c,
+                option_c_image_url, option_d, option_d_image_url, correct_answer,
+                points, time_limit, difficulty.
               </p>
               {csvImportSummary ? (
                 <div className="form-success" role="status">
@@ -1442,54 +1706,183 @@ export function SuperAdminQuestionBanksPage({
                 </div>
               </div>
 
-              <label>
-                Question
-                <textarea
-                  value={questionForm.questionText}
-                  onChange={(event) =>
-                    setQuestionForm((current) => ({ ...current, questionText: event.target.value }))
+              <div className="question-bank-type-switch">
+                <button
+                  className={questionForm.questionType === 'quiz' ? 'selected' : ''}
+                  type="button"
+                  onClick={() =>
+                    setQuestionForm((current) => ({
+                      ...current,
+                      questionType: 'quiz',
+                      predictionType: '',
+                      predictionPayload: '',
+                    }))
                   }
-                  placeholder="Ex: Quel service permet..."
-                />
-              </label>
+                >
+                  <strong>QCM classique</strong>
+                  <span>Comportement actuel avec bonne réponse immédiate.</span>
+                </button>
+                <button
+                  className={questionForm.questionType === 'pronostic' ? 'selected' : ''}
+                  type="button"
+                  onClick={() =>
+                    setQuestionForm((current) => ({
+                      ...current,
+                      questionType: 'pronostic',
+                      predictionType: current.predictionType || 'match_winner',
+                      predictionPayload:
+                        current.predictionPayload ||
+                        '{\n  "match_label": "",\n  "home_team": "",\n  "away_team": ""\n}',
+                    }))
+                  }
+                >
+                  <strong>Pronostic</strong>
+                  <span>Choix sportif à résoudre après le match.</span>
+                </button>
+              </div>
 
-              <div className="form-grid">
+              {questionForm.questionType === 'pronostic' ? (
+                <div className="question-bank-pronostic-config">
+                  <div>
+                    <span className="eyebrow">Pronostics</span>
+                    <strong>Configuration sport</strong>
+                    <p>
+                      Ces champs n’impactent pas les QCM. Ils servent au rendu
+                      mobile et à la future résolution du pronostic.
+                    </p>
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      Type de pronostic
+                      <select
+                        value={questionForm.predictionType}
+                        onChange={(event) =>
+                          setQuestionForm((current) => ({
+                            ...current,
+                            predictionType: event.target.value,
+                          }))
+                        }
+                      >
+                        {predictionTypeOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Payload JSON
+                      <textarea
+                        value={questionForm.predictionPayload}
+                        onChange={(event) =>
+                          setQuestionForm((current) => ({
+                            ...current,
+                            predictionPayload: event.target.value,
+                          }))
+                        }
+                        placeholder='{"match_label":"CIV vs Sénégal","home_team":"CIV","away_team":"Sénégal"}'
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="question-bank-media-mode-picker" aria-label="Type de question">
+                {questionMediaModeOptions.map((option) => (
+                  <button
+                    className={questionMediaMode === option.value ? 'selected' : ''}
+                    key={option.value}
+                    type="button"
+                    onClick={() => updateQuestionMediaMode(option.value)}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                  </button>
+                ))}
+              </div>
+
+              {shouldShowQuestionText ? (
                 <label>
-                  Réponse A
-                  <input
-                    value={questionForm.optionA}
+                  Question texte
+                  <textarea
+                    value={questionForm.questionText}
                     onChange={(event) =>
-                      setQuestionForm((current) => ({ ...current, optionA: event.target.value }))
+                      setQuestionForm((current) => ({ ...current, questionText: event.target.value }))
                     }
+                    placeholder="Ex: Quel service permet..."
                   />
                 </label>
+              ) : null}
+
+              {shouldShowQuestionImage ? (
                 <label>
-                  Réponse B
+                  Image de la question
                   <input
-                    value={questionForm.optionB}
+                    value={questionForm.questionImageUrl}
                     onChange={(event) =>
-                      setQuestionForm((current) => ({ ...current, optionB: event.target.value }))
+                      setQuestionForm((current) => ({ ...current, questionImageUrl: event.target.value }))
                     }
+                    placeholder="https://..."
                   />
+                  {questionForm.questionImageUrl ? (
+                    <span className="question-bank-media-preview">
+                      <img src={questionForm.questionImageUrl} alt="" loading="lazy" />
+                    </span>
+                  ) : null}
                 </label>
-                <label>
-                  Réponse C
-                  <input
-                    value={questionForm.optionC}
-                    onChange={(event) =>
-                      setQuestionForm((current) => ({ ...current, optionC: event.target.value }))
-                    }
-                  />
-                </label>
-                <label>
-                  Réponse D
-                  <input
-                    value={questionForm.optionD}
-                    onChange={(event) =>
-                      setQuestionForm((current) => ({ ...current, optionD: event.target.value }))
-                    }
-                  />
-                </label>
+              ) : null}
+
+              <div className="question-bank-media-section">
+                <div>
+                  <span className="eyebrow">Réponses</span>
+                  <strong>Texte ou image</strong>
+                  <p>Chaque proposition doit avoir au moins un texte ou une image.</p>
+                </div>
+                <div className="question-bank-answer-media-grid">
+                  {questionAnswerFields.map(({ letter, textKey, imageKey }) => {
+                    const textValue = questionForm[textKey]
+                    const imageValue = questionForm[imageKey]
+                    return (
+                      <div className="question-bank-answer-media-card" key={letter}>
+                        <strong>Réponse {letter}</strong>
+                        {shouldShowAnswerText ? (
+                          <label>
+                            Texte
+                            <input
+                              value={textValue}
+                              onChange={(event) =>
+                                setQuestionForm((current) => ({
+                                  ...current,
+                                  [textKey]: event.target.value,
+                                }))
+                              }
+                            />
+                          </label>
+                        ) : null}
+                        {shouldShowAnswerImages ? (
+                          <label>
+                            Image
+                            <input
+                              value={imageValue}
+                              onChange={(event) =>
+                                setQuestionForm((current) => ({
+                                  ...current,
+                                  [imageKey]: event.target.value,
+                                }))
+                              }
+                              placeholder="https://..."
+                            />
+                          </label>
+                        ) : null}
+                        {shouldShowAnswerImages && imageValue ? (
+                          <span className="question-bank-media-preview is-option">
+                            <img src={imageValue} alt="" loading="lazy" />
+                          </span>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="form-grid">
