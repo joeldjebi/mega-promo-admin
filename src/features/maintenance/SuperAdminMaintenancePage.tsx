@@ -41,6 +41,7 @@ type MaintenanceScope =
   | 'rewards_notifications'
   | 'badges'
   | 'subscriptions'
+  | 'question_banks'
   | 'contests'
   | 'all_test_data'
 
@@ -93,6 +94,15 @@ const maintenanceActions: MaintenanceAction[] = [
     danger: 'high',
   },
   {
+    scope: 'question_banks',
+    title: 'Vider banques de questions',
+    description:
+      'Supprime toutes les banques de questions, leurs liens catégories et les questions rattachées aux banques.',
+    keeps:
+      'Conserve concours, questions directement rattachées aux concours, catégories, joueurs et partenaires.',
+    danger: 'high',
+  },
+  {
     scope: 'contests',
     title: 'Vider concours test',
     description:
@@ -133,10 +143,15 @@ export function SuperAdminMaintenancePage({ authRoute, rootRoute, settingsRoute,
     setMaintenanceNotice('')
     setActiveScope(action.scope)
     try {
-      const { data, error } = await supabase.rpc('admin_maintenance_clear', {
-        p_scope: action.scope,
-        p_confirmation: confirmation,
-      })
+      const { data, error } =
+        action.scope === 'question_banks'
+          ? await supabase.rpc('admin_maintenance_clear_question_banks', {
+              p_confirmation: confirmation,
+            })
+          : await supabase.rpc('admin_maintenance_clear', {
+              p_scope: action.scope,
+              p_confirmation: confirmation,
+            })
 
       if (error) throw error
 
