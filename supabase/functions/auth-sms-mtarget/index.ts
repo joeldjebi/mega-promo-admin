@@ -271,6 +271,7 @@ async function sendWasenderWhatsApp(to: string, text: string) {
 
   const response = await fetch(url, {
     method: 'POST',
+    redirect: 'follow',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -278,14 +279,22 @@ async function sendWasenderWhatsApp(to: string, text: string) {
     body: JSON.stringify(requestPayload),
   })
   const body = await response.text()
+  let parsedBody: { success?: boolean } | null = null
+  try {
+    parsedBody = JSON.parse(body) as { success?: boolean }
+  } catch {
+    parsedBody = null
+  }
+  const wasenderSuccess = parsedBody?.success === true
   console.log('[MegaPromo][auth-sms-mtarget][wasender] response', {
     ok: response.ok,
     status: response.status,
+    wasenderSuccess,
     body,
   })
 
   return {
-    ok: response.ok,
+    ok: response.ok && wasenderSuccess,
     status: response.status,
     response: body,
   }
