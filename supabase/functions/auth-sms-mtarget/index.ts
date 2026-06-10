@@ -97,9 +97,23 @@ async function sendMtargetSms(msisdn: string, message: string, sender: string) {
 }
 
 async function readOtpDeliveryChannel(): Promise<OtpDeliveryChannel> {
+  const envChannel = Deno.env.get('OTP_DELIVERY_CHANNEL')?.toLowerCase()
+  if (envChannel === 'whatsapp' || envChannel === 'sms') {
+    console.log('[MegaPromo][auth-sms-mtarget] otp channel from env', {
+      channel: envChannel,
+    })
+    return envChannel
+  }
+
   const config = getSupabaseAdminConfig()
 
-  if (!config) return 'sms'
+  if (!config) {
+    console.warn('[MegaPromo][auth-sms-mtarget] otp channel fallback', {
+      reason: 'missing_supabase_admin_config',
+      channel: 'sms',
+    })
+    return 'sms'
+  }
 
   const response = await fetch(
     `${config.supabaseUrl}/rest/v1/app_feature_flags?key=eq.otp_delivery_channel&select=is_enabled,metadata`,
@@ -110,16 +124,34 @@ async function readOtpDeliveryChannel(): Promise<OtpDeliveryChannel> {
       },
     },
   )
+  const responseBody = await response.text()
+  console.log('[MegaPromo][auth-sms-mtarget] otp channel flag response', {
+    ok: response.ok,
+    status: response.status,
+    body: responseBody,
+  })
+
   if (!response.ok) return 'sms'
 
-  const rows = await response.json() as Array<{
+  const rows = JSON.parse(responseBody) as Array<{
     is_enabled?: boolean
     metadata?: { channel?: string }
   }>
   const row = rows[0]
-  if (!row?.is_enabled) return 'sms'
+  if (!row?.is_enabled) {
+    console.warn('[MegaPromo][auth-sms-mtarget] otp channel fallback', {
+      reason: row ? 'flag_disabled' : 'flag_missing',
+      channel: 'sms',
+    })
+    return 'sms'
+  }
 
-  return row.metadata?.channel === 'whatsapp' ? 'whatsapp' : 'sms'
+  const channel = row.metadata?.channel === 'whatsapp' ? 'whatsapp' : 'sms'
+  console.log('[MegaPromo][auth-sms-mtarget] otp channel selected', {
+    channel,
+    metadata: row.metadata,
+  })
+  return channel
 }
 
 async function enforceOtpResendDelay(msisdn: string) {
@@ -227,15 +259,30 @@ async function sendWasenderWhatsApp(to: string, text: string) {
     throw new Error('Secret Wasender manquant: WASENDER_API_TOKEN.')
   }
 
+  const requestPayload = { to, text }
+  console.log('[MegaPromo][auth-sms-mtarget][wasender] request', {
+    url,
+    headers: {
+      Authorization: 'Bearer [masked]',
+      'Content-Type': 'application/json',
+    },
+    payload: requestPayload,
+  })
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ to, text }),
+    body: JSON.stringify(requestPayload),
   })
   const body = await response.text()
+  console.log('[MegaPromo][auth-sms-mtarget][wasender] response', {
+    ok: response.ok,
+    status: response.status,
+    body,
+  })
 
   return {
     ok: response.ok,

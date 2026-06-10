@@ -1,0 +1,2 @@
+[functions.auth-sms-mtarget]
+verify_jwt = false
