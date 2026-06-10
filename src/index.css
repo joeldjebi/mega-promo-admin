@@ -1196,7 +1196,8 @@ h3 {
 }
 
 .hero-panel {
-  min-height: 344px;
+  min-height: 150px;
+  margin-top: 15px;
 }
 
 .actions-panel {

@@ -174,6 +174,7 @@ type AppFeatureFlagItem = {
   name: string
   description: string
   isEnabled: boolean
+  metadata: Record<string, unknown>
   updatedAt: string
 }
 
@@ -286,6 +287,7 @@ const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
     name: 'Bouton forfait joueur',
     description: 'Affiche ou masque l’accès aux forfaits dans le profil joueur.',
     isEnabled: true,
+    metadata: {},
     updatedAt: '',
   },
   {
@@ -294,6 +296,16 @@ const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
     description:
       'Redirige les joueurs vers une page maintenance et bloque l’accès mobile.',
     isEnabled: false,
+    metadata: {},
+    updatedAt: '',
+  },
+  {
+    key: 'otp_delivery_channel',
+    name: 'Canal OTP inscription',
+    description:
+      'Choisit le canal d’envoi des codes OTP joueur: SMS ou WhatsApp.',
+    isEnabled: true,
+    metadata: { channel: 'sms' },
     updatedAt: '',
   },
 ]
@@ -467,7 +479,7 @@ async function fetchAppUpdateConfigForAdmin(): Promise<AppUpdateConfigItem | nul
 async function fetchAppFeatureFlagsForAdmin(): Promise<AppFeatureFlagItem[]> {
   const { data, error } = await supabase
     .from('app_feature_flags')
-    .select('key, name, description, is_enabled, updated_at')
+    .select('key, name, description, is_enabled, metadata, updated_at')
     .in('key', defaultAppFeatureFlags.map((flag) => flag.key))
     .order('name', { ascending: true })
 
@@ -478,6 +490,10 @@ async function fetchAppFeatureFlagsForAdmin(): Promise<AppFeatureFlagItem[]> {
     name: (flag.name as string | null) ?? flag.key,
     description: (flag.description as string | null) ?? '',
     isEnabled: (flag.is_enabled as boolean | null) ?? true,
+    metadata:
+      flag.metadata && typeof flag.metadata === 'object'
+        ? (flag.metadata as Record<string, unknown>)
+        : {},
     updatedAt: (flag.updated_at as string | null) ?? '',
   }))
 
@@ -1153,12 +1169,52 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     }
   }
 
+  async function handleSaveOtpDeliveryChannel(channel: 'sms' | 'whatsapp') {
+    const otpFlag =
+      appFeatureFlags.find((flag) => flag.key === 'otp_delivery_channel') ??
+      defaultAppFeatureFlags[2]
+
+    setNotice('')
+    setSettingsError('')
+    setIsAppFeatureFlagSaving(true)
+    try {
+      const { error } = await supabase.from('app_feature_flags').upsert({
+        key: otpFlag.key,
+        name: otpFlag.name,
+        description: otpFlag.description,
+        is_enabled: true,
+        metadata: { ...otpFlag.metadata, channel },
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadAppFeatureFlags()
+      setNotice(
+        channel === 'whatsapp'
+          ? 'Les OTP inscription seront envoyés via WhatsApp.'
+          : 'Les OTP inscription seront envoyés via SMS.',
+      )
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de mettre à jour le canal OTP.'),
+      )
+    } finally {
+      setIsAppFeatureFlagSaving(false)
+    }
+  }
+
   const playerSubscriptionsFlag =
     appFeatureFlags.find((flag) => flag.key === 'player_subscriptions') ??
     defaultAppFeatureFlags[0]
   const appMaintenanceFlag =
     appFeatureFlags.find((flag) => flag.key === 'app_maintenance') ??
     defaultAppFeatureFlags[1]
+  const otpDeliveryFlag =
+    appFeatureFlags.find((flag) => flag.key === 'otp_delivery_channel') ??
+    defaultAppFeatureFlags[2]
+  const otpDeliveryChannel =
+    otpDeliveryFlag.metadata.channel === 'whatsapp' ? 'whatsapp' : 'sms'
 
   return (
     <main className="app-shell">
@@ -1312,6 +1368,56 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
               <button className="table-action-button danger" onClick={handleLogout} type="button">
                 Fermer session
               </button>
+            </div>
+          </article>
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Authentification</p>
+                <h2>Canal OTP inscription</h2>
+              </div>
+              <span className="status-pill active">
+                {otpDeliveryChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'}
+              </span>
+            </div>
+            <p className="helper-text">
+              Choisis le canal utilisé par le hook OTP Supabase. Aucun fallback
+              SMS automatique n’est appliqué quand WhatsApp est actif.
+            </p>
+            <div className="maintenance-mode-action">
+              <div>
+                <strong>
+                  {otpDeliveryChannel === 'whatsapp'
+                    ? 'OTP envoyés via WhatsApp'
+                    : 'OTP envoyés via SMS'}
+                </strong>
+                <p>
+                  WhatsApp réduit le coût d’envoi. Le joueur peut renvoyer selon
+                  les délais progressifs affichés dans l’app mobile.
+                </p>
+              </div>
+              <div className="contest-actions">
+                <button
+                  className={`table-action-button ${
+                    otpDeliveryChannel === 'sms' ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleSaveOtpDeliveryChannel('sms')}
+                  type="button"
+                >
+                  SMS
+                </button>
+                <button
+                  className={`table-action-button ${
+                    otpDeliveryChannel === 'whatsapp' ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleSaveOtpDeliveryChannel('whatsapp')}
+                  type="button"
+                >
+                  WhatsApp
+                </button>
+              </div>
             </div>
           </article>
           <article className="panel">

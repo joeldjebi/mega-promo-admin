@@ -10,6 +10,11 @@ type AuthSmsPayload = {
   }
 }
 
+type OtpDeliveryChannel = 'sms' | 'whatsapp'
+
+const resendDelaysSeconds = [180, 300, 1800]
+const supportUrl = 'https://megapromo.app/#contact'
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -36,6 +41,21 @@ function normalizePhone(value: string) {
 
 function normalizePhoneDigits(value: string) {
   return normalizePhone(value).replace(/\D/g, '')
+}
+
+function getSupabaseAdminConfig() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!supabaseUrl || !serviceRoleKey) return null
+  return { supabaseUrl, serviceRoleKey }
+}
+
+async function sha256Hex(value: string) {
+  const data = new TextEncoder().encode(value)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 function getReviewOtpConfig() {
@@ -73,6 +93,154 @@ async function sendMtargetSms(msisdn: string, message: string, sender: string) {
     ok: response.ok,
     status: response.status,
     response: text,
+  }
+}
+
+async function readOtpDeliveryChannel(): Promise<OtpDeliveryChannel> {
+  const config = getSupabaseAdminConfig()
+
+  if (!config) return 'sms'
+
+  const response = await fetch(
+    `${config.supabaseUrl}/rest/v1/app_feature_flags?key=eq.otp_delivery_channel&select=is_enabled,metadata`,
+    {
+      headers: {
+        apikey: config.serviceRoleKey,
+        Authorization: `Bearer ${config.serviceRoleKey}`,
+      },
+    },
+  )
+  if (!response.ok) return 'sms'
+
+  const rows = await response.json() as Array<{
+    is_enabled?: boolean
+    metadata?: { channel?: string }
+  }>
+  const row = rows[0]
+  if (!row?.is_enabled) return 'sms'
+
+  return row.metadata?.channel === 'whatsapp' ? 'whatsapp' : 'sms'
+}
+
+async function enforceOtpResendDelay(msisdn: string) {
+  const config = getSupabaseAdminConfig()
+  if (!config) return { allowed: true, phoneHash: '' }
+
+  const salt = Deno.env.get('OTP_RATE_LIMIT_SALT') ?? config.serviceRoleKey
+  const phoneHash = await sha256Hex(`${salt}:${normalizePhoneDigits(msisdn)}`)
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const url =
+    `${config.supabaseUrl}/rest/v1/auth_otp_delivery_attempts` +
+    `?phone_hash=eq.${phoneHash}` +
+    `&created_at=gte.${encodeURIComponent(since)}` +
+    '&select=created_at&order=created_at.desc&limit=5'
+
+  const response = await fetch(url, {
+    headers: {
+      apikey: config.serviceRoleKey,
+      Authorization: `Bearer ${config.serviceRoleKey}`,
+    },
+  })
+
+  if (!response.ok) {
+    console.warn('[MegaPromo][auth-sms-mtarget] rate limit skipped', {
+      status: response.status,
+      body: await response.text(),
+    })
+    return { allowed: true, phoneHash }
+  }
+
+  const attempts = await response.json() as Array<{ created_at?: string }>
+  if (attempts.length >= 4) {
+    return {
+      allowed: false,
+      phoneHash,
+      status: 429,
+      message:
+        `Trop de codes demandés. Contacte le service client MegaPromo: ${supportUrl}`,
+    }
+  }
+
+  const nextDelay = resendDelaysSeconds[attempts.length - 1] ?? 0
+  const lastAttemptAt = attempts[0]?.created_at
+    ? new Date(attempts[0].created_at).getTime()
+    : 0
+  const elapsedSeconds = lastAttemptAt <= 0
+    ? Number.POSITIVE_INFINITY
+    : Math.floor((Date.now() - lastAttemptAt) / 1000)
+
+  if (nextDelay > 0 && elapsedSeconds < nextDelay) {
+    return {
+      allowed: false,
+      phoneHash,
+      status: 429,
+      message: `Patiente encore ${nextDelay - elapsedSeconds}s avant de renvoyer le code.`,
+    }
+  }
+
+  return { allowed: true, phoneHash }
+}
+
+async function recordOtpDeliveryAttempt(
+  phoneHash: string,
+  channel: OtpDeliveryChannel,
+  status: number,
+  ok: boolean,
+) {
+  const config = getSupabaseAdminConfig()
+  if (!config || !phoneHash) return
+
+  const response = await fetch(
+    `${config.supabaseUrl}/rest/v1/auth_otp_delivery_attempts`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: config.serviceRoleKey,
+        Authorization: `Bearer ${config.serviceRoleKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        phone_hash: phoneHash,
+        channel,
+        provider_status: status,
+        delivered: ok,
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    console.warn('[MegaPromo][auth-sms-mtarget] attempt log failed', {
+      status: response.status,
+      body: await response.text(),
+    })
+  }
+}
+
+async function sendWasenderWhatsApp(to: string, text: string) {
+  const token = Deno.env.get('WASENDER_API_TOKEN')
+  const url =
+    Deno.env.get('WASENDER_API_URL') ??
+    'https://wasenderapi.com/api/send-message'
+
+  if (!token) {
+    throw new Error('Secret Wasender manquant: WASENDER_API_TOKEN.')
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ to, text }),
+  })
+  const body = await response.text()
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    response: body,
   }
 }
 
@@ -118,14 +286,33 @@ Deno.serve(async (request) => {
     const template =
       Deno.env.get('MTARGET_AUTH_MESSAGE_TEMPLATE') ??
       'Ton code MegaPromo est {{ otp }}. Ne le partage avec personne.'
-    const message = template.replaceAll('{{ otp }}', otp)
+    const smsMessage = template.replaceAll('{{ otp }}', otp)
+    const whatsappTemplate =
+      Deno.env.get('WASENDER_AUTH_MESSAGE_TEMPLATE') ??
+      'Votre code MegaPromo est : {{ otp }}\n\nCe code expire dans 5 minutes. Ne le partagez avec personne.'
+    const whatsappMessage = whatsappTemplate.replaceAll('{{ otp }}', otp)
+    const channel = await readOtpDeliveryChannel()
+    const rateLimit = await enforceOtpResendDelay(msisdn)
+
+    if (!rateLimit.allowed) {
+      return jsonResponse(
+        {
+          error: {
+            http_code: rateLimit.status ?? 429,
+            message: rateLimit.message,
+          },
+        },
+        rateLimit.status ?? 429,
+      )
+    }
 
     const safePayload = {
       msisdn,
       sender,
       hasOtp: Boolean(otp),
       isReviewPhone,
-      messageLength: message.length,
+      channel,
+      messageLength: channel === 'whatsapp' ? whatsappMessage.length : smsMessage.length,
     }
     console.log('[MegaPromo][auth-sms-mtarget] payload', safePayload)
 
@@ -135,12 +322,21 @@ Deno.serve(async (request) => {
       )
     }
 
-    const result = await sendMtargetSms(msisdn, message, sender)
+    const result = channel === 'whatsapp'
+      ? await sendWasenderWhatsApp(msisdn, whatsappMessage)
+      : await sendMtargetSms(msisdn, smsMessage, sender)
+    await recordOtpDeliveryAttempt(
+      rateLimit.phoneHash,
+      channel,
+      result.status,
+      result.ok,
+    )
     const response = {
       ok: result.ok,
       sent: result.ok ? 1 : 0,
       failed: result.ok ? 0 : 1,
       status: result.status,
+      channel,
       response: result.response,
     }
     console.log('[MegaPromo][auth-sms-mtarget] response', response)

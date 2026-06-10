@@ -175,14 +175,69 @@ const predictionTypeOptions = [
 ]
 const csvQuestionColumns = [
   'question_text',
+  'question_image_url',
   'option_a',
+  'option_a_image_url',
   'option_b',
+  'option_b_image_url',
   'option_c',
+  'option_c_image_url',
   'option_d',
+  'option_d_image_url',
   'correct_answer',
   'points',
   'time_limit',
   'difficulty',
+]
+const csvTemplateRows = [
+  {
+    question_text: 'Quel reflexe aide a bien demarrer un Quiz Live ?',
+    question_image_url: '',
+    option_a: 'Entrer avant le lancement',
+    option_a_image_url: '',
+    option_b: 'Fermer l application',
+    option_b_image_url: '',
+    option_c: 'Couper internet',
+    option_c_image_url: '',
+    option_d: 'Changer de compte',
+    option_d_image_url: '',
+    correct_answer: 'A',
+    points: '10',
+    time_limit: '20',
+    difficulty: 'facile',
+  },
+  {
+    question_text: 'Quel objet vois-tu sur cette image ?',
+    question_image_url: 'https://example.com/question-image.jpg',
+    option_a: 'Un smartphone',
+    option_a_image_url: '',
+    option_b: 'Une guitare',
+    option_b_image_url: '',
+    option_c: 'Un pneu',
+    option_c_image_url: '',
+    option_d: 'Un micro',
+    option_d_image_url: '',
+    correct_answer: 'A',
+    points: '10',
+    time_limit: '20',
+    difficulty: 'image_question',
+  },
+  {
+    question_text: 'Quelle image montre une voiture ?',
+    question_image_url: '',
+    option_a: '',
+    option_a_image_url: 'https://example.com/voiture.jpg',
+    option_b: '',
+    option_b_image_url: 'https://example.com/guitare.jpg',
+    option_c: '',
+    option_c_image_url: 'https://example.com/ordinateur.jpg',
+    option_d: '',
+    option_d_image_url: 'https://example.com/casque.jpg',
+    correct_answer: 'A',
+    points: '10',
+    time_limit: '20',
+    difficulty: 'image_answers',
+  },
 ]
 const csvHeaderAliases = [
   'question_text',
@@ -198,6 +253,23 @@ const csvHeaderAliases = [
 
 function normalizeText(value: string) {
   return value.trim()
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? '')
+  if (!/[",\n\r]/.test(text)) return text
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function buildQuestionCsvTemplate() {
+  return [
+    csvQuestionColumns.map(csvCell).join(','),
+    ...csvTemplateRows.map((row) =>
+      csvQuestionColumns
+        .map((column) => csvCell(row[column as keyof typeof row]))
+        .join(','),
+    ),
+  ].join('\n')
 }
 
 function normalizeOptionalUrl(value: string) {
@@ -814,6 +886,20 @@ export function SuperAdminQuestionBanksPage({
         ? current.filter((id) => id !== bankId)
         : [...current, bankId],
     )
+  }
+
+  function downloadQuestionCsvTemplate() {
+    const blob = new Blob([buildQuestionCsvTemplate()], {
+      type: 'text/csv;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'modele-banques-questions-megapromo.csv'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
   }
 
   async function importQuestionsFromCsv(event: ChangeEvent<HTMLInputElement>) {
@@ -1476,15 +1562,24 @@ export function SuperAdminQuestionBanksPage({
                     questions seront ajoutées dans chaque banque sélectionnée.
                   </p>
                 </div>
-                <label className={`question-bank-secondary-action ${isImportingCsv ? 'disabled' : ''}`}>
-                  {isImportingCsv ? 'Import en cours...' : 'Charger un CSV'}
-                  <input
-                    accept=".csv,text/csv"
-                    disabled={isImportingCsv}
-                    type="file"
-                    onChange={importQuestionsFromCsv}
-                  />
-                </label>
+                <div className="contest-actions">
+                  <button
+                    className="question-bank-secondary-action"
+                    type="button"
+                    onClick={downloadQuestionCsvTemplate}
+                  >
+                    Télécharger modèle CSV
+                  </button>
+                  <label className={`question-bank-secondary-action ${isImportingCsv ? 'disabled' : ''}`}>
+                    {isImportingCsv ? 'Import en cours...' : 'Charger un CSV'}
+                    <input
+                      accept=".csv,text/csv"
+                      disabled={isImportingCsv}
+                      type="file"
+                      onChange={importQuestionsFromCsv}
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="question-bank-csv-bank-picker">
