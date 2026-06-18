@@ -177,6 +177,7 @@ type AppFeatureFlagItem = {
   metadata: Record<string, unknown>
   updatedAt: string
 }
+type PlayerAuthMode = 'otp' | 'social' | 'hybrid'
 
 type SuperAdminSettingsPageProps = {
   authRoute: string
@@ -306,6 +307,19 @@ const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
       'Choisit le canal d’envoi des codes OTP joueur: SMS ou WhatsApp.',
     isEnabled: true,
     metadata: { channel: 'sms' },
+    updatedAt: '',
+  },
+  {
+    key: 'player_auth_mode',
+    name: 'Mode authentification joueur',
+    description:
+      'Choisit les moyens de connexion dans l’application mobile: OTP, Google + Apple ou mode hybride.',
+    isEnabled: true,
+    metadata: {
+      mode: 'otp',
+      allowed_modes: ['otp', 'social', 'hybrid'],
+      redirect_url: 'megapromo://login-callback/',
+    },
     updatedAt: '',
   },
 ]
@@ -1204,6 +1218,51 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     }
   }
 
+  async function handleSavePlayerAuthMode(mode: PlayerAuthMode) {
+    const authModeFlag =
+      appFeatureFlags.find((flag) => flag.key === 'player_auth_mode') ??
+      defaultAppFeatureFlags[3]
+
+    setNotice('')
+    setSettingsError('')
+    setIsAppFeatureFlagSaving(true)
+    try {
+      const { error } = await supabase.from('app_feature_flags').upsert({
+        key: authModeFlag.key,
+        name: authModeFlag.name,
+        description: authModeFlag.description,
+        is_enabled: true,
+        metadata: {
+          ...authModeFlag.metadata,
+          mode,
+          allowed_modes: ['otp', 'social', 'hybrid'],
+          redirect_url: 'megapromo://login-callback/',
+        },
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadAppFeatureFlags()
+      const label =
+        mode === 'social'
+          ? 'Google + Apple'
+          : mode === 'hybrid'
+            ? 'Google + Apple + OTP'
+            : 'OTP'
+      setNotice(`Mode d’authentification joueur mis à jour : ${label}.`)
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de mettre à jour le mode d’authentification.',
+        ),
+      )
+    } finally {
+      setIsAppFeatureFlagSaving(false)
+    }
+  }
+
   const playerSubscriptionsFlag =
     appFeatureFlags.find((flag) => flag.key === 'player_subscriptions') ??
     defaultAppFeatureFlags[0]
@@ -1213,8 +1272,17 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
   const otpDeliveryFlag =
     appFeatureFlags.find((flag) => flag.key === 'otp_delivery_channel') ??
     defaultAppFeatureFlags[2]
+  const playerAuthModeFlag =
+    appFeatureFlags.find((flag) => flag.key === 'player_auth_mode') ??
+    defaultAppFeatureFlags[3]
   const otpDeliveryChannel =
     otpDeliveryFlag.metadata.channel === 'whatsapp' ? 'whatsapp' : 'sms'
+  const playerAuthMode: PlayerAuthMode =
+    playerAuthModeFlag.metadata.mode === 'social'
+      ? 'social'
+      : playerAuthModeFlag.metadata.mode === 'hybrid'
+        ? 'hybrid'
+        : 'otp'
 
   return (
     <main className="app-shell">
@@ -1368,6 +1436,73 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
               <button className="table-action-button danger" onClick={handleLogout} type="button">
                 Fermer session
               </button>
+            </div>
+          </article>
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Authentification</p>
+                <h2>Mode de connexion joueur</h2>
+              </div>
+              <span className="status-pill active">
+                {playerAuthMode === 'social'
+                  ? 'Google + Apple'
+                  : playerAuthMode === 'hybrid'
+                    ? 'Hybride'
+                    : 'OTP'}
+              </span>
+            </div>
+            <p className="helper-text">
+              Choisis ce que les joueurs voient sur l’écran de connexion mobile.
+              Garde OTP actif tant que les providers Google et Apple ne sont pas
+              configurés dans Supabase Auth.
+            </p>
+            <div className="maintenance-mode-action">
+              <div>
+                <strong>
+                  {playerAuthMode === 'social'
+                    ? 'Connexion Google + Apple uniquement'
+                    : playerAuthMode === 'hybrid'
+                      ? 'Connexion sociale avec OTP en secours'
+                      : 'Connexion OTP uniquement'}
+                </strong>
+                <p>
+                  L’app mobile s’adapte en temps réel: boutons Google/Apple,
+                  formulaire OTP ou les deux selon ce choix.
+                </p>
+              </div>
+              <div className="contest-actions">
+                <button
+                  className={`table-action-button ${
+                    playerAuthMode === 'otp' ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleSavePlayerAuthMode('otp')}
+                  type="button"
+                >
+                  OTP
+                </button>
+                <button
+                  className={`table-action-button ${
+                    playerAuthMode === 'social' ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleSavePlayerAuthMode('social')}
+                  type="button"
+                >
+                  Google + Apple
+                </button>
+                <button
+                  className={`table-action-button ${
+                    playerAuthMode === 'hybrid' ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleSavePlayerAuthMode('hybrid')}
+                  type="button"
+                >
+                  Hybride
+                </button>
+              </div>
             </div>
           </article>
           <article className="panel">
