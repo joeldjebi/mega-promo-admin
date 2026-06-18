@@ -22,6 +22,25 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+function hasWasenderConfig() {
+  return Boolean(Deno.env.get('WASENDER_API_TOKEN'))
+}
+
+function hasMtargetConfig() {
+  return Boolean(Deno.env.get('MTARGET_USERNAME') && Deno.env.get('MTARGET_PASSWORD'))
+}
+
+function fallbackOtpDeliveryChannel(reason: string): OtpDeliveryChannel {
+  const channel = hasMtargetConfig() ? 'sms' : 'whatsapp'
+  console.warn('[MegaPromo][auth-sms-mtarget] otp channel fallback', {
+    reason,
+    channel,
+    hasWasenderConfig: hasWasenderConfig(),
+    hasMtargetConfig: hasMtargetConfig(),
+  })
+  return channel
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -76,18 +95,32 @@ async function sendMtargetSms(msisdn: string, message: string, sender: string) {
     throw new Error('Secrets mTarget manquants: MTARGET_USERNAME/MTARGET_PASSWORD.')
   }
 
+  const requestPayload = {
+    username,
+    password: '[masked]',
+    msisdn: normalizePhoneDigits(msisdn),
+    msg: message,
+    sender,
+  }
+  console.log('[MegaPromo][auth-sms-mtarget][mtarget] request', requestPayload)
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       username,
       password,
-      msisdn,
+      msisdn: normalizePhoneDigits(msisdn),
       msg: message,
       sender,
     }),
   })
   const text = await response.text()
+  console.log('[MegaPromo][auth-sms-mtarget][mtarget] response', {
+    ok: response.ok,
+    status: response.status,
+    body: text,
+  })
 
   return {
     ok: response.ok,
@@ -97,22 +130,17 @@ async function sendMtargetSms(msisdn: string, message: string, sender: string) {
 }
 
 async function readOtpDeliveryChannel(): Promise<OtpDeliveryChannel> {
-  const envChannel = Deno.env.get('OTP_DELIVERY_CHANNEL')?.toLowerCase()
-  if (envChannel === 'whatsapp' || envChannel === 'sms') {
-    console.log('[MegaPromo][auth-sms-mtarget] otp channel from env', {
-      channel: envChannel,
-    })
-    return envChannel
-  }
-
   const config = getSupabaseAdminConfig()
+  const envChannel = Deno.env.get('OTP_DELIVERY_CHANNEL')?.toLowerCase()
 
   if (!config) {
-    console.warn('[MegaPromo][auth-sms-mtarget] otp channel fallback', {
-      reason: 'missing_supabase_admin_config',
-      channel: 'sms',
-    })
-    return 'sms'
+    if (envChannel === 'whatsapp' || envChannel === 'sms') {
+      console.log('[MegaPromo][auth-sms-mtarget] otp channel from env fallback', {
+        channel: envChannel,
+      })
+      return envChannel
+    }
+    return fallbackOtpDeliveryChannel('missing_supabase_admin_config')
   }
 
   const response = await fetch(
@@ -131,7 +159,16 @@ async function readOtpDeliveryChannel(): Promise<OtpDeliveryChannel> {
     body: responseBody,
   })
 
-  if (!response.ok) return 'sms'
+  if (!response.ok) {
+    if (envChannel === 'whatsapp' || envChannel === 'sms') {
+      console.log('[MegaPromo][auth-sms-mtarget] otp channel from env fallback', {
+        channel: envChannel,
+        reason: 'flag_read_failed',
+      })
+      return envChannel
+    }
+    return fallbackOtpDeliveryChannel('flag_read_failed')
+  }
 
   const rows = JSON.parse(responseBody) as Array<{
     is_enabled?: boolean
@@ -139,11 +176,14 @@ async function readOtpDeliveryChannel(): Promise<OtpDeliveryChannel> {
   }>
   const row = rows[0]
   if (!row?.is_enabled) {
-    console.warn('[MegaPromo][auth-sms-mtarget] otp channel fallback', {
-      reason: row ? 'flag_disabled' : 'flag_missing',
-      channel: 'sms',
-    })
-    return 'sms'
+    if (envChannel === 'whatsapp' || envChannel === 'sms') {
+      console.log('[MegaPromo][auth-sms-mtarget] otp channel from env fallback', {
+        channel: envChannel,
+        reason: row ? 'flag_disabled' : 'flag_missing',
+      })
+      return envChannel
+    }
+    return fallbackOtpDeliveryChannel(row ? 'flag_disabled' : 'flag_missing')
   }
 
   const channel = row.metadata?.channel === 'whatsapp' ? 'whatsapp' : 'sms'
