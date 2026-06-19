@@ -59,6 +59,8 @@ const tablePermissionFeatures: Record<string, string> = {
 const rpcPermissionFeatures: Record<string, string> = {
   admin_assign_player_subscription: 'users',
   admin_delete_player_subscription: 'users',
+  admin_anonymize_user_now: 'users',
+  admin_hard_delete_user_now: 'users',
   admin_delete_all_sentry_issue_snapshots: 'system_logs',
   admin_delete_all_system_logs: 'system_logs',
   admin_maintenance_clear: 'maintenance',
@@ -66,6 +68,7 @@ const rpcPermissionFeatures: Record<string, string> = {
   admin_run_system_logs_maintenance: 'system_logs',
   admin_upsert_system_logs_maintenance: 'system_logs',
   admin_update_player_subscription_status: 'users',
+  admin_schedule_user_deletion: 'users',
   get_system_logs_maintenance_status: 'system_logs',
   upsert_landing_maintenance_flag: 'landing',
   delete_reward_catalog_item: 'reward_catalog',

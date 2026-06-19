@@ -284,6 +284,11 @@ type PlayerUserItem = {
   locationInfo: Record<string, unknown>
   deviceLastSeenAt: string
   isActive: boolean
+  accountStatus: string
+  deletionRequestedAt: string
+  deletionScheduledAt: string
+  deletedAt: string
+  anonymizedRef: string
   createdAt: string
 }
 type UserRoleFilter = 'player' | 'partner' | 'all_non_admin'
@@ -1010,7 +1015,7 @@ async function fetchPlayersData({
   let usersQuery = supabase
     .from('users')
     .select(
-      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
+      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
       { count: 'exact' },
     )
     .neq('role', 'admin')
@@ -1097,6 +1102,11 @@ async function fetchPlayersData({
       locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
       deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
       isActive: (user.is_active as boolean | null) ?? true,
+      accountStatus: (user.account_status as string | null) ?? 'active',
+      deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
+      deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
+      deletedAt: (user.deleted_at as string | null) ?? '',
+      anonymizedRef: (user.anonymized_ref as string | null) ?? '',
       createdAt: (user.created_at as string | null) ?? '',
     })),
   }
@@ -1110,7 +1120,7 @@ async function fetchUserForAdmin(userId: string): Promise<{
     supabase
       .from('users')
       .select(
-        'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
+        'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
       )
       .eq('id', userId)
       .maybeSingle(),
@@ -1157,6 +1167,11 @@ async function fetchUserForAdmin(userId: string): Promise<{
       locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
       deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
       isActive: (user.is_active as boolean | null) ?? true,
+      accountStatus: (user.account_status as string | null) ?? 'active',
+      deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
+      deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
+      deletedAt: (user.deleted_at as string | null) ?? '',
+      anonymizedRef: (user.anonymized_ref as string | null) ?? '',
       createdAt: (user.created_at as string | null) ?? '',
     },
   }

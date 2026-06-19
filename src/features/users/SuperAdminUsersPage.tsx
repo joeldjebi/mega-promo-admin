@@ -33,6 +33,11 @@ type PlayerUserItem = {
   locationInfo: Record<string, unknown>
   deviceLastSeenAt: string
   isActive: boolean
+  accountStatus: string
+  deletionRequestedAt: string
+  deletionScheduledAt: string
+  deletedAt: string
+  anonymizedRef: string
   createdAt: string
 }
 
@@ -50,10 +55,72 @@ type AppFeatureFlagState = {
   updatedAt: string
 }
 
+type UserDeletionAction =
+  | 'schedule_deletion'
+  | 'anonymize_now'
+  | 'hard_delete_now'
+
+type UserDeletionDialogState = {
+  user: PlayerUserItem
+  action: UserDeletionAction
+}
+
 const userRoleFilterLabels: Record<UserRoleFilter, string> = {
   player: 'joueurs',
   partner: 'partenaires',
   all_non_admin: 'comptes',
+}
+
+const userDeletionActionConfig: Record<
+  UserDeletionAction,
+  {
+    title: string
+    eyebrow: string
+    description: string
+    confirmation: string
+    rpc: string
+    notice: string
+    logAction: string
+    logMessage: string
+    dangerLevel: 'medium' | 'high' | 'critical'
+  }
+> = {
+  schedule_deletion: {
+    title: 'Programmer la suppression',
+    eyebrow: 'Délai de sécurité de 30 jours',
+    description:
+      'Le compte sera désactivé immédiatement. La suppression définitive restera programmable après le délai de récupération.',
+    confirmation: 'PROGRAMMER',
+    rpc: 'admin_schedule_user_deletion',
+    notice: 'Suppression programmée dans 30 jours.',
+    logAction: 'schedule_deletion',
+    logMessage: 'Suppression utilisateur programmée par le SA.',
+    dangerLevel: 'medium',
+  },
+  anonymize_now: {
+    title: 'Anonymiser définitivement',
+    eyebrow: 'Données personnelles retirées',
+    description:
+      'Le compte devient inutilisable et les données personnelles visibles sont retirées, tout en conservant l’historique métier nécessaire.',
+    confirmation: 'ANONYMISER',
+    rpc: 'admin_anonymize_user_now',
+    notice: 'Utilisateur anonymisé définitivement.',
+    logAction: 'anonymize_now',
+    logMessage: 'Utilisateur anonymisé définitivement par le SA.',
+    dangerLevel: 'high',
+  },
+  hard_delete_now: {
+    title: 'Suppression définitive sans délai',
+    eyebrow: 'Action irréversible',
+    description:
+      'Cette action supprime le compte, ses accès Auth Google/Apple/téléphone et les données rattachées par user_id. Elle ne peut pas être annulée.',
+    confirmation: 'SUPPRIMER DEFINITIVEMENT',
+    rpc: 'admin_hard_delete_user_now',
+    notice: 'Utilisateur supprimé définitivement sans délai.',
+    logAction: 'hard_delete_now',
+    logMessage: 'Utilisateur supprimé définitivement sans délai par le SA.',
+    dangerLevel: 'critical',
+  },
 }
 
 function formatNumber(value: number) {
@@ -130,7 +197,7 @@ async function fetchPlayersData({
   let usersQuery = supabase
     .from('users')
     .select(
-      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, created_at',
+      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
       { count: 'exact' },
     )
     .neq('role', 'admin')
@@ -176,6 +243,11 @@ async function fetchPlayersData({
       locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
       deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
       isActive: (user.is_active as boolean | null) ?? true,
+      accountStatus: (user.account_status as string | null) ?? 'active',
+      deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
+      deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
+      deletedAt: (user.deleted_at as string | null) ?? '',
+      anonymizedRef: (user.anonymized_ref as string | null) ?? '',
       createdAt: (user.created_at as string | null) ?? '',
     })),
   }
@@ -231,6 +303,10 @@ export function SuperAdminUsersPage({
   const [isUsersLoading, setIsUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState('')
   const [usersNotice, setUsersNotice] = useState('')
+  const [deletionDialog, setDeletionDialog] =
+    useState<UserDeletionDialogState | null>(null)
+  const [deletionConfirmation, setDeletionConfirmation] = useState('')
+  const [isDeletionSubmitting, setIsDeletionSubmitting] = useState(false)
   const [coordinatesFlag, setCoordinatesFlag] = useState<AppFeatureFlagState>({
     isEnabled: true,
     updatedAt: '',
@@ -509,6 +585,66 @@ export function SuperAdminUsersPage({
     }
   }
 
+  function openDeletionDialog(user: PlayerUserItem, action: UserDeletionAction) {
+    setUsersError('')
+    setUsersNotice('')
+    setDeletionConfirmation('')
+    setDeletionDialog({ user, action })
+  }
+
+  function closeDeletionDialog() {
+    if (isDeletionSubmitting) return
+    setDeletionDialog(null)
+    setDeletionConfirmation('')
+  }
+
+  async function submitDeletionDialog() {
+    if (!deletionDialog) return
+
+    const config = userDeletionActionConfig[deletionDialog.action]
+    if (deletionConfirmation.trim().toUpperCase() !== config.confirmation) {
+      setUsersError(`Confirmation invalide. Écris ${config.confirmation}.`)
+      return
+    }
+
+    setUsersError('')
+    setUsersNotice('')
+    setIsDeletionSubmitting(true)
+
+    try {
+      const { error } = await supabase.rpc(config.rpc, {
+        p_user_id: deletionDialog.user.id,
+        p_confirmation: deletionConfirmation.trim(),
+      })
+      if (error) throw error
+
+      await loadUsers()
+      setUsersNotice(config.notice)
+      void logAdminAction({
+        feature: 'users',
+        action: config.logAction,
+        message: config.logMessage,
+        entityType: 'user',
+        entityId: deletionDialog.user.id,
+        metadata: {
+          username: deletionDialog.user.username,
+          phone_present: Boolean(deletionDialog.user.phone),
+          danger_level: config.dangerLevel,
+        },
+      })
+      setDeletionDialog(null)
+      setDeletionConfirmation('')
+    } catch (error) {
+      setUsersError(
+        error instanceof Error
+          ? error.message
+          : 'Action de suppression impossible pour cet utilisateur.',
+      )
+    } finally {
+      setIsDeletionSubmitting(false)
+    }
+  }
+
   function handleUserTableAction(user: PlayerUserItem, action: string) {
     if (!action) return
 
@@ -529,6 +665,21 @@ export function SuperAdminUsersPage({
 
     if (action === 'clear_history') {
       void handleClearPlayerHistory(user)
+      return
+    }
+
+    if (action === 'schedule_deletion') {
+      openDeletionDialog(user, 'schedule_deletion')
+      return
+    }
+
+    if (action === 'anonymize_now') {
+      openDeletionDialog(user, 'anonymize_now')
+      return
+    }
+
+    if (action === 'hard_delete_now') {
+      openDeletionDialog(user, 'hard_delete_now')
     }
   }
 
@@ -614,6 +765,17 @@ export function SuperAdminUsersPage({
               <p>{usersNotice}</p>
             </div>
           </div>
+        ) : null}
+
+        {deletionDialog ? (
+          <UserDeletionConfirmModal
+            confirmation={deletionConfirmation}
+            isSubmitting={isDeletionSubmitting}
+            onCancel={closeDeletionDialog}
+            onChangeConfirmation={setDeletionConfirmation}
+            onConfirm={() => void submitDeletionDialog()}
+            state={deletionDialog}
+          />
         ) : null}
 
         <section className="panel">
@@ -744,10 +906,30 @@ export function SuperAdminUsersPage({
                     <p>{formatNumber(user.pointsTotal)} pts</p>
                   </div>
                   <div>
-                    <span className={`status-pill ${user.isActive ? 'active' : 'inactive'}`}>
-                      {user.isActive ? 'Actif' : 'Inactif'}
+                    <span
+                      className={`status-pill ${
+                        user.accountStatus === 'deleted'
+                          ? 'inactive'
+                          : user.accountStatus === 'pending_deletion'
+                            ? 'warning'
+                            : user.isActive
+                              ? 'active'
+                              : 'inactive'
+                      }`}
+                    >
+                      {user.accountStatus === 'deleted'
+                        ? 'Supprimé'
+                        : user.accountStatus === 'pending_deletion'
+                          ? 'Suppression planifiée'
+                          : user.isActive
+                            ? 'Actif'
+                            : 'Inactif'}
                     </span>
-                    <p>{user.participationsToday} aujourd’hui</p>
+                    <p>
+                      {user.accountStatus === 'pending_deletion' && user.deletionScheduledAt
+                        ? `Fin ${formatDate(user.deletionScheduledAt)}`
+                        : `${user.participationsToday} aujourd’hui`}
+                    </p>
                   </div>
                   <div>
                     <span className={`status-pill ${user.isPremium ? 'sent' : 'inactive'}`}>
@@ -785,6 +967,15 @@ export function SuperAdminUsersPage({
                         {user.isPremium ? 'Retirer premium' : 'Activer premium'}
                       </option>
                       <option value="clear_history">Vider historique</option>
+                      <option value="schedule_deletion">
+                        Programmer suppression
+                      </option>
+                      <option value="anonymize_now">
+                        Anonymiser définitivement
+                      </option>
+                      <option value="hard_delete_now">
+                        Suppression définitive sans délai
+                      </option>
                     </select>
                   </div>
                 </div>
@@ -854,5 +1045,103 @@ export function SuperAdminUsersPage({
         </section>
       </section>
     </main>
+  )
+}
+
+function UserDeletionConfirmModal({
+  confirmation,
+  isSubmitting,
+  onCancel,
+  onChangeConfirmation,
+  onConfirm,
+  state,
+}: {
+  confirmation: string
+  isSubmitting: boolean
+  onCancel: () => void
+  onChangeConfirmation: (value: string) => void
+  onConfirm: () => void
+  state: UserDeletionDialogState
+}) {
+  const config = userDeletionActionConfig[state.action]
+  const userLabel = state.user.username || state.user.phone || state.user.id
+  const isValid =
+    confirmation.trim().toUpperCase() === config.confirmation.toUpperCase()
+
+  return (
+    <div className="modal-backdrop user-delete-modal-backdrop" role="presentation">
+      <section
+        aria-labelledby="user-delete-title"
+        aria-modal="true"
+        className={`user-delete-confirm-modal ${config.dangerLevel}`}
+        role="dialog"
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{config.eyebrow}</p>
+            <h2 id="user-delete-title">{config.title}</h2>
+            <p className="modal-subtitle">{config.description}</p>
+          </div>
+          <button
+            aria-label="Fermer"
+            disabled={isSubmitting}
+            onClick={onCancel}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="user-delete-summary">
+          <span className="player-avatar">
+            {(state.user.username || state.user.phone || 'U').slice(0, 1).toUpperCase()}
+          </span>
+          <div>
+            <strong>{userLabel}</strong>
+            <p>
+              {state.user.phone || 'Téléphone non défini'} · {formatNumber(state.user.pointsTotal)} pts
+            </p>
+          </div>
+        </div>
+
+        <div className="user-delete-warning">
+          <strong>Confirmation requise</strong>
+          <p>
+            Pour éviter une action accidentelle, écris exactement{' '}
+            <code>{config.confirmation}</code>.
+          </p>
+        </div>
+
+        <label className="user-delete-confirm-field">
+          <span>Texte de confirmation</span>
+          <input
+            autoFocus
+            disabled={isSubmitting}
+            onChange={(event) => onChangeConfirmation(event.target.value)}
+            placeholder={config.confirmation}
+            value={confirmation}
+          />
+        </label>
+
+        <div className="modal-actions">
+          <button
+            className="table-action-button"
+            disabled={isSubmitting}
+            onClick={onCancel}
+            type="button"
+          >
+            Annuler
+          </button>
+          <button
+            className="danger-action-button"
+            disabled={!isValid || isSubmitting}
+            onClick={onConfirm}
+            type="button"
+          >
+            {isSubmitting ? 'Traitement...' : config.title}
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
