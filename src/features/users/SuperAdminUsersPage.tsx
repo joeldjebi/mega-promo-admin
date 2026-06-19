@@ -6,6 +6,13 @@ import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
 import { logAdminAction, logError } from '../../lib/systemLogger'
 
+type SupabaseLikeError = {
+  message?: unknown
+  details?: unknown
+  hint?: unknown
+  code?: unknown
+}
+
 type UsersNavItem = {
   label: string
   href: string
@@ -146,6 +153,23 @@ function formatDate(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function formatUnknownError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === 'object') {
+    const supabaseError = error as SupabaseLikeError
+    const message = [
+      supabaseError.message,
+      supabaseError.details,
+      supabaseError.hint,
+      supabaseError.code,
+    ]
+      .filter((item) => typeof item === 'string' && item.length > 0)
+      .join(' · ')
+    return message || fallback
+  }
+  return fallback
 }
 
 function getVisibleUsersNavItems(
@@ -364,11 +388,7 @@ export function SuperAdminUsersPage({
       })
       setPlayersData(nextPlayersData)
     } catch (error) {
-      setUsersError(
-        error instanceof Error
-          ? error.message
-          : 'Impossible de charger les joueurs.',
-      )
+      setUsersError(formatUnknownError(error, 'Impossible de charger les joueurs.'))
     } finally {
       setIsUsersLoading(false)
     }
@@ -421,11 +441,7 @@ export function SuperAdminUsersPage({
       })
       .catch((error) => {
         if (!isMounted) return
-        setUsersError(
-          error instanceof Error
-            ? error.message
-            : 'Impossible de charger les joueurs.',
-        )
+        setUsersError(formatUnknownError(error, 'Impossible de charger les joueurs.'))
       })
       .finally(() => {
         if (isMounted) setIsUsersLoading(false)
@@ -591,9 +607,7 @@ export function SuperAdminUsersPage({
       setUsersNotice('Historique de jeux vidé. Le joueur peut rejouer.')
     } catch (error) {
       setUsersError(
-        error instanceof Error
-          ? error.message
-          : 'Impossible de vider l’historique du joueur.',
+        formatUnknownError(error, 'Impossible de vider l’historique du joueur.'),
       )
     }
   }
@@ -649,9 +663,10 @@ export function SuperAdminUsersPage({
       setDeletionConfirmation('')
     } catch (error) {
       setUsersError(
-        error instanceof Error
-          ? error.message
-          : 'Action de suppression impossible pour cet utilisateur.',
+        formatUnknownError(
+          error,
+          'Action de suppression impossible pour cet utilisateur.',
+        ),
       )
     } finally {
       setIsDeletionSubmitting(false)
