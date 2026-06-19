@@ -57,6 +57,7 @@ type AppFeatureFlagState = {
 
 type UserDeletionAction =
   | 'schedule_deletion'
+  | 'cancel_deletion'
   | 'anonymize_now'
   | 'hard_delete_now'
 
@@ -95,6 +96,18 @@ const userDeletionActionConfig: Record<
     notice: 'Suppression programmée dans 30 jours.',
     logAction: 'schedule_deletion',
     logMessage: 'Suppression utilisateur programmée par le SA.',
+    dangerLevel: 'medium',
+  },
+  cancel_deletion: {
+    title: 'Annuler la suppression planifiée',
+    eyebrow: 'Réactivation du compte joueur',
+    description:
+      'Le compte sera remis en actif et les dates de suppression programmée seront effacées. L’historique du joueur reste conservé.',
+    confirmation: 'ANNULER',
+    rpc: 'admin_cancel_user_deletion',
+    notice: 'Suppression planifiée annulée. Le compte est réactivé.',
+    logAction: 'cancel_deletion',
+    logMessage: 'Suppression utilisateur planifiée annulée par le SA.',
     dangerLevel: 'medium',
   },
   anonymize_now: {
@@ -673,6 +686,11 @@ export function SuperAdminUsersPage({
       return
     }
 
+    if (action === 'cancel_deletion') {
+      openDeletionDialog(user, 'cancel_deletion')
+      return
+    }
+
     if (action === 'anonymize_now') {
       openDeletionDialog(user, 'anonymize_now')
       return
@@ -970,6 +988,11 @@ export function SuperAdminUsersPage({
                       <option value="schedule_deletion">
                         Programmer suppression
                       </option>
+                      {user.accountStatus === 'pending_deletion' ? (
+                        <option value="cancel_deletion">
+                          Annuler suppression planifiée
+                        </option>
+                      ) : null}
                       <option value="anonymize_now">
                         Anonymiser définitivement
                       </option>
