@@ -332,7 +332,6 @@ function applyQuestionMediaMode(form: QuestionForm, mode: QuestionMediaMode): Qu
   if (mode === 'question_image') {
     return {
       ...form,
-      questionText: '',
       optionAImageUrl: '',
       optionBImageUrl: '',
       optionCImageUrl: '',
@@ -1198,6 +1197,7 @@ export function SuperAdminQuestionBanksPage({
 
   const shouldShowQuestionText =
     questionMediaMode === 'text' ||
+    questionMediaMode === 'question_image' ||
     questionMediaMode === 'answer_images' ||
     questionMediaMode === 'mixed'
   const shouldShowQuestionImage =
