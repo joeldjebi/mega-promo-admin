@@ -99,6 +99,7 @@ type QuestionAnswerField = {
 }
 
 type QuestionMediaMode = 'text' | 'question_image' | 'answer_images' | 'mixed'
+type CategoryQuestionMediaFilter = 'all' | QuestionMediaMode
 
 const emptyBankForm: BankForm = {
   id: '',
@@ -165,6 +166,16 @@ const questionMediaModeOptions: Array<{
     label: 'Mixte',
     description: 'Texte et images partout.',
   },
+]
+const categoryQuestionMediaFilterOptions: Array<{
+  value: CategoryQuestionMediaFilter
+  label: string
+}> = [
+  { value: 'all', label: 'Tous les formats' },
+  { value: 'text', label: 'Texte uniquement' },
+  { value: 'question_image', label: 'Questions images' },
+  { value: 'answer_images', label: 'Réponses images' },
+  { value: 'mixed', label: 'Mixte' },
 ]
 const predictionTypeOptions = [
   { value: 'match_winner', label: 'Résultat du match' },
@@ -556,6 +567,8 @@ export function SuperAdminQuestionBanksPage({
   const [questionForm, setQuestionForm] = useState<QuestionForm>(emptyQuestionForm)
   const [questionMediaMode, setQuestionMediaMode] = useState<QuestionMediaMode>('text')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [categoryQuestionMediaFilter, setCategoryQuestionMediaFilter] =
+    useState<CategoryQuestionMediaFilter>('all')
   const [categoryQuestionsPage, setCategoryQuestionsPage] = useState(1)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -614,10 +627,17 @@ export function SuperAdminQuestionBanksPage({
     )
   }, [banks, questions])
 
-  const selectedCategoryQuestions = useMemo(() => {
+  const allSelectedCategoryQuestions = useMemo(() => {
     if (!selectedCategoryId) return []
     return questions.filter((question) => question.categoryId === selectedCategoryId)
   }, [questions, selectedCategoryId])
+
+  const selectedCategoryQuestions = useMemo(() => {
+    if (categoryQuestionMediaFilter === 'all') return allSelectedCategoryQuestions
+    return allSelectedCategoryQuestions.filter(
+      (question) => detectQuestionMediaMode(question) === categoryQuestionMediaFilter,
+    )
+  }, [allSelectedCategoryQuestions, categoryQuestionMediaFilter])
 
   const categoryQuestionsPageCount = Math.max(
     Math.ceil(selectedCategoryQuestions.length / CATEGORY_QUESTIONS_PAGE_SIZE),
@@ -632,6 +652,10 @@ export function SuperAdminQuestionBanksPage({
     const start = (currentCategoryQuestionsPage - 1) * CATEGORY_QUESTIONS_PAGE_SIZE
     return selectedCategoryQuestions.slice(start, start + CATEGORY_QUESTIONS_PAGE_SIZE)
   }, [currentCategoryQuestionsPage, selectedCategoryQuestions])
+
+  useEffect(() => {
+    setCategoryQuestionsPage(1)
+  }, [categoryQuestionMediaFilter, selectedCategoryId])
 
   const bankCategorySummaries = useMemo(
     () =>
@@ -1375,8 +1399,30 @@ export function SuperAdminQuestionBanksPage({
                   </p>
                 </div>
                 <span className="pill">
-                  {formatNumber(selectedCategoryQuestions.length)} question(s)
+                  {formatNumber(selectedCategoryQuestions.length)}
+                  {categoryQuestionMediaFilter === 'all'
+                    ? ''
+                    : ` / ${formatNumber(allSelectedCategoryQuestions.length)}`}{' '}
+                  question(s)
                 </span>
+              </div>
+
+              <div className="contest-filter-bar compact">
+                <select
+                  aria-label="Filtrer les questions par format média"
+                  onChange={(event) =>
+                    setCategoryQuestionMediaFilter(
+                      event.target.value as CategoryQuestionMediaFilter,
+                    )
+                  }
+                  value={categoryQuestionMediaFilter}
+                >
+                  {categoryQuestionMediaFilterOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="premium-contest-table question-bank-question-table">
@@ -1389,18 +1435,25 @@ export function SuperAdminQuestionBanksPage({
                 </div>
                 {selectedCategoryQuestions.length === 0 ? (
                   <p className="empty-panel-text">
-                    Aucune question enregistrée pour cette catégorie.
+                    {allSelectedCategoryQuestions.length === 0
+                      ? 'Aucune question enregistrée pour cette catégorie.'
+                      : 'Aucune question ne correspond à ce format.'}
                   </p>
                 ) : (
                   paginatedCategoryQuestions.map((question) => {
                     const questionBank = banks.find((bank) => bank.id === question.bankId)
+                    const mediaMode = detectQuestionMediaMode(question)
+                    const mediaLabel =
+                      categoryQuestionMediaFilterOptions.find(
+                        (option) => option.value === mediaMode,
+                      )?.label ?? 'Format libre'
                     return (
                       <div className="premium-contest-row" key={question.id}>
                         <div>
-                          <strong>{question.questionText}</strong>
+                          <strong>{question.questionText || 'Question image'}</strong>
                           <p>
                             {question.points} pts · {question.timeLimit}s ·{' '}
-                            {question.difficulty || 'niveau libre'}
+                            {question.difficulty || 'niveau libre'} · {mediaLabel}
                           </p>
                         </div>
                         <span>{question.correctAnswer}</span>

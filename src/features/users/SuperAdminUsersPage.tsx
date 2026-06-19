@@ -982,6 +982,15 @@ export function SuperAdminUsersPage({
                     ) : null}
                   </div>
                   <div className="table-actions compact">
+                    {user.accountStatus !== 'deleted' ? (
+                      <button
+                        className="table-action-button danger"
+                        onClick={() => openDeletionDialog(user, 'schedule_deletion')}
+                        type="button"
+                      >
+                        Supprimer
+                      </button>
+                    ) : null}
                     <select
                       aria-label={`Actions pour ${user.username || user.phone || 'utilisateur'}`}
                       className="table-action-select"
