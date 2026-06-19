@@ -30,6 +30,11 @@ type LandingMaintenanceState = {
   badge: string
 }
 
+type LandingStoreLinks = {
+  androidStoreUrl: string
+  iosStoreUrl: string
+}
+
 type LandingLiveQuiz = {
   id: string
   title: string
@@ -78,6 +83,11 @@ const defaultLandingMaintenance: LandingMaintenanceState = {
   message:
     'Nous effectuons une courte mise à jour afin de vous offrir une expérience plus fluide. Merci pour votre patience.',
   badge: 'Maintenance en cours',
+}
+
+const defaultLandingStoreLinks: LandingStoreLinks = {
+  androidStoreUrl: '',
+  iosStoreUrl: '',
 }
 
 function formatPlanPrice(price: number, durationDays: number) {
@@ -359,6 +369,25 @@ async function fetchLandingMaintenance(): Promise<LandingMaintenanceState> {
   return defaultLandingMaintenance
 }
 
+async function fetchLandingStoreLinks(): Promise<LandingStoreLinks> {
+  const { data, error } = await supabase
+    .from('app_update_config')
+    .select('android_store_url, ios_store_url')
+    .eq('key', 'main')
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    androidStoreUrl: (data?.android_store_url as string | null) ?? '',
+    iosStoreUrl: (data?.ios_store_url as string | null) ?? '',
+  }
+}
+
+function isExternalUrl(value: string) {
+  return /^https?:\/\//i.test(value)
+}
+
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [activeFaq, setActiveFaq] = useState(0)
@@ -381,6 +410,8 @@ export function LandingPage() {
   const [isContactSending, setIsContactSending] = useState(false)
   const [landingMaintenance, setLandingMaintenance] =
     useState<LandingMaintenanceState>(defaultLandingMaintenance)
+  const [storeLinks, setStoreLinks] =
+    useState<LandingStoreLinks>(defaultLandingStoreLinks)
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now())
   const [featuredLiveQuiz, setFeaturedLiveQuiz] = useState<LandingLiveQuiz | null>(null)
   const [dismissedLiveQuizIds, setDismissedLiveQuizIds] = useState<Set<string>>(
@@ -414,6 +445,12 @@ export function LandingPage() {
         maintenance: defaultLandingMaintenance,
         error,
       }))
+    const storeLinksResult = await fetchLandingStoreLinks()
+      .then((links) => ({ links, error: null }))
+      .catch((error: unknown) => ({
+        links: defaultLandingStoreLinks,
+        error,
+      }))
 
     const nextContent = contentResult.data?.content
       ? mergeLandingContent(contentResult.data.content as Partial<LandingPageContent>)
@@ -428,6 +465,7 @@ export function LandingPage() {
     setContactSettings(contactResult.settings)
     setFeaturedLiveQuiz(liveQuizResult.quiz)
     setLandingMaintenance(maintenanceResult.maintenance)
+    setStoreLinks(storeLinksResult.links)
 
     if (contentResult.error) {
       console.warn('[MegaPromo][landing] content unavailable', contentResult.error)
@@ -443,6 +481,9 @@ export function LandingPage() {
     }
     if (maintenanceResult.error) {
       console.warn('[MegaPromo][landing] maintenance unavailable', maintenanceResult.error)
+    }
+    if (storeLinksResult.error) {
+      console.warn('[MegaPromo][landing] store links unavailable', storeLinksResult.error)
     }
   }, [])
 
@@ -542,6 +583,7 @@ export function LandingPage() {
       'player_plan_benefits',
       'contests',
       'app_feature_flags',
+      'app_update_config',
     ].forEach((table) => {
       channel.on(
         'postgres_changes',
@@ -660,6 +702,12 @@ export function LandingPage() {
   const visibleLiveQuizStatus = visibleFeaturedLiveQuiz
     ? getLiveQuizStatusLabel(visibleFeaturedLiveQuiz, currentTimeMs)
     : null
+  const androidStoreHref = storeLinks.androidStoreUrl.trim() || '#contact'
+  const iosStoreHref = storeLinks.iosStoreUrl.trim() || '#contact'
+  const androidStoreIsReady = Boolean(storeLinks.androidStoreUrl.trim())
+  const iosStoreIsReady = Boolean(storeLinks.iosStoreUrl.trim())
+  const androidStoreTarget = isExternalUrl(androidStoreHref) ? '_blank' : undefined
+  const iosStoreTarget = isExternalUrl(iosStoreHref) ? '_blank' : undefined
 
   if (landingMaintenance.isEnabled) {
     return (
@@ -1237,7 +1285,12 @@ export function LandingPage() {
               <h2>{content.finalCta.title}</h2>
               <p>{content.finalCta.subtitle}</p>
               <div className="lp-final-actions">
-                <a className="lp-store-button android" href="/auth/partner">
+                <a
+                  className="lp-store-button android"
+                  href={androidStoreHref}
+                  rel={androidStoreTarget ? 'noopener noreferrer' : undefined}
+                  target={androidStoreTarget}
+                >
                   <span className="lp-store-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" role="img">
                       <path d="M5.2 3.1c-.42.22-.7.68-.7 1.31v15.18c0 .62.28 1.08.7 1.31l8.78-8.9L5.2 3.1Z" />
@@ -1246,16 +1299,27 @@ export function LandingPage() {
                       <path d="m18.5 9.03-2.42 2.46 2.42 2.48 1.38-.78c1.02-.58 1.02-1.8 0-2.38l-1.38-.78Z" />
                     </svg>
                   </span>
-                  <span><small>Télécharger sur</small><strong>Google Play</strong></span>
+                  <span>
+                    <small>{androidStoreIsReady ? 'Télécharger sur' : 'Bientôt sur'}</small>
+                    <strong>Google Play</strong>
+                  </span>
                 </a>
-                <a className="lp-store-button ios" href="#contact">
+                <a
+                  className="lp-store-button ios"
+                  href={iosStoreHref}
+                  rel={iosStoreTarget ? 'noopener noreferrer' : undefined}
+                  target={iosStoreTarget}
+                >
                   <span className="lp-store-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" role="img">
                       <path d="M16.71 12.72c-.02-2.06 1.7-3.05 1.78-3.1-1-.14-1.96-.69-2.61-1.49-.56-.68-1.25-1.13-2.06-1.13-.88 0-1.65.52-2.13.52-.5 0-1.3-.5-2.14-.48-1.1.02-2.12.64-2.69 1.62-1.15 2-.29 4.95.83 6.57.55.8 1.2 1.69 2.06 1.66.82-.03 1.13-.53 2.12-.53.99 0 1.27.53 2.14.51.88-.02 1.44-.81 1.98-1.61.62-.91.88-1.8.89-1.85-.02-.01-1.74-.67-1.77-2.19Z" />
                       <path d="M14.17 5.75c.45-.55.76-1.32.68-2.08-.65.03-1.43.43-1.9.98-.42.48-.79 1.27-.69 2.01.72.06 1.46-.36 1.91-.91Z" />
                     </svg>
                   </span>
-                  <span><small>Bientôt sur</small><strong>App Store</strong></span>
+                  <span>
+                    <small>{iosStoreIsReady ? 'Télécharger sur' : 'Bientôt sur'}</small>
+                    <strong>App Store</strong>
+                  </span>
                 </a>
               </div>
               <div className="lp-final-proof">
