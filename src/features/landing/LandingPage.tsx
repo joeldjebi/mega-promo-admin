@@ -370,17 +370,15 @@ async function fetchLandingMaintenance(): Promise<LandingMaintenanceState> {
 }
 
 async function fetchLandingStoreLinks(): Promise<LandingStoreLinks> {
-  const { data, error } = await supabase
-    .from('app_update_config')
-    .select('android_store_url, ios_store_url')
-    .eq('key', 'main')
-    .maybeSingle()
+  const { data, error } = await supabase.rpc('get_public_app_store_links')
 
   if (error) throw error
 
+  const row = Array.isArray(data) ? data[0] : data
+
   return {
-    androidStoreUrl: (data?.android_store_url as string | null) ?? '',
-    iosStoreUrl: (data?.ios_store_url as string | null) ?? '',
+    androidStoreUrl: (row?.android_store_url as string | null) ?? '',
+    iosStoreUrl: (row?.ios_store_url as string | null) ?? '',
   }
 }
 

@@ -31,4 +31,43 @@ begin
 end;
 $$;
 
+create or replace function public.get_public_app_store_links()
+returns table (
+  android_store_url text,
+  ios_store_url text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if to_regclass('public.app_update_config') is null then
+    return query
+    select
+      ''::text as android_store_url,
+      ''::text as ios_store_url;
+    return;
+  end if;
+
+  return query
+  select
+    coalesce(app_update_config.android_store_url, '')::text as android_store_url,
+    coalesce(app_update_config.ios_store_url, '')::text as ios_store_url
+  from public.app_update_config
+  where app_update_config.key = 'main'
+    and coalesce(app_update_config.is_active, true) = true
+  limit 1;
+
+  if not found then
+    return query
+    select
+      ''::text as android_store_url,
+      ''::text as ios_store_url;
+  end if;
+end;
+$$;
+
+grant execute on function public.get_public_app_store_links()
+to anon, authenticated, service_role;
+
 notify pgrst, 'reload schema';
