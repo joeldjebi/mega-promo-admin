@@ -253,6 +253,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
   const [winnerSearch, setWinnerSearch] = useState('')
   const [winnerStatusFilter, setWinnerStatusFilter] = useState<'all' | WinnerStatus>('all')
   const [winnerTypeFilter, setWinnerTypeFilter] = useState<'all' | 'contest' | 'live'>('all')
+  const [winnerPage, setWinnerPage] = useState(0)
   const [rewardsFlag, setRewardsFlag] = useState<AppFeatureFlagState>({
     isEnabled: true,
     updatedAt: '',
@@ -275,6 +276,38 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
       return matchesSearch && matchesStatus && matchesType
     })
   }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnersData.winners])
+  const winnerPageSize = 10
+  const totalWinnerPages = Math.max(1, Math.ceil(filteredWinners.length / winnerPageSize))
+  const paginatedWinners = useMemo(() => {
+    const startIndex = winnerPage * winnerPageSize
+    return filteredWinners.slice(startIndex, startIndex + winnerPageSize)
+  }, [filteredWinners, winnerPage])
+  const winnerResultsStart =
+    filteredWinners.length === 0 ? 0 : winnerPage * winnerPageSize + 1
+  const winnerResultsEnd = Math.min(
+    filteredWinners.length,
+    winnerPage * winnerPageSize + paginatedWinners.length,
+  )
+  const winnerPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, winnerPage - 2)
+    const lastPage = Math.min(totalWinnerPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [totalWinnerPages, winnerPage])
+
+  useEffect(() => {
+    setWinnerPage(0)
+  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter])
+
+  useEffect(() => {
+    if (winnerPage + 1 > totalWinnerPages) {
+      setWinnerPage(totalWinnerPages - 1)
+    }
+  }, [totalWinnerPages, winnerPage])
+
   const winnersStats = useMemo(() => {
     const pending = winnersData.winners.filter((winner) => winner.status === 'pending')
     const sent = winnersData.winners.filter((winner) => winner.status === 'sent')
@@ -1060,8 +1093,8 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
               <span>Statut</span>
               <span>Actions</span>
             </div>
-            {filteredWinners.length > 0 ? (
-              filteredWinners.map((winner) => (
+            {paginatedWinners.length > 0 ? (
+              paginatedWinners.map((winner) => (
                 <article className="premium-winner-row" key={winner.id} role="row">
                   <div>
                     <strong>{winner.userLabel}</strong>
@@ -1145,6 +1178,62 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
                   : 'Aucun gagnant ne correspond aux filtres.'}
               </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(winnerResultsStart)}-{formatNumber(winnerResultsEnd)} sur{' '}
+              {formatNumber(filteredWinners.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={winnerPage === 0 || isWinnersLoading}
+                onClick={() => setWinnerPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={winnerPage === 0 || isWinnersLoading}
+                onClick={() => setWinnerPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {winnerPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === winnerPage ? 'active' : ''}`}
+                    disabled={isWinnersLoading}
+                    key={page}
+                    onClick={() => setWinnerPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={winnerPage + 1 >= totalWinnerPages || isWinnersLoading}
+                onClick={() =>
+                  setWinnerPage((page) => Math.min(totalWinnerPages - 1, page + 1))
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={winnerPage + 1 >= totalWinnerPages || isWinnersLoading}
+                onClick={() => setWinnerPage(totalWinnerPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
       </section>

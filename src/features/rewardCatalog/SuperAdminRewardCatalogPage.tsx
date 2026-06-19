@@ -62,6 +62,10 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('fr-FR').format(value)
+}
+
 function formatUnknownError(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
   if (error && typeof error === 'object') {
@@ -298,6 +302,7 @@ export function SuperAdminRewardCatalogPage({ authRoute, rootRoute, navItems }: 
   const [catalogSearch, setCatalogSearch] = useState('')
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<'all' | RewardCatalogType>('all')
   const [catalogStatusFilter, setCatalogStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [catalogPage, setCatalogPage] = useState(0)
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false)
   const [editingCatalogItemId, setEditingCatalogItemId] = useState<string | null>(null)
   const [catalogForm, setCatalogForm] = useState<RewardCatalogFormState>(
@@ -329,6 +334,37 @@ export function SuperAdminRewardCatalogPage({ authRoute, rootRoute, navItems }: 
       return matchesSearch && matchesType && matchesStatus
     })
   }, [catalogData.rewards, catalogSearch, catalogStatusFilter, catalogTypeFilter])
+  const catalogPageSize = 10
+  const totalCatalogPages = Math.max(1, Math.ceil(filteredRewards.length / catalogPageSize))
+  const paginatedRewards = useMemo(() => {
+    const startIndex = catalogPage * catalogPageSize
+    return filteredRewards.slice(startIndex, startIndex + catalogPageSize)
+  }, [catalogPage, filteredRewards])
+  const catalogResultsStart =
+    filteredRewards.length === 0 ? 0 : catalogPage * catalogPageSize + 1
+  const catalogResultsEnd = Math.min(
+    filteredRewards.length,
+    catalogPage * catalogPageSize + paginatedRewards.length,
+  )
+  const catalogPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, catalogPage - 2)
+    const lastPage = Math.min(totalCatalogPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [catalogPage, totalCatalogPages])
+
+  useEffect(() => {
+    setCatalogPage(0)
+  }, [catalogSearch, catalogStatusFilter, catalogTypeFilter])
+
+  useEffect(() => {
+    if (catalogPage + 1 > totalCatalogPages) {
+      setCatalogPage(totalCatalogPages - 1)
+    }
+  }, [catalogPage, totalCatalogPages])
 
   const loadCatalog = useCallback(async () => {
     setIsCatalogLoading(true)
@@ -729,8 +765,8 @@ export function SuperAdminRewardCatalogPage({ authRoute, rootRoute, navItems }: 
               <span>Statut</span>
               <span>Actions</span>
             </div>
-            {filteredRewards.length > 0 ? (
-              filteredRewards.map((reward) => (
+            {paginatedRewards.length > 0 ? (
+              paginatedRewards.map((reward) => (
                 <article className="premium-winner-row" key={reward.id} role="row">
                   <div>
                     <strong>{reward.name}</strong>
@@ -789,6 +825,62 @@ export function SuperAdminRewardCatalogPage({ authRoute, rootRoute, navItems }: 
                   : 'Aucun gain ne correspond aux filtres.'}
               </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(catalogResultsStart)}-{formatNumber(catalogResultsEnd)} sur{' '}
+              {formatNumber(filteredRewards.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={catalogPage === 0 || isCatalogLoading}
+                onClick={() => setCatalogPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={catalogPage === 0 || isCatalogLoading}
+                onClick={() => setCatalogPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {catalogPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === catalogPage ? 'active' : ''}`}
+                    disabled={isCatalogLoading}
+                    key={page}
+                    onClick={() => setCatalogPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={catalogPage + 1 >= totalCatalogPages || isCatalogLoading}
+                onClick={() =>
+                  setCatalogPage((page) => Math.min(totalCatalogPages - 1, page + 1))
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={catalogPage + 1 >= totalCatalogPages || isCatalogLoading}
+                onClick={() => setCatalogPage(totalCatalogPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
 

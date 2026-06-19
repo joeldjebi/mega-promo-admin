@@ -205,6 +205,7 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
   const [subscriptionSearch, setSubscriptionSearch] = useState('')
   const [subscriptionStatusFilter, setSubscriptionStatusFilter] =
     useState<'all' | SubscriptionHistoryStatus>('all')
+  const [subscriptionPage, setSubscriptionPage] = useState(0)
   const [savingSubscriptionId, setSavingSubscriptionId] = useState('')
 
   const filteredSubscriptions = useMemo(() => {
@@ -222,6 +223,41 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
       return matchesSearch && matchesStatus
     })
   }, [historyData.subscriptions, subscriptionSearch, subscriptionStatusFilter])
+  const subscriptionPageSize = 10
+  const totalSubscriptionPages = Math.max(
+    1,
+    Math.ceil(filteredSubscriptions.length / subscriptionPageSize),
+  )
+  const paginatedSubscriptions = useMemo(() => {
+    const startIndex = subscriptionPage * subscriptionPageSize
+    return filteredSubscriptions.slice(startIndex, startIndex + subscriptionPageSize)
+  }, [filteredSubscriptions, subscriptionPage])
+  const subscriptionResultsStart =
+    filteredSubscriptions.length === 0 ? 0 : subscriptionPage * subscriptionPageSize + 1
+  const subscriptionResultsEnd = Math.min(
+    filteredSubscriptions.length,
+    subscriptionPage * subscriptionPageSize + paginatedSubscriptions.length,
+  )
+  const subscriptionPaginationPages = useMemo(() => {
+    const firstPage = Math.max(0, subscriptionPage - 2)
+    const lastPage = Math.min(totalSubscriptionPages - 1, firstPage + 4)
+    const normalizedFirstPage = Math.max(0, Math.min(firstPage, lastPage - 4))
+    return Array.from(
+      { length: lastPage - normalizedFirstPage + 1 },
+      (_, index) => normalizedFirstPage + index,
+    )
+  }, [subscriptionPage, totalSubscriptionPages])
+
+  useEffect(() => {
+    setSubscriptionPage(0)
+  }, [subscriptionSearch, subscriptionStatusFilter])
+
+  useEffect(() => {
+    if (subscriptionPage + 1 > totalSubscriptionPages) {
+      setSubscriptionPage(totalSubscriptionPages - 1)
+    }
+  }, [subscriptionPage, totalSubscriptionPages])
+
   const subscriptionStats = useMemo(() => {
     const now = Date.now()
     const pending = historyData.subscriptions.filter(
@@ -651,8 +687,8 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
               <span>Statut</span>
               <span>Action</span>
             </div>
-            {filteredSubscriptions.length > 0 ? (
-              filteredSubscriptions.map((subscription) => (
+            {paginatedSubscriptions.length > 0 ? (
+              paginatedSubscriptions.map((subscription) => (
                 <article className="premium-winner-row" key={subscription.id} role="row">
                   <div>
                     <strong>{subscription.userLabel}</strong>
@@ -721,6 +757,64 @@ export function SuperAdminSubscriptionHistoryPage({ authRoute, rootRoute, usersR
                   : 'Aucun abonnement ne correspond aux filtres.'}
               </p>
             )}
+          </div>
+
+          <div className="pagination-row">
+            <span>
+              {formatNumber(subscriptionResultsStart)}-{formatNumber(subscriptionResultsEnd)} sur{' '}
+              {formatNumber(filteredSubscriptions.length)}
+            </span>
+            <div className="pagination-controls">
+              <button
+                className="table-action-button"
+                disabled={subscriptionPage === 0 || isHistoryLoading}
+                onClick={() => setSubscriptionPage(0)}
+                type="button"
+              >
+                Première
+              </button>
+              <button
+                className="table-action-button"
+                disabled={subscriptionPage === 0 || isHistoryLoading}
+                onClick={() => setSubscriptionPage((page) => Math.max(0, page - 1))}
+                type="button"
+              >
+                Précédent
+              </button>
+              <div className="pagination-pages">
+                {subscriptionPaginationPages.map((page) => (
+                  <button
+                    className={`pagination-page-button ${page === subscriptionPage ? 'active' : ''}`}
+                    disabled={isHistoryLoading}
+                    key={page}
+                    onClick={() => setSubscriptionPage(page)}
+                    type="button"
+                  >
+                    {page + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="table-action-button"
+                disabled={subscriptionPage + 1 >= totalSubscriptionPages || isHistoryLoading}
+                onClick={() =>
+                  setSubscriptionPage((page) =>
+                    Math.min(totalSubscriptionPages - 1, page + 1),
+                  )
+                }
+                type="button"
+              >
+                Suivant
+              </button>
+              <button
+                className="table-action-button"
+                disabled={subscriptionPage + 1 >= totalSubscriptionPages || isHistoryLoading}
+                onClick={() => setSubscriptionPage(totalSubscriptionPages - 1)}
+                type="button"
+              >
+                Dernière
+              </button>
+            </div>
           </div>
         </section>
       </section>
