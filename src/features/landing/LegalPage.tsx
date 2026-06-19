@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { landingStyle } from './landingStyles'
 
-type LegalPageKey = 'terms' | 'privacy'
+type LegalPageKey = 'terms' | 'privacy' | 'account-deletion'
 
 type LegalPageRecord = {
   key: LegalPageKey
@@ -23,6 +23,12 @@ const fallbackLegalPages: Record<LegalPageKey, LegalPageRecord> = {
     title: 'Politique de confidentialité',
     content:
       'MegaPromo collecte uniquement les informations nécessaires au fonctionnement du service, notamment l’identification de l’utilisateur, la participation aux campagnes, les notifications et la sécurisation de l’expérience.\n\nLes données peuvent être utilisées pour afficher les campagnes disponibles, gérer les récompenses promotionnelles, prévenir la fraude et améliorer l’application.\n\nVous pouvez contacter l’équipe MegaPromo pour toute demande liée à vos données personnelles.',
+  },
+  'account-deletion': {
+    key: 'account-deletion',
+    title: 'Suppression de compte',
+    content:
+      'Tu peux demander la suppression de ton compte MegaPromo à tout moment. Cette page décrit le mécanisme prévu pour supprimer ton profil joueur, tes données d’identification et les informations personnelles rattachées à ton compte.\n\nDepuis l’application mobile, connecte-toi à ton compte, ouvre ton profil, puis contacte l’assistance ou utilise le parcours de suppression lorsqu’il est disponible. Tu peux aussi écrire à l’équipe MegaPromo depuis le formulaire de contact du site en précisant le numéro, l’adresse e-mail ou le compte social utilisé pour ton inscription.\n\nAprès réception de la demande, l’équipe vérifie que le compte t’appartient réellement. Cette vérification protège les joueurs contre les suppressions non autorisées. Une fois la demande validée, le compte est désactivé puis les données personnelles non nécessaires sont supprimées ou anonymisées.\n\nCertaines informations peuvent être conservées temporairement lorsque la loi, la sécurité, la prévention de la fraude, la gestion des récompenses, les litiges ou les obligations comptables l’exigent. Les données conservées sont limitées au strict nécessaire et ne sont plus utilisées pour l’animation commerciale du compte supprimé.\n\nLa suppression est irréversible pour l’expérience joueur : l’historique de participation, les avantages non réclamés, les badges, les notifications et les accès au compte peuvent ne plus être récupérables après traitement.',
   },
 }
 
@@ -125,6 +131,7 @@ export function LegalPage({ pageKey }: { pageKey: LegalPageKey }) {
           <div className="lp-legal-links">
             <a href="/legal/terms">Conditions générales d’utilisation</a>
             <a href="/legal/privacy">Politique de confidentialité</a>
+            <a href="/legal/account-deletion">Suppression de compte</a>
           </div>
         </div>
       </section>

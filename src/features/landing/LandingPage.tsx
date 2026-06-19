@@ -1334,6 +1334,7 @@ export function LandingPage() {
               <h4>Légal</h4>
               <a href="/legal/terms">CGU</a>
               <a href="/legal/privacy">Politique de confidentialité</a>
+              <a href="/legal/account-deletion">Suppression de compte</a>
               <a href="/legal/terms">Mentions légales</a>
               <a href="#contact">Contact</a>
             </div>

@@ -1879,6 +1879,10 @@ function App() {
         <Route path="/" element={<PublicLandingPage />} />
         <Route path="/legal/terms" element={<PublicLegalPage pageKey="terms" />} />
         <Route path="/legal/privacy" element={<PublicLegalPage pageKey="privacy" />} />
+        <Route
+          path="/legal/account-deletion"
+          element={<PublicLegalPage pageKey="account-deletion" />}
+        />
         <Route path="/auth" element={<Navigate to={PARTNER_AUTH_ROUTE} replace />} />
         <Route path={PARTNER_AUTH_ROUTE} element={<AuthPage role="partner" />} />
         <Route

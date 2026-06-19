@@ -91,7 +91,7 @@ type PlayerKycRequestItem = {
   reviewedAt: string
 }
 type LegalPageItem = {
-  key: 'terms' | 'privacy'
+  key: LegalPageKey
   title: string
   content: string
   isActive: boolean
@@ -144,6 +144,8 @@ type MobileInfoMessageFormState = {
   isActive: boolean
   orderIndex: string
 }
+
+type LegalPageKey = 'terms' | 'privacy' | 'account-deletion'
 type AppUpdateConfigItem = {
   minimumAndroidBuild: number
   latestAndroidBuild: number
@@ -229,7 +231,7 @@ function playerKycDocumentLabel(documentType: string): string {
 }
 
 
-const defaultLegalForms: Record<'terms' | 'privacy', LegalPageFormState> = {
+const defaultLegalForms: Record<LegalPageKey, LegalPageFormState> = {
   terms: {
     title: 'Conditions générales d’utilisation',
     content:
@@ -240,6 +242,12 @@ const defaultLegalForms: Record<'terms' | 'privacy', LegalPageFormState> = {
     title: 'Politique de confidentialité',
     content:
       'MegaPromo collecte les informations nécessaires au fonctionnement du service : numéro de téléphone, profil joueur, participations, gains, informations techniques du device et localisation lorsque l’autorisation est donnée.\n\nCes données servent à sécuriser les concours, prévenir la fraude et améliorer l’expérience.',
+    isActive: true,
+  },
+  'account-deletion': {
+    title: 'Suppression de compte',
+    content:
+      'Tu peux demander la suppression de ton compte MegaPromo à tout moment.\n\nLe mécanisme prévu consiste à vérifier l’identité du demandeur, désactiver le compte, puis supprimer ou anonymiser les données personnelles qui ne sont plus nécessaires au fonctionnement légal, comptable, sécuritaire ou antifraude du service.\n\nLes participations, récompenses, notifications, badges et avantages non réclamés peuvent devenir définitivement inaccessibles après traitement de la demande.\n\nPour lancer la demande, le joueur peut contacter l’équipe MegaPromo depuis la page de contact du site ou depuis l’application mobile en précisant le compte concerné.',
     isActive: true,
   },
 }
@@ -369,18 +377,32 @@ function legalPageToForm(page: LegalPageItem): LegalPageFormState {
   }
 }
 
+const legalPageKeys: LegalPageKey[] = ['terms', 'privacy', 'account-deletion']
+
+function legalPageEyebrow(key: LegalPageKey) {
+  if (key === 'terms') return 'CGU'
+  if (key === 'privacy') return 'Confidentialité'
+  return 'Suppression'
+}
+
+function legalPageShortTitle(key: LegalPageKey) {
+  if (key === 'terms') return 'Conditions'
+  if (key === 'privacy') return 'Politique'
+  return 'Compte'
+}
+
 
 async function fetchLegalPagesForAdmin(): Promise<LegalPageItem[]> {
   const { data, error } = await supabase
     .from('legal_pages')
     .select('key, title, content, is_active, updated_at')
-    .in('key', ['terms', 'privacy'])
+    .in('key', ['terms', 'privacy', 'account-deletion'])
     .order('key', { ascending: true })
 
   if (error) throw error
 
   return (data ?? []).map((page) => ({
-    key: ((page.key as string | null) ?? 'terms') as 'terms' | 'privacy',
+    key: ((page.key as string | null) ?? 'terms') as LegalPageKey,
     title: (page.title as string | null) ?? '',
     content: (page.content as string | null) ?? '',
     isActive: (page.is_active as boolean | null) ?? true,
@@ -590,7 +612,7 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
   const [isKycReviewSaving, setIsKycReviewSaving] = useState(false)
   const [legalPages, setLegalPages] = useState<LegalPageItem[]>([])
   const [legalForms, setLegalForms] =
-    useState<Record<'terms' | 'privacy', LegalPageFormState>>(defaultLegalForms)
+    useState<Record<LegalPageKey, LegalPageFormState>>(defaultLegalForms)
   const [isLegalSaving, setIsLegalSaving] = useState(false)
   const [contactSettingsForm, setContactSettingsForm] =
     useState<ContactSettingsFormState>(defaultContactSettingsForm)
@@ -965,7 +987,7 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
   }
 
   async function handleSaveLegalPage(
-    key: 'terms' | 'privacy',
+    key: LegalPageKey,
     event: FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault()
@@ -997,7 +1019,9 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
       setNotice(
         key === 'terms'
           ? 'Conditions générales mises à jour.'
-          : 'Politique de confidentialité mise à jour.',
+          : key === 'privacy'
+            ? 'Politique de confidentialité mise à jour.'
+            : 'Politique de suppression de compte mise à jour.',
       )
     } catch (error) {
       setSettingsError(
@@ -2096,12 +2120,12 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Légal mobile</p>
-                <h2>CGU et confidentialité</h2>
+                <h2>CGU, confidentialité et suppression</h2>
               </div>
               <span className="status-pill active">{legalPages.length} page(s)</span>
             </div>
             <div className="settings-module-grid">
-              {(['terms', 'privacy'] as const).map((legalKey) => {
+              {legalPageKeys.map((legalKey) => {
                 const form = legalForms[legalKey]
                 return (
                   <form
@@ -2111,10 +2135,8 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                   >
                     <div className="section-heading compact">
                       <div>
-                        <p className="eyebrow">
-                          {legalKey === 'terms' ? 'CGU' : 'Confidentialité'}
-                        </p>
-                        <h2>{legalKey === 'terms' ? 'Conditions' : 'Politique'}</h2>
+                        <p className="eyebrow">{legalPageEyebrow(legalKey)}</p>
+                        <h2>{legalPageShortTitle(legalKey)}</h2>
                       </div>
                       <label className="checkbox-row compact">
                         <input
