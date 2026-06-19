@@ -330,6 +330,15 @@ const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
     },
     updatedAt: '',
   },
+  {
+    key: 'player_account_linking',
+    name: 'Liaison des comptes joueur',
+    description:
+      'Autorise les joueurs à lier Google, Apple et téléphone au même compte depuis le profil mobile.',
+    isEnabled: true,
+    metadata: { scope: 'mobile_profile', default: true },
+    updatedAt: '',
+  },
 ]
 
 
@@ -1287,6 +1296,48 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     }
   }
 
+  async function handleTogglePlayerAccountLinking(isEnabled: boolean) {
+    const linkingFlag =
+      appFeatureFlags.find((flag) => flag.key === 'player_account_linking') ??
+      defaultAppFeatureFlags[4]
+
+    setNotice('')
+    setSettingsError('')
+    setIsAppFeatureFlagSaving(true)
+    try {
+      const { error } = await supabase.from('app_feature_flags').upsert({
+        key: linkingFlag.key,
+        name: linkingFlag.name,
+        description: linkingFlag.description,
+        is_enabled: isEnabled,
+        metadata: {
+          ...linkingFlag.metadata,
+          scope: 'mobile_profile',
+          default: true,
+        },
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadAppFeatureFlags()
+      setNotice(
+        isEnabled
+          ? 'Les joueurs peuvent à nouveau lier plusieurs moyens de connexion.'
+          : 'La liaison des moyens de connexion est masquée côté mobile.',
+      )
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de mettre à jour la liaison des comptes joueur.',
+        ),
+      )
+    } finally {
+      setIsAppFeatureFlagSaving(false)
+    }
+  }
+
   const playerSubscriptionsFlag =
     appFeatureFlags.find((flag) => flag.key === 'player_subscriptions') ??
     defaultAppFeatureFlags[0]
@@ -1299,6 +1350,9 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
   const playerAuthModeFlag =
     appFeatureFlags.find((flag) => flag.key === 'player_auth_mode') ??
     defaultAppFeatureFlags[3]
+  const playerAccountLinkingFlag =
+    appFeatureFlags.find((flag) => flag.key === 'player_account_linking') ??
+    defaultAppFeatureFlags[4]
   const otpDeliveryChannel =
     otpDeliveryFlag.metadata.channel === 'whatsapp' ? 'whatsapp' : 'sms'
   const playerAuthMode: PlayerAuthMode =
@@ -1460,6 +1514,57 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
               <button className="table-action-button danger" onClick={handleLogout} type="button">
                 Fermer session
               </button>
+            </div>
+          </article>
+          <article className="panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Authentification</p>
+                <h2>Liaison des comptes joueur</h2>
+              </div>
+              <span className={`status-pill ${playerAccountLinkingFlag.isEnabled ? 'active' : 'pending'}`}>
+                {playerAccountLinkingFlag.isEnabled ? 'Autorisée' : 'Désactivée'}
+              </span>
+            </div>
+            <p className="helper-text">
+              Décide si les joueurs peuvent lier Google, Apple et leur numéro de
+              téléphone au même compte depuis la page Profil mobile.
+            </p>
+            <div className="maintenance-mode-action">
+              <div>
+                <strong>
+                  {playerAccountLinkingFlag.isEnabled
+                    ? 'Les joueurs peuvent lier leurs accès'
+                    : 'La liaison est masquée dans le profil'}
+                </strong>
+                <p>
+                  Quand l’option est désactivée, le compte existant reste
+                  utilisable, mais le joueur ne voit plus les actions pour
+                  ajouter Google, Apple ou un téléphone.
+                </p>
+              </div>
+              <div className="contest-actions">
+                <button
+                  className={`table-action-button ${
+                    playerAccountLinkingFlag.isEnabled ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleTogglePlayerAccountLinking(true)}
+                  type="button"
+                >
+                  Autoriser
+                </button>
+                <button
+                  className={`table-action-button ${
+                    !playerAccountLinkingFlag.isEnabled ? 'active' : ''
+                  }`}
+                  disabled={isAppFeatureFlagSaving}
+                  onClick={() => void handleTogglePlayerAccountLinking(false)}
+                  type="button"
+                >
+                  Désactiver
+                </button>
+              </div>
             </div>
           </article>
           <article className="panel">
