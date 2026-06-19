@@ -2504,6 +2504,184 @@ html { scroll-behavior: smooth; }
 
 .lp-legal-card p + p { margin-top: 16px; }
 
+.lp-account-deletion-panel {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--lp-border);
+  border-radius: 26px;
+  box-shadow: 0 24px 70px rgba(91, 74, 232, 0.12);
+  margin: 22px auto 0;
+  max-width: 860px;
+  padding: 26px;
+}
+
+.lp-account-panel-heading {
+  margin-bottom: 20px;
+}
+
+.lp-account-panel-heading h2 {
+  font-size: clamp(24px, 4vw, 36px);
+  letter-spacing: 0;
+  margin: 14px 0 8px;
+}
+
+.lp-account-panel-heading p,
+.lp-account-auth-card p,
+.lp-account-warning p,
+.lp-account-success span {
+  color: var(--lp-muted);
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.lp-account-auth-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lp-account-auth-card,
+.lp-account-delete-form {
+  background: #f8f8ff;
+  border: 1px solid var(--lp-border);
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.lp-account-auth-card h3 {
+  font-size: 18px;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+}
+
+.lp-account-social-actions,
+.lp-account-auth-card form,
+.lp-account-delete-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.lp-account-field {
+  display: grid;
+  gap: 7px;
+}
+
+.lp-account-field span {
+  color: var(--lp-text);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.lp-account-field input {
+  background: white;
+  border: 1px solid var(--lp-border);
+  border-radius: 14px;
+  color: var(--lp-text);
+  font: inherit;
+  min-height: 48px;
+  padding: 0 14px;
+  width: 100%;
+}
+
+.lp-account-session {
+  align-items: center;
+  background: white;
+  border: 1px solid var(--lp-border);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.lp-account-session span,
+.lp-account-session small {
+  color: var(--lp-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lp-account-session strong {
+  display: block;
+  font-size: 15px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.lp-account-warning {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.lp-account-warning strong {
+  color: #9a3412;
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.lp-account-success,
+.lp-account-loading {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 18px;
+  color: #166534;
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+}
+
+.lp-account-loading {
+  background: #f8f8ff;
+  border-color: var(--lp-border);
+  color: var(--lp-muted);
+}
+
+.lp-account-status {
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+}
+
+.lp-account-status.success {
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.lp-account-status.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.lp-account-link-button {
+  background: transparent;
+  border: 0;
+  color: var(--lp-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  justify-self: start;
+  padding: 0;
+}
+
+.lp-button.danger {
+  background: #dc2626;
+  color: white;
+}
+
+.lp-button:disabled,
+.lp-account-link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .lp-legal-links {
   align-items: center;
   display: flex;
@@ -3478,6 +3656,12 @@ html { scroll-behavior: smooth; }
   }
   .lp-legal-shell { padding-top: 96px; }
   .lp-legal-card { border-radius: 20px; padding: 20px; }
+  .lp-account-deletion-panel { border-radius: 20px; padding: 20px; }
+  .lp-account-auth-grid { grid-template-columns: 1fr; }
+  .lp-account-session {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .lp-step-card,
   .lp-participation-card {
     border-radius: 22px;
