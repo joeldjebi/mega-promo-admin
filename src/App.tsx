@@ -43,6 +43,7 @@ import { SuperAdminSystemLogsPage } from './features/systemLogs/SuperAdminSystem
 import { SuperAdminWinnersPage } from './features/winners/SuperAdminWinnersPage'
 import { SuperAdminUsersPage } from './features/users/SuperAdminUsersPage'
 import { LandingPage as PublicLandingPage } from './features/landing/LandingPage'
+import { StoreRedirectPage } from './features/landing/StoreRedirectPage'
 import { LegalPage as PublicLegalPage } from './features/landing/LegalPage'
 import { PartnerContestsPanel } from './features/partnerAdmin/contests/PartnerContestsPanel'
 import { supabase } from './lib/supabase'
@@ -1892,6 +1893,8 @@ function App() {
       <ResponsiveMenuControls />
       <Routes>
         <Route path="/" element={<PublicLandingPage />} />
+        <Route path="/download" element={<StoreRedirectPage />} />
+        <Route path="/app" element={<StoreRedirectPage />} />
         <Route path="/legal/terms" element={<PublicLegalPage pageKey="terms" />} />
         <Route path="/legal/privacy" element={<PublicLegalPage pageKey="privacy" />} />
         <Route

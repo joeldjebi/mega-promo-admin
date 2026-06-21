@@ -871,7 +871,7 @@ export function LandingPage() {
               </div>
             ) : null}
             <div className="lp-actions">
-              <a className="lp-button primary" href="#telecharger">Télécharger l’app</a>
+              <a className="lp-button primary" href="/download">Télécharger l’app</a>
               <button
                 aria-label="Menu"
                 className="lp-burger"
@@ -927,7 +927,7 @@ export function LandingPage() {
               <span>Sans pari</span>
             </div>
             <div className="lp-hero-actions">
-              <a className="lp-button primary" href="#telecharger">{content.hero.primaryCta}</a>
+              <a className="lp-button primary" href="/download">{content.hero.primaryCta}</a>
               <a className="lp-button outline" href="#concours">{content.hero.secondaryCta}</a>
             </div>
             {isLandingBlockVisible(content, 'stats') ? (
@@ -1060,7 +1060,7 @@ export function LandingPage() {
                         <span>{contest.viewsCount > 0 ? `${contest.viewsCount} vues` : 'Nouveau JCQ'}</span>
                       </div>
                       <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
-                      <a className="lp-button primary" href="#telecharger">Participer</a>
+                      <a className="lp-button primary" href="/download">Participer</a>
                     </article>
                   )
                 })
@@ -1084,7 +1084,7 @@ export function LandingPage() {
                       <span>{progress}% complété</span>
                     </div>
                     <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
-                    <a className="lp-button primary" href="#telecharger">{cta}</a>
+                    <a className="lp-button primary" href="/download">{cta}</a>
                   </article>
                 ))}
             </div>
@@ -1095,7 +1095,7 @@ export function LandingPage() {
             </div>
           </div>
           <div className="lp-centered-action">
-            <a className="lp-button outline" href="#telecharger">Voir toutes les campagnes →</a>
+            <a className="lp-button outline" href="/download">Voir toutes les campagnes →</a>
           </div>
         </div>
       </section>
@@ -1140,7 +1140,7 @@ export function LandingPage() {
                       )
                     })}
                   </ul>
-                  <a className={`lp-button ${plan.featured ? 'primary' : 'outline'}`} href="#telecharger">
+                  <a className={`lp-button ${plan.featured ? 'primary' : 'outline'}`} href="/download">
                     {plan.key === 'free' ? 'Commencer' : `Choisir ${plan.title}`}
                   </a>
                 </article>
@@ -1501,7 +1501,7 @@ export function LandingPage() {
               <a href="#comment-ca-marche">Comment ça marche</a>
               <a href="#concours">Les campagnes</a>
               <a href="#tarifs">Premium</a>
-              <a href="#telecharger">Application mobile</a>
+              <a href="/download">Application mobile</a>
             </div>
             <div className="lp-footer-column">
               <h4>Partenaires</h4>
@@ -1580,7 +1580,7 @@ export function LandingPage() {
               {new Intl.NumberFormat('fr-FR').format(visibleFeaturedLiveQuiz.registeredCount)} inscrit(s)
             </span>
           </div>
-          <a className="lp-live-floating-action" href="#telecharger">
+          <a className="lp-live-floating-action" href="/download">
             Participer depuis l’app
           </a>
         </aside>
