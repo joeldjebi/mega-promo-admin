@@ -62,6 +62,35 @@ type LandingLiveQuizRow = {
   registered_count?: number | null
 }
 
+type LandingJcqContest = {
+  id: string
+  title: string
+  brandName: string
+  logoUrl: string
+  imageUrl: string
+  category: string
+  prizeLabel: string
+  endsAt: string
+  viewsCount: number
+  sharesCount: number
+  isBoosted: boolean
+}
+
+type LandingJcqContestRow = {
+  id?: string | null
+  title?: string | null
+  brand_name?: string | null
+  brand_logo_url?: string | null
+  image_url?: string | null
+  category?: string | null
+  prize_description?: string | null
+  prize_value?: number | null
+  ends_at?: string | null
+  views_count?: number | null
+  shares_count?: number | null
+  is_boosted?: boolean | null
+}
+
 const heroTypingThemes = [
   'Offres locales.',
   'Marques ivoiriennes.',
@@ -192,6 +221,38 @@ function mapLandingLiveQuizRow(row: LandingLiveQuizRow): LandingLiveQuiz {
   }
 }
 
+function mapLandingJcqContestRow(row: LandingJcqContestRow): LandingJcqContest {
+  const prizeValue = row.prize_value ?? 0
+
+  return {
+    id: row.id ?? '',
+    title: row.title ?? 'JCQ MegaPromo',
+    brandName: row.brand_name || 'MegaPromo',
+    logoUrl: row.brand_logo_url || '/megapromologo.png',
+    imageUrl: row.image_url || '',
+    category: row.category || 'Quiz',
+    prizeLabel:
+      row.prize_description ||
+      (prizeValue > 0 ? formatMoney(prizeValue) : 'Récompense promotionnelle'),
+    endsAt: row.ends_at ?? '',
+    viewsCount: row.views_count ?? 0,
+    sharesCount: row.shares_count ?? 0,
+    isBoosted: row.is_boosted === true,
+  }
+}
+
+function getJcqTimerLabel(contest: LandingJcqContest, nowMs: number) {
+  const endsAtMs = Date.parse(contest.endsAt)
+  if (Number.isNaN(endsAtMs)) return 'Disponible maintenant'
+  if (endsAtMs <= nowMs) return 'Dernières vérifications'
+  return `Encore ${formatCountdown(endsAtMs - nowMs)}`
+}
+
+function getJcqProgress(contest: LandingJcqContest, index: number) {
+  const activity = contest.viewsCount + contest.sharesCount * 2
+  return Math.max(18, Math.min(92, 28 + index * 11 + activity))
+}
+
 function planFallbackFeatures(plan: {
   dailyParticipationLimit: number
   bonusTickets: number
@@ -315,6 +376,28 @@ async function fetchLandingLiveQuiz(): Promise<LandingLiveQuiz | null> {
   return liveQuizzes.find((quiz) => Date.parse(quiz.endsAt) > now.getTime()) ?? null
 }
 
+async function fetchLandingJcqContests(): Promise<LandingJcqContest[]> {
+  const now = new Date()
+  const { data, error } = await supabase
+    .from('contests')
+    .select(
+      'id, title, brand_name, brand_logo_url, image_url, category, prize_description, prize_value, ends_at, views_count, shares_count, is_boosted',
+    )
+    .eq('type', 'quiz')
+    .eq('is_live', false)
+    .eq('status', 'active')
+    .gte('ends_at', now.toISOString())
+    .order('is_boosted', { ascending: false })
+    .order('ends_at', { ascending: true })
+    .limit(6)
+
+  if (error) throw error
+
+  return (data ?? [])
+    .map((contest) => mapLandingJcqContestRow(contest as LandingJcqContestRow))
+    .filter((contest) => contest.id && contest.endsAt && Date.parse(contest.endsAt) > now.getTime())
+}
+
 function normalizeWhatsappNumber(value: string) {
   return value.replace(/[^\d]/g, '')
 }
@@ -412,6 +495,7 @@ export function LandingPage() {
     useState<LandingStoreLinks>(defaultLandingStoreLinks)
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now())
   const [featuredLiveQuiz, setFeaturedLiveQuiz] = useState<LandingLiveQuiz | null>(null)
+  const [jcqContests, setJcqContests] = useState<LandingJcqContest[]>([])
   const [dismissedLiveQuizIds, setDismissedLiveQuizIds] = useState<Set<string>>(
     readDismissedLiveQuizIds,
   )
@@ -437,6 +521,9 @@ export function LandingPage() {
     const liveQuizResult = await fetchLandingLiveQuiz()
       .then((quiz) => ({ quiz, error: null }))
       .catch((error: unknown) => ({ quiz: null, error }))
+    const jcqContestsResult = await fetchLandingJcqContests()
+      .then((contests) => ({ contests, error: null }))
+      .catch((error: unknown) => ({ contests: [] as LandingJcqContest[], error }))
     const maintenanceResult = await fetchLandingMaintenance()
       .then((maintenance) => ({ maintenance, error: null }))
       .catch((error: unknown) => ({
@@ -462,6 +549,7 @@ export function LandingPage() {
     )
     setContactSettings(contactResult.settings)
     setFeaturedLiveQuiz(liveQuizResult.quiz)
+    setJcqContests(jcqContestsResult.contests)
     setLandingMaintenance(maintenanceResult.maintenance)
     setStoreLinks(storeLinksResult.links)
 
@@ -476,6 +564,9 @@ export function LandingPage() {
     }
     if (liveQuizResult.error) {
       console.warn('[MegaPromo][landing] live quiz unavailable', liveQuizResult.error)
+    }
+    if (jcqContestsResult.error) {
+      console.warn('[MegaPromo][landing] JCQ unavailable', jcqContestsResult.error)
     }
     if (maintenanceResult.error) {
       console.warn('[MegaPromo][landing] maintenance unavailable', maintenanceResult.error)
@@ -940,39 +1031,66 @@ export function LandingPage() {
       <section className="lp-section lp-campaigns-section" id="concours">
         <div className="lp-wrap">
           <div className="lp-section-head lp-reveal">
-            <span className="lp-pill">Campagnes actives</span>
-            <h2>Campagnes en ce moment</h2>
-            <p>Participe gratuitement avant la fin des campagnes.</p>
+            <span className="lp-pill">JCQ actifs</span>
+            <h2>JCQ en ce moment</h2>
+            <p>Découvre les vrais quiz disponibles dans l’application et participe gratuitement avant leur fin.</p>
           </div>
           <div className="lp-campaigns-shell">
             <div className="lp-campaign-grid">
-              {content.liveContests.map(([badge, title, prize, participants, progress, timer, cta], index) => (
-                <article
-                  className={`lp-campaign-card lp-reveal ${index === 0 ? 'featured' : ''}`}
-                  key={title}
-                  style={{ transitionDelay: `${index * 80}ms` }}
-                >
-                  <div className="lp-campaign-top">
-                    <span>{badge}</span>
-                    <strong>{timer}</strong>
-                  </div>
-                  <div className="lp-campaign-icon" aria-hidden="true">
-                    {index === 0 ? '📣' : index === 1 ? '🧠' : '🎁'}
-                  </div>
-                  <h3>{title}</h3>
-                  <span className="lp-prize">{prize}</span>
-                  <div className="lp-live-meta">
-                    <span>{participants}</span>
-                    <span>{progress}% complété</span>
-                  </div>
-                  <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
-                  <a className="lp-button primary" href="#telecharger">{cta}</a>
-                </article>
-              ))}
+              {jcqContests.length > 0
+                ? jcqContests.map((contest, index) => {
+                  const progress = getJcqProgress(contest, index)
+                  return (
+                    <article
+                      className={`lp-campaign-card lp-reveal ${index === 0 ? 'featured' : ''}`}
+                      key={contest.id}
+                      style={{ transitionDelay: `${index * 80}ms` }}
+                    >
+                      <div className="lp-campaign-top">
+                        <span>{contest.isBoosted ? 'JCQ BOOSTÉ' : 'JCQ'}</span>
+                        <strong>{getJcqTimerLabel(contest, currentTimeMs)}</strong>
+                      </div>
+                      <div className="lp-campaign-icon" aria-hidden="true">
+                        {contest.logoUrl ? <img src={contest.logoUrl} alt="" /> : '🧠'}
+                      </div>
+                      <h3>{contest.title}</h3>
+                      <span className="lp-prize">{contest.prizeLabel}</span>
+                      <div className="lp-live-meta">
+                        <span>{contest.category}</span>
+                        <span>{contest.viewsCount > 0 ? `${contest.viewsCount} vues` : 'Nouveau JCQ'}</span>
+                      </div>
+                      <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
+                      <a className="lp-button primary" href="#telecharger">Participer</a>
+                    </article>
+                  )
+                })
+                : content.liveContests.map(([badge, title, prize, participants, progress, timer, cta], index) => (
+                  <article
+                    className={`lp-campaign-card lp-reveal ${index === 0 ? 'featured' : ''}`}
+                    key={title}
+                    style={{ transitionDelay: `${index * 80}ms` }}
+                  >
+                    <div className="lp-campaign-top">
+                      <span>{badge}</span>
+                      <strong>{timer}</strong>
+                    </div>
+                    <div className="lp-campaign-icon" aria-hidden="true">
+                      {index === 0 ? '📣' : index === 1 ? '🧠' : '🎁'}
+                    </div>
+                    <h3>{title}</h3>
+                    <span className="lp-prize">{prize}</span>
+                    <div className="lp-live-meta">
+                      <span>{participants}</span>
+                      <span>{progress}% complété</span>
+                    </div>
+                    <div className="lp-progress"><span style={{ width: `${progress}%` }} /></div>
+                    <a className="lp-button primary" href="#telecharger">{cta}</a>
+                  </article>
+                ))}
             </div>
             <div className="lp-campaign-proof">
               <span>Participation gratuite</span>
-              <span>Marques partenaires</span>
+              <span>JCQ réels de l’application</span>
               <span>Récompenses promotionnelles</span>
             </div>
           </div>

@@ -887,6 +887,13 @@ html { scroll-behavior: smooth; }
   width: 62px;
 }
 
+.lp-campaign-icon img {
+  border-radius: 16px;
+  height: 40px;
+  object-fit: contain;
+  width: 40px;
+}
+
 .lp-campaign-card h3 {
   color: var(--lp-text);
   font-size: 23px;
