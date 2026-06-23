@@ -1051,24 +1051,26 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
               <span>Envoyer aussi un vrai push mobile</span>
             </label>
 
-            {form.sendPush ? (
-              <label>
-                <span>Device cible push</span>
-                <select
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      pushDeviceTarget: event.target.value as PushDeviceTarget,
-                    })
-                  }
-                  value={form.pushDeviceTarget}
-                >
-                  <option value="all">iOS et Android</option>
-                  <option value="ios">iOS uniquement</option>
-                  <option value="android">Android uniquement</option>
-                </select>
-              </label>
-            ) : null}
+            <label>
+              <span>Device cible push</span>
+              <select
+                disabled={!form.sendPush}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    pushDeviceTarget: event.target.value as PushDeviceTarget,
+                  })
+                }
+                value={form.pushDeviceTarget}
+              >
+                <option value="all">iOS et Android</option>
+                <option value="ios">iOS uniquement</option>
+                <option value="android">Android uniquement</option>
+              </select>
+              {!form.sendPush ? (
+                <small>Active le push mobile pour utiliser ce ciblage.</small>
+              ) : null}
+            </label>
 
             <label className="notification-recipient-row sms-toggle-row">
               <input
