@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase'
 import { logAdminAction, logError } from '../../lib/systemLogger'
 
 type NotificationTarget = 'all' | 'active' | 'premium' | 'single' | 'selected'
+type PushDeviceTarget = 'all' | 'ios' | 'android'
 type NotificationFormState = {
   target: NotificationTarget
   userId: string
@@ -17,6 +18,7 @@ type NotificationFormState = {
   type: string
   contestId: string
   sendPush: boolean
+  pushDeviceTarget: PushDeviceTarget
   sendSms: boolean
   smsMessage: string
 }
@@ -163,6 +165,18 @@ function notificationTargetLabel(target: NotificationTarget) {
   if (target === 'single') return 'Un joueur'
   if (target === 'selected') return 'Sélection'
   return 'Tous les joueurs actifs'
+}
+
+function pushDeviceTargetLabel(target: PushDeviceTarget) {
+  if (target === 'ios') return 'iOS uniquement'
+  if (target === 'android') return 'Android uniquement'
+  return 'iOS et Android'
+}
+
+function pushPlatformsForTarget(target: PushDeviceTarget): Array<'ios' | 'android'> {
+  if (target === 'ios') return ['ios']
+  if (target === 'android') return ['android']
+  return ['ios', 'android']
 }
 
 function parseNotificationData(value: unknown): Record<string, unknown> {
@@ -357,6 +371,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
     type: 'info',
     contestId: '',
     sendPush: false,
+    pushDeviceTarget: 'all',
     sendSms: false,
     smsMessage: '',
   })
@@ -485,6 +500,8 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
           target_label: notificationTargetLabel(form.target),
           target_count: targetIds.length,
           send_push: form.sendPush,
+          push_device_target: form.pushDeviceTarget,
+          push_device_label: pushDeviceTargetLabel(form.pushDeviceTarget),
           send_sms: form.sendSms,
         },
       }
@@ -512,6 +529,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
             targetCount: targetIds.length,
             type: form.type,
             hasContestId: Boolean(form.contestId.trim()),
+            pushDeviceTarget: form.pushDeviceTarget,
           })
           const { data: pushData, error: pushError } =
             await supabase.functions.invoke('send-push-notifications', {
@@ -521,7 +539,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
                 body,
                 type: form.type,
                 data: notificationData,
-                platforms: ['ios', 'android'],
+                platforms: pushPlatformsForTarget(form.pushDeviceTarget),
               },
             })
           console.info('[MegaPromo][SA notifications][pushResponse]', {
@@ -617,6 +635,8 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
           type: form.type,
           target_count: targetIds.length,
           send_push: form.sendPush,
+          push_device_target: form.pushDeviceTarget,
+          push_device_label: pushDeviceTargetLabel(form.pushDeviceTarget),
           send_sms: form.sendSms,
           push_summary: pushSummary.trim(),
           sms_summary: smsSummary.trim(),
@@ -633,6 +653,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
         type: 'info',
         contestId: '',
         sendPush: false,
+        pushDeviceTarget: 'all',
         sendSms: false,
         smsMessage: '',
       })
@@ -645,6 +666,8 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
           target: form.target,
           type: form.type,
           send_push: form.sendPush,
+          push_device_target: form.pushDeviceTarget,
+          push_device_label: pushDeviceTargetLabel(form.pushDeviceTarget),
           send_sms: form.sendSms,
           error: formatUnknownError(error, 'Envoi impossible.'),
         },
@@ -1025,8 +1048,27 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
                 }
                 type="checkbox"
               />
-              <span>Envoyer aussi un vrai push mobile iOS/Android</span>
+              <span>Envoyer aussi un vrai push mobile</span>
             </label>
+
+            {form.sendPush ? (
+              <label>
+                <span>Device cible push</span>
+                <select
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      pushDeviceTarget: event.target.value as PushDeviceTarget,
+                    })
+                  }
+                  value={form.pushDeviceTarget}
+                >
+                  <option value="all">iOS et Android</option>
+                  <option value="ios">iOS uniquement</option>
+                  <option value="android">Android uniquement</option>
+                </select>
+              </label>
+            ) : null}
 
             <label className="notification-recipient-row sms-toggle-row">
               <input
