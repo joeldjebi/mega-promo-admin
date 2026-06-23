@@ -56,6 +56,13 @@ type RevenueSummary = {
   prizesTotal: number
 }
 
+type SignupStats = {
+  todayCount: number
+  weekCount: number
+  currentMonthCount: number
+  previousMonthCount: number
+}
+
 export type EngagementSummary = {
   views: number
   shares: number
@@ -194,6 +201,7 @@ function useRealtimeRefresh(
 
 async function fetchDashboardData(): Promise<DashboardData> {
   const [
+    signupStatsResponse,
     playersCountResponse,
     activeContestsCountResponse,
     partnersCountResponse,
@@ -209,6 +217,7 @@ async function fetchDashboardData(): Promise<DashboardData> {
     partnerSubscriptionsResponse,
     playerSubscriptionsResponse,
   ] = await Promise.all([
+    supabase.rpc('get_sa_signup_stats'),
     supabase
       .from('users')
       .select('id', { count: 'exact', head: true })
@@ -271,6 +280,7 @@ async function fetchDashboardData(): Promise<DashboardData> {
   ])
 
   const responses = [
+    signupStatsResponse,
     playersCountResponse,
     activeContestsCountResponse,
     partnersCountResponse,
@@ -289,6 +299,20 @@ async function fetchDashboardData(): Promise<DashboardData> {
   const failedResponse = responses.find((response) => response.error)
   if (failedResponse?.error) throw failedResponse.error
 
+  const signupStatsData = (signupStatsResponse.data?.[0] ?? null) as
+    | {
+        today_count?: number | null
+        week_count?: number | null
+        current_month_count?: number | null
+        previous_month_count?: number | null
+      }
+    | null
+  const signupStats: SignupStats = {
+    todayCount: signupStatsData?.today_count ?? 0,
+    weekCount: signupStatsData?.week_count ?? 0,
+    currentMonthCount: signupStatsData?.current_month_count ?? 0,
+    previousMonthCount: signupStatsData?.previous_month_count ?? 0,
+  }
   const playersCount = playersCountResponse.count ?? 0
   const activeContestsCount = activeContestsCountResponse.count ?? 0
   const partnersCount = partnersCountResponse.count ?? 0
@@ -377,6 +401,30 @@ async function fetchDashboardData(): Promise<DashboardData> {
         value: formatNumber(playersCount),
         change: 'Réel',
         detail: 'comptes player actifs',
+      },
+      {
+        label: 'Inscrits aujourd’hui',
+        value: formatNumber(signupStats.todayCount),
+        change: 'Nouveaux',
+        detail: 'depuis 00:00',
+      },
+      {
+        label: 'Inscrits cette semaine',
+        value: formatNumber(signupStats.weekCount),
+        change: 'Semaine',
+        detail: 'depuis lundi',
+      },
+      {
+        label: 'Inscrits ce mois',
+        value: formatNumber(signupStats.currentMonthCount),
+        change: 'Mois en cours',
+        detail: 'nouveaux comptes',
+      },
+      {
+        label: 'Inscrits mois précédent',
+        value: formatNumber(signupStats.previousMonthCount),
+        change: 'Mois passé',
+        detail: 'nouveaux comptes',
       },
       {
         label: 'Concours actifs',
