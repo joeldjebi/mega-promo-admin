@@ -416,8 +416,7 @@ async function fetchLandingJcqContests(): Promise<LandingJcqContest[]> {
     .eq('is_live', false)
     .eq('status', 'active')
     .gte('ends_at', now.toISOString())
-    .order('is_boosted', { ascending: false })
-    .order('ends_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(6)
 
   if (error) throw error
@@ -989,15 +988,15 @@ export function LandingPage() {
             {isLandingBlockVisible(content, 'stats') ? (
             <div className="lp-stats" ref={statsRef} aria-label="Statistiques MegaPromo">
               <div className="lp-stat">
-                <strong>{formatStatNumber(counts.activeUsers)}</strong>
+                <strong>+{formatStatNumber(counts.activeUsers)}</strong>
                 <span>Utilisateurs actifs</span>
               </div>
               <div className="lp-stat">
-                <strong>{formatCompactMoney(counts.promoValue)}</strong>
+                <strong>+{formatCompactMoney(counts.promoValue)}</strong>
                 <span>Valeur promo</span>
               </div>
               <div className="lp-stat">
-                <strong>{formatStatNumber(counts.campaignsLaunched)}</strong>
+                <strong>+{formatStatNumber(counts.campaignsLaunched)}</strong>
                 <span>Campagnes lancées</span>
               </div>
             </div>
