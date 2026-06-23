@@ -1175,14 +1175,14 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
         }
       }
 
-      if (contestForm.status === 'active') {
+      if (!editingContestId && contestForm.status === 'active') {
         await sendContestPlayersPush({
           contestId: savedContestIds[0] ?? primaryContestId,
           title: shouldCreateLiveSeries
             ? `${title} · ${liveSeriesCount} Quiz Live programmés`
             : title,
           isLive: contestForm.isLive,
-          isUpdate: Boolean(editingContestId),
+          isUpdate: false,
         })
       }
 
@@ -1296,15 +1296,6 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       } catch (pushError) {
         console.warn('[MegaPromo][contestValidation][pushError]', pushError)
       }
-    }
-
-    if (nextStatus === 'active') {
-      await sendContestPlayersPush({
-        contestId: contest.id,
-        title: contest.title,
-        isLive: contest.isLive,
-        isUpdate: false,
-      })
     }
 
     await loadContests()
