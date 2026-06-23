@@ -7,7 +7,16 @@ import { hasAdminPermission } from '../adminAccess/permissions'
 import { supabase } from '../../lib/supabase'
 import { logAdminAction, logError } from '../../lib/systemLogger'
 
-type NotificationTarget = 'all' | 'active' | 'premium' | 'single' | 'selected'
+type NotificationTarget =
+  | 'all'
+  | 'active'
+  | 'premium'
+  | 'single'
+  | 'selected'
+  | 'jcq_not_played_this'
+  | 'jcq_started_not_finished_this'
+  | 'jcq_not_played_all_active'
+  | 'jcq_not_played_any_active'
 type PushDeviceTarget = 'all' | 'ios' | 'android'
 type NotificationFormState = {
   target: NotificationTarget
@@ -21,6 +30,13 @@ type NotificationFormState = {
   pushDeviceTarget: PushDeviceTarget
   sendSms: boolean
   smsMessage: string
+}
+
+type JcqContestOption = {
+  id: string
+  title: string
+  category: string
+  endsAt: string
 }
 type UserOption = {
   id: string
@@ -164,7 +180,50 @@ function notificationTargetLabel(target: NotificationTarget) {
   if (target === 'premium') return 'Joueurs premium'
   if (target === 'single') return 'Un joueur'
   if (target === 'selected') return 'Sélection'
+  if (target === 'jcq_not_played_this') return 'JCQ non joué'
+  if (target === 'jcq_started_not_finished_this') return 'JCQ commencé non terminé'
+  if (target === 'jcq_not_played_all_active') return 'JCQ actifs incomplets'
+  if (target === 'jcq_not_played_any_active') return 'Aucun JCQ actif joué'
   return 'Tous les joueurs actifs'
+}
+
+function isJcqNotificationTarget(target: NotificationTarget) {
+  return target.startsWith('jcq_')
+}
+
+function requiresJcqContest(target: NotificationTarget) {
+  return target === 'jcq_not_played_this' || target === 'jcq_started_not_finished_this'
+}
+
+function jcqTargetTemplate(target: NotificationTarget) {
+  switch (target) {
+    case 'jcq_not_played_this':
+      return {
+        title: 'Nouveau défi pour toi',
+        body: 'Un JCQ t’attend. Joue gratuitement et tente de gagner la récompense.',
+        type: 'contest',
+      }
+    case 'jcq_started_not_finished_this':
+      return {
+        title: 'Tu y étais presque',
+        body: 'Reviens terminer ton JCQ et valide ta participation.',
+        type: 'contest',
+      }
+    case 'jcq_not_played_all_active':
+      return {
+        title: 'Plus de chances à saisir',
+        body: 'D’autres JCQ sont disponibles avec des récompenses à gagner.',
+        type: 'contest',
+      }
+    case 'jcq_not_played_any_active':
+      return {
+        title: 'Des récompenses t’attendent',
+        body: 'Découvre les JCQ gratuits disponibles et commence à jouer.',
+        type: 'contest',
+      }
+    default:
+      return null
+  }
 }
 
 function pushDeviceTargetLabel(target: PushDeviceTarget) {
@@ -182,6 +241,27 @@ function pushPlatformsForTarget(target: PushDeviceTarget): Array<'ios' | 'androi
 function parseNotificationData(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return value as Record<string, unknown>
+}
+
+async function fetchActiveJcqContests(): Promise<JcqContestOption[]> {
+  const { data, error } = await supabase
+    .from('contests')
+    .select('id, title, category, ends_at')
+    .eq('type', 'quiz')
+    .eq('is_live', false)
+    .eq('status', 'active')
+    .gte('ends_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (error) throw error
+
+  return (data ?? []).map((contest) => ({
+    id: contest.id as string,
+    title: (contest.title as string | null) ?? 'JCQ MegaPromo',
+    category: (contest.category as string | null) ?? 'JCQ',
+    endsAt: (contest.ends_at as string | null) ?? '',
+  }))
 }
 
 async function fetchNotificationHistory(): Promise<NotificationHistoryBatch[]> {
@@ -353,6 +433,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
   const navigate = useNavigate()
   const adminName = adminAuth.profile?.username ?? adminAuth.user?.email ?? 'Admin'
   const [users, setUsers] = useState<UserOption[]>([])
+  const [jcqContests, setJcqContests] = useState<JcqContestOption[]>([])
   const [notificationHistory, setNotificationHistory] = useState<NotificationHistoryBatch[]>([])
   const [selectedHistory, setSelectedHistory] = useState<NotificationHistoryBatch | null>(null)
   const [historySearch, setHistorySearch] = useState('')
@@ -405,7 +486,12 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
           pushLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
         })),
       )
-      setNotificationHistory(await fetchNotificationHistory())
+      const [nextHistory, nextJcqContests] = await Promise.all([
+        fetchNotificationHistory(),
+        fetchActiveJcqContests(),
+      ])
+      setNotificationHistory(nextHistory)
+      setJcqContests(nextJcqContests)
     } catch (error) {
       setError(
         error instanceof Error ? error.message : 'Impossible de charger les joueurs.',
@@ -420,7 +506,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
     void loadUsers()
   }, [loadUsers])
 
-  useRealtimeRefresh('sa-notifications-realtime', ['users', 'notifications'], loadUsers)
+  useRealtimeRefresh('sa-notifications-realtime', ['users', 'notifications', 'contests', 'participations'], loadUsers)
 
   async function handleLogout() {
     await adminAuth.logout()
@@ -455,6 +541,11 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
       return
     }
 
+    if (requiresJcqContest(form.target) && !form.contestId.trim()) {
+      setError('Choisis le JCQ concerné pour cette cible.')
+      return
+    }
+
     setIsSending(true)
 
     try {
@@ -462,6 +553,18 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
 
       if (form.target === 'selected') {
         targetIds = form.userIds
+      } else if (isJcqNotificationTarget(form.target)) {
+        const { data: targetUsers, error: targetError } = await supabase.rpc(
+          'get_jcq_notification_target_users',
+          {
+            p_target: form.target,
+            p_contest_id: form.contestId.trim() || null,
+          },
+        )
+        if (targetError) throw targetError
+        targetIds = ((targetUsers ?? []) as Array<{ user_id: string }>).map(
+          (user) => user.user_id,
+        )
       } else {
         let query = supabase
           .from('users')
@@ -641,6 +744,7 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
           push_summary: pushSummary.trim(),
           sms_summary: smsSummary.trim(),
           has_contest_id: Boolean(form.contestId.trim()),
+          jcq_target: isJcqNotificationTarget(form.target),
         },
       })
       setNotificationHistory(await fetchNotificationHistory())
@@ -676,6 +780,20 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
     } finally {
       setIsSending(false)
     }
+  }
+
+  function handleTargetChange(target: NotificationTarget) {
+    const template = jcqTargetTemplate(target)
+    setForm((currentForm) => ({
+      ...currentForm,
+      target,
+      userId: target === 'single' ? currentForm.userId : '',
+      userIds: target === 'selected' ? currentForm.userIds : [],
+      contestId: requiresJcqContest(target) ? currentForm.contestId : '',
+      title: template?.title ?? currentForm.title,
+      body: template?.body ?? currentForm.body,
+      type: template?.type ?? currentForm.type,
+    }))
   }
 
   function toggleSelectedUser(userId: string) {
@@ -906,21 +1024,17 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
               <label>
                 <span>Cible</span>
                 <select
-                  onChange={(event) => {
-                    const target = event.target.value as NotificationTarget
-                    setForm({
-                      ...form,
-                      target,
-                      userId: target === 'single' ? form.userId : '',
-                      userIds: target === 'selected' ? form.userIds : [],
-                    })
-                  }}
+                  onChange={(event) => handleTargetChange(event.target.value as NotificationTarget)}
                   value={form.target}
                 >
                   <option value="all">Tous les joueurs actifs</option>
                   <option value="premium">Joueurs premium</option>
                   <option value="selected">Plusieurs joueurs</option>
                   <option value="single">Un joueur précis</option>
+                  <option value="jcq_not_played_this">JCQ précis · pas encore joué</option>
+                  <option value="jcq_started_not_finished_this">JCQ précis · commencé non terminé</option>
+                  <option value="jcq_not_played_all_active">JCQ actifs · a joué mais pas à tous</option>
+                  <option value="jcq_not_played_any_active">JCQ actifs · n’a joué à aucun</option>
                 </select>
               </label>
 
@@ -1008,6 +1122,27 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
               </div>
             ) : null}
 
+            {requiresJcqContest(form.target) ? (
+              <label>
+                <span>JCQ concerné</span>
+                <select
+                  onChange={(event) => setForm({ ...form, contestId: event.target.value })}
+                  value={form.contestId}
+                >
+                  <option value="">Choisir un JCQ actif</option>
+                  {jcqContests.map((contest) => (
+                    <option key={contest.id} value={contest.id}>
+                      {contest.title} · {contest.category}
+                      {contest.endsAt ? ` · fin ${formatDate(contest.endsAt)}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <small className="form-help">
+                  Cette cible utilise les participations du JCQ sélectionné.
+                </small>
+              </label>
+            ) : null}
+
             <div className="form-grid two-columns">
               <label>
                 <span>Titre</span>
@@ -1018,16 +1153,18 @@ export function SuperAdminNotificationsPage({ authRoute, rootRoute, navItems }: 
                 />
               </label>
 
-              <label>
-                <span>ID concours optionnel</span>
-                <input
-                  onChange={(event) =>
-                    setForm({ ...form, contestId: event.target.value })
-                  }
-                  placeholder="UUID du concours"
-                  value={form.contestId}
-                />
-              </label>
+              {!requiresJcqContest(form.target) ? (
+                <label>
+                  <span>ID concours optionnel</span>
+                  <input
+                    onChange={(event) =>
+                      setForm({ ...form, contestId: event.target.value })
+                    }
+                    placeholder="UUID du concours"
+                    value={form.contestId}
+                  />
+                </label>
+              ) : null}
             </div>
 
             <label>
