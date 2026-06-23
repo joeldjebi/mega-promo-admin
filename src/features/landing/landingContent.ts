@@ -111,9 +111,9 @@ export const defaultLandingContent: LandingPageContent = {
     secondaryCta: 'Voir les campagnes',
   },
   stats: {
-    players: 50000,
-    money: 2000000,
-    contests: 500,
+    players: 0,
+    money: 0,
+    contests: 0,
   },
   steps: [
     ['📱', 'Inscris-toi', 'Crée ton compte en 30 secondes avec ton numéro de téléphone. Aucune carte bancaire requise.'],

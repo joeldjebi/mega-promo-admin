@@ -35,6 +35,12 @@ type LandingStoreLinks = {
   iosStoreUrl: string
 }
 
+type LandingStats = {
+  activeUsers: number
+  promoValue: number
+  campaignsLaunched: number
+}
+
 type LandingLiveQuiz = {
   id: string
   title: string
@@ -119,6 +125,13 @@ const defaultLandingStoreLinks: LandingStoreLinks = {
   iosStoreUrl: '',
 }
 
+
+const defaultLandingStats: LandingStats = {
+  activeUsers: 0,
+  promoValue: 0,
+  campaignsLaunched: 0,
+}
+
 function formatPlanPrice(price: number, durationDays: number) {
   if (price <= 0) return '0 FCFA'
 
@@ -135,6 +148,22 @@ function formatPlanPrice(price: number, durationDays: number) {
 
 function formatMoney(value: number) {
   return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA`
+}
+
+
+function formatStatNumber(value: number) {
+  return new Intl.NumberFormat('fr-FR').format(Math.max(0, Math.round(value)))
+}
+
+function formatCompactMoney(value: number) {
+  const roundedValue = Math.max(0, Math.round(value))
+  if (roundedValue >= 1000000000) {
+    return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(roundedValue / 1000000000)}Md`
+  }
+  if (roundedValue >= 1000000) {
+    return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(roundedValue / 1000000)}M`
+  }
+  return formatStatNumber(roundedValue)
 }
 
 function readDismissedLiveQuizIds() {
@@ -452,6 +481,20 @@ async function fetchLandingMaintenance(): Promise<LandingMaintenanceState> {
   return defaultLandingMaintenance
 }
 
+async function fetchLandingStats(): Promise<LandingStats> {
+  const { data, error } = await supabase.rpc('get_public_landing_stats')
+
+  if (error) throw error
+
+  const row = Array.isArray(data) ? data[0] : data
+
+  return {
+    activeUsers: Number(row?.active_users ?? 0),
+    promoValue: Number(row?.promo_value ?? 0),
+    campaignsLaunched: Number(row?.campaigns_launched ?? 0),
+  }
+}
+
 async function fetchLandingStoreLinks(): Promise<LandingStoreLinks> {
   const { data, error } = await supabase.rpc('get_public_app_store_links')
 
@@ -475,7 +518,8 @@ export function LandingPage() {
   const [heroTypedText, setHeroTypedText] = useState(heroTypingThemes[0].slice(0, 1))
   const [showBackTop, setShowBackTop] = useState(false)
   const [statsStarted, setStatsStarted] = useState(false)
-  const [counts, setCounts] = useState({ players: 0, money: 0, contests: 0 })
+  const [counts, setCounts] = useState(defaultLandingStats)
+  const [landingStats, setLandingStats] = useState<LandingStats>(defaultLandingStats)
   const [content, setContent] = useState<LandingPageContent>(defaultLandingContent)
   const [contactSettings, setContactSettings] =
     useState<LandingContactSettings>(defaultContactSettings)
@@ -536,6 +580,12 @@ export function LandingPage() {
         links: defaultLandingStoreLinks,
         error,
       }))
+    const statsResult = await fetchLandingStats()
+      .then((stats) => ({ stats, error: null }))
+      .catch((error: unknown) => ({
+        stats: defaultLandingStats,
+        error,
+      }))
 
     const nextContent = contentResult.data?.content
       ? mergeLandingContent(contentResult.data.content as Partial<LandingPageContent>)
@@ -552,6 +602,9 @@ export function LandingPage() {
     setJcqContests(jcqContestsResult.contests)
     setLandingMaintenance(maintenanceResult.maintenance)
     setStoreLinks(storeLinksResult.links)
+    setLandingStats(statsResult.stats)
+    setStatsStarted(false)
+    setCounts(defaultLandingStats)
 
     if (contentResult.error) {
       console.warn('[MegaPromo][landing] content unavailable', contentResult.error)
@@ -573,6 +626,9 @@ export function LandingPage() {
     }
     if (storeLinksResult.error) {
       console.warn('[MegaPromo][landing] store links unavailable', storeLinksResult.error)
+    }
+    if (statsResult.error) {
+      console.warn('[MegaPromo][landing] stats unavailable', statsResult.error)
     }
   }, [])
 
@@ -718,9 +774,9 @@ export function LandingPage() {
           const progress = Math.min(1, (now - startedAt) / duration)
           const eased = 1 - Math.pow(1 - progress, 3)
           setCounts({
-            players: Math.round(content.stats.players * eased),
-            money: Math.round(content.stats.money * eased),
-            contests: Math.round(content.stats.contests * eased),
+            activeUsers: Math.round(landingStats.activeUsers * eased),
+            promoValue: Math.round(landingStats.promoValue * eased),
+            campaignsLaunched: Math.round(landingStats.campaignsLaunched * eased),
           })
           if (progress < 1) requestAnimationFrame(tick)
         }
@@ -730,7 +786,7 @@ export function LandingPage() {
     )
     observer.observe(node)
     return () => observer.disconnect()
-  }, [content.stats.contests, content.stats.money, content.stats.players, statsStarted])
+  }, [landingStats.activeUsers, landingStats.campaignsLaunched, landingStats.promoValue, statsStarted])
 
   async function handleContactSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -931,21 +987,17 @@ export function LandingPage() {
               <a className="lp-button outline" href="#concours">{content.hero.secondaryCta}</a>
             </div>
             {isLandingBlockVisible(content, 'stats') ? (
-            <div className="lp-stats" ref={statsRef}>
+            <div className="lp-stats" ref={statsRef} aria-label="Statistiques MegaPromo">
               <div className="lp-stat">
-                <strong>{new Intl.NumberFormat('fr-FR').format(counts.players)}+</strong>
+                <strong>{formatStatNumber(counts.activeUsers)}</strong>
                 <span>Utilisateurs actifs</span>
               </div>
               <div className="lp-stat">
-                <strong>
-                  {counts.money >= 1000000
-                    ? `${Math.round(counts.money / 1000000)}M+`
-                    : `${new Intl.NumberFormat('fr-FR').format(counts.money)}+`}
-                </strong>
+                <strong>{formatCompactMoney(counts.promoValue)}</strong>
                 <span>Valeur promo</span>
               </div>
               <div className="lp-stat">
-                <strong>{new Intl.NumberFormat('fr-FR').format(counts.contests)}+</strong>
+                <strong>{formatStatNumber(counts.campaignsLaunched)}</strong>
                 <span>Campagnes lancées</span>
               </div>
             </div>
