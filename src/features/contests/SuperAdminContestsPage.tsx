@@ -865,34 +865,24 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     contestId,
     title,
     isLive,
-    isUpdate,
   }: {
     contestId: string
     title: string
     isLive: boolean
-    isUpdate: boolean
   }) {
     const notificationType = isLive ? 'live_quiz' : 'contest'
     const pushPayload = {
       audience: 'players' as const,
-      title: isUpdate
-        ? isLive
-          ? 'Quiz Live mis à jour'
-          : 'Jeu mis à jour'
-        : isLive
-          ? 'Nouveau Quiz Live'
-          : 'Nouveau jeu disponible',
-      body: isUpdate
-        ? `Le jeu "${title}" a été mis à jour.`
-        : isLive
-          ? `Un nouveau Quiz Live est disponible : ${title}`
-          : `Un nouveau concours est disponible : ${title}`,
+      title: isLive ? 'Nouveau Quiz Live' : 'Nouveau jeu disponible',
+      body: isLive
+        ? `Un nouveau Quiz Live est disponible : ${title}`
+        : `Un nouveau concours est disponible : ${title}`,
       type: notificationType,
       data: {
         contest_id: contestId,
         contestId,
         type: notificationType,
-        source: isUpdate ? 'contest_auto_update' : 'contest_auto_publish',
+        source: 'contest_auto_publish',
         is_live: isLive,
       },
     }
@@ -1182,7 +1172,6 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
             ? `${title} · ${liveSeriesCount} Quiz Live programmés`
             : title,
           isLive: contestForm.isLive,
-          isUpdate: false,
         })
       }
 
@@ -1261,42 +1250,6 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       metadata: { title: contest.title, previous_status: contest.status, next_status: nextStatus },
     })
 
-    if (nextStatus === 'active' && contest.partnerId) {
-      try {
-        const { data: partnerRow, error: partnerError } = await supabase
-          .from('partners')
-          .select('user_id, company_name')
-          .eq('id', contest.partnerId)
-          .maybeSingle()
-
-        if (partnerError) throw partnerError
-
-        const partnerUserId = partnerRow?.user_id as string | null | undefined
-        if (partnerUserId) {
-          const pushPayload = {
-            userIds: [partnerUserId],
-            title: 'Concours validé',
-            body: `Ton concours "${contest.title}" a été validé par le Super Admin.`,
-            type: 'partner_contest_approved',
-            data: {
-              contest_id: contest.id,
-              contestId: contest.id,
-              partner_id: contest.partnerId,
-              type: 'partner_contest_approved',
-              source: 'partner_contest_validation',
-            },
-          }
-          console.info('[MegaPromo][contestValidation][pushPayload]', pushPayload)
-          const pushResponse = await supabase.functions.invoke(
-            'send-push-notifications',
-            { body: pushPayload },
-          )
-          console.info('[MegaPromo][contestValidation][pushResponse]', pushResponse)
-        }
-      } catch (pushError) {
-        console.warn('[MegaPromo][contestValidation][pushError]', pushError)
-      }
-    }
 
     await loadContests()
   }
