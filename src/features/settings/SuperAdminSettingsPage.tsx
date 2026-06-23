@@ -180,6 +180,18 @@ type AppFeatureFlagItem = {
   updatedAt: string
 }
 type PlayerAuthMode = 'otp' | 'social' | 'hybrid'
+type QuizRulesContentFormState = {
+  jcqEnabled: boolean
+  jcqShowCount: string
+  jcqTitle: string
+  jcqObjective: string
+  jcqRules: string
+  qlEnabled: boolean
+  qlShowCount: string
+  qlTitle: string
+  qlObjective: string
+  qlRules: string
+}
 
 type SuperAdminSettingsPageProps = {
   authRoute: string
@@ -290,6 +302,85 @@ const defaultAppUpdateConfigForm: AppUpdateConfigFormState = {
   isActive: true,
 }
 
+const defaultQuizRulesForm: QuizRulesContentFormState = {
+  jcqEnabled: true,
+  jcqShowCount: '3',
+  jcqTitle: 'Règles du JCQ',
+  jcqObjective:
+    'Réponds aux questions, marque le maximum de points et tente de gagner la récompense annoncée.',
+  jcqRules:
+    'Le JCQ se joue à ton rythme, tant que le concours est ouvert.\nChaque question a une seule bonne réponse.\nLes bonnes réponses rapportent des points selon la difficulté.\nLe classement tient compte du score et du temps de réponse.\nUne participation validée ne peut plus être recommencée.',
+  qlEnabled: true,
+  qlShowCount: '2',
+  qlTitle: 'Règles du Quiz Live',
+  qlObjective:
+    'Rejoins l’arène à l’heure prévue, réponds en direct et vise la meilleure place au classement.',
+  qlRules:
+    'Le QL démarre à une heure précise pour tous les joueurs inscrits.\nRéserve ta place avant le départ et entre en salle d’attente.\nLes questions s’enchaînent en direct avec un temps limité.\nLe score dépend des bonnes réponses et de ta rapidité.\nUne déconnexion ou un retard peut te faire perdre des points.',
+}
+
+function normalizeRulesText(value: unknown, fallback: string) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  return normalized || fallback
+}
+
+function rulesListFromText(value: string) {
+  return value
+    .split('\n')
+    .map((rule) => rule.trim())
+    .filter(Boolean)
+}
+
+function normalizeRulesCount(value: unknown, fallback: string) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return String(Math.max(0, Math.round(parsed)))
+}
+
+function rulesEnabledFromMetadata(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function quizRulesContentToForm(flag?: AppFeatureFlagItem): QuizRulesContentFormState {
+  const metadata = flag?.metadata ?? {}
+  const jcq = metadata.jcq && typeof metadata.jcq === 'object' ? metadata.jcq as Record<string, unknown> : {}
+  const ql = metadata.ql && typeof metadata.ql === 'object' ? metadata.ql as Record<string, unknown> : {}
+  const jcqRules = Array.isArray(jcq.rules) ? jcq.rules.join('\n') : defaultQuizRulesForm.jcqRules
+  const qlRules = Array.isArray(ql.rules) ? ql.rules.join('\n') : defaultQuizRulesForm.qlRules
+
+  return {
+    jcqEnabled: rulesEnabledFromMetadata(jcq.enabled, defaultQuizRulesForm.jcqEnabled),
+    jcqShowCount: normalizeRulesCount(jcq.show_count ?? jcq.showCount, defaultQuizRulesForm.jcqShowCount),
+    jcqTitle: normalizeRulesText(jcq.title, defaultQuizRulesForm.jcqTitle),
+    jcqObjective: normalizeRulesText(jcq.objective, defaultQuizRulesForm.jcqObjective),
+    jcqRules: normalizeRulesText(jcqRules, defaultQuizRulesForm.jcqRules),
+    qlEnabled: rulesEnabledFromMetadata(ql.enabled, defaultQuizRulesForm.qlEnabled),
+    qlShowCount: normalizeRulesCount(ql.show_count ?? ql.showCount, defaultQuizRulesForm.qlShowCount),
+    qlTitle: normalizeRulesText(ql.title, defaultQuizRulesForm.qlTitle),
+    qlObjective: normalizeRulesText(ql.objective, defaultQuizRulesForm.qlObjective),
+    qlRules: normalizeRulesText(qlRules, defaultQuizRulesForm.qlRules),
+  }
+}
+
+function quizRulesFormToMetadata(form: QuizRulesContentFormState) {
+  return {
+    jcq: {
+      enabled: form.jcqEnabled,
+      show_count: Number(normalizeRulesCount(form.jcqShowCount, defaultQuizRulesForm.jcqShowCount)),
+      title: normalizeRulesText(form.jcqTitle, defaultQuizRulesForm.jcqTitle),
+      objective: normalizeRulesText(form.jcqObjective, defaultQuizRulesForm.jcqObjective),
+      rules: rulesListFromText(form.jcqRules),
+    },
+    ql: {
+      enabled: form.qlEnabled,
+      show_count: Number(normalizeRulesCount(form.qlShowCount, defaultQuizRulesForm.qlShowCount)),
+      title: normalizeRulesText(form.qlTitle, defaultQuizRulesForm.qlTitle),
+      objective: normalizeRulesText(form.qlObjective, defaultQuizRulesForm.qlObjective),
+      rules: rulesListFromText(form.qlRules),
+    },
+  }
+}
+
 const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
   {
     key: 'player_subscriptions',
@@ -337,6 +428,15 @@ const defaultAppFeatureFlags: AppFeatureFlagItem[] = [
       'Autorise les joueurs à lier Google, Apple et téléphone au même compte depuis le profil mobile.',
     isEnabled: true,
     metadata: { scope: 'mobile_profile', default: true },
+    updatedAt: '',
+  },
+  {
+    key: 'quiz_rules_content',
+    name: 'Règles JCQ et Quiz Live',
+    description:
+      'Textes affichés dans l’application mobile pour expliquer les objectifs et règles des JCQ et QL.',
+    isEnabled: true,
+    metadata: quizRulesFormToMetadata(defaultQuizRulesForm),
     updatedAt: '',
   },
 ]
@@ -641,6 +741,8 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
   const [appFeatureFlags, setAppFeatureFlags] = useState<AppFeatureFlagItem[]>(
     defaultAppFeatureFlags,
   )
+  const [quizRulesForm, setQuizRulesForm] =
+    useState<QuizRulesContentFormState>(defaultQuizRulesForm)
   const [isAppFeatureFlagSaving, setIsAppFeatureFlagSaving] = useState(false)
   const [profileForm, setProfileForm] = useState({
     username: adminAuth.profile?.username ?? '',
@@ -770,7 +872,13 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
 
   async function loadAppFeatureFlags() {
     try {
-      setAppFeatureFlags(await fetchAppFeatureFlagsForAdmin())
+      const flags = await fetchAppFeatureFlagsForAdmin()
+      setAppFeatureFlags(flags)
+      setQuizRulesForm(
+        quizRulesContentToForm(
+          flags.find((flag) => flag.key === 'quiz_rules_content'),
+        ),
+      )
     } catch (error) {
       if (isMissingTableError(error, 'app_feature_flags')) {
         setAppFeatureFlags(defaultAppFeatureFlags)
@@ -1296,6 +1404,41 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     }
   }
 
+  async function handleSaveQuizRulesContent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const quizRulesFlag =
+      appFeatureFlags.find((flag) => flag.key === 'quiz_rules_content') ??
+      defaultAppFeatureFlags[5]
+
+    setNotice('')
+    setSettingsError('')
+    setIsAppFeatureFlagSaving(true)
+    try {
+      const { error } = await supabase.from('app_feature_flags').upsert({
+        key: quizRulesFlag.key,
+        name: quizRulesFlag.name,
+        description: quizRulesFlag.description,
+        is_enabled: true,
+        metadata: quizRulesFormToMetadata(quizRulesForm),
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) throw error
+
+      await loadAppFeatureFlags()
+      setNotice('Les règles JCQ et Quiz Live ont été mises à jour côté mobile.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(
+          error,
+          'Impossible de mettre à jour les règles JCQ et Quiz Live.',
+        ),
+      )
+    } finally {
+      setIsAppFeatureFlagSaving(false)
+    }
+  }
+
   async function handleTogglePlayerAccountLinking(isEnabled: boolean) {
     const linkingFlag =
       appFeatureFlags.find((flag) => flag.key === 'player_account_linking') ??
@@ -1353,6 +1496,9 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
   const playerAccountLinkingFlag =
     appFeatureFlags.find((flag) => flag.key === 'player_account_linking') ??
     defaultAppFeatureFlags[4]
+  const quizRulesFlag =
+    appFeatureFlags.find((flag) => flag.key === 'quiz_rules_content') ??
+    defaultAppFeatureFlags[5]
   const otpDeliveryChannel =
     otpDeliveryFlag.metadata.channel === 'whatsapp' ? 'whatsapp' : 'sms'
   const playerAuthMode: PlayerAuthMode =
@@ -1683,6 +1829,202 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                 </button>
               </div>
             </div>
+          </article>
+          <article className="panel quiz-rules-admin-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Quiz mobile</p>
+                <h2>Règles JCQ et QL</h2>
+              </div>
+              <span className="status-pill active">Popup mobile</span>
+            </div>
+            <div className="quiz-rules-admin-intro">
+              <div>
+                <strong>Textes affichés avant la participation</strong>
+                <p>
+                  Le joueur garde un détail concours léger. Les règles
+                  apparaissent uniquement dans un popup lorsqu’il clique pour
+                  participer, réserver ou démarrer.
+                  {quizRulesFlag.updatedAt
+                    ? ` Dernière mise à jour : ${formatDate(
+                        quizRulesFlag.updatedAt,
+                      )}.`
+                    : ''}
+                </p>
+              </div>
+              <span>Une règle par ligne</span>
+            </div>
+            <form className="quiz-rules-admin-form" onSubmit={handleSaveQuizRulesContent}>
+              <div className="quiz-rules-admin-grid">
+                <section className="quiz-rules-editor" aria-label="Règles JCQ">
+                  <div className="quiz-rules-editor-heading">
+                    <span>JCQ</span>
+                    <div>
+                      <strong>Jeu concours quiz</strong>
+                      <small>Pour les quiz joués à son rythme</small>
+                    </div>
+                  </div>
+                  <div className="quiz-rules-controls">
+                    <label className="switch-row">
+                      Afficher le popup JCQ
+                      <input
+                        checked={quizRulesForm.jcqEnabled}
+                        onChange={(event) =>
+                          setQuizRulesForm((current) => ({
+                            ...current,
+                            jcqEnabled: event.target.checked,
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                    </label>
+                    <label>
+                      Nombre d’affichages
+                      <input
+                        min="0"
+                        step="1"
+                        type="number"
+                        value={quizRulesForm.jcqShowCount}
+                        onChange={(event) =>
+                          setQuizRulesForm((current) => ({
+                            ...current,
+                            jcqShowCount: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Titre du popup
+                    <input
+                      value={quizRulesForm.jcqTitle}
+                      onChange={(event) =>
+                        setQuizRulesForm((current) => ({
+                          ...current,
+                          jcqTitle: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Objectif
+                    <textarea
+                      rows={3}
+                      value={quizRulesForm.jcqObjective}
+                      onChange={(event) =>
+                        setQuizRulesForm((current) => ({
+                          ...current,
+                          jcqObjective: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Règles
+                    <textarea
+                      rows={7}
+                      value={quizRulesForm.jcqRules}
+                      onChange={(event) =>
+                        setQuizRulesForm((current) => ({
+                          ...current,
+                          jcqRules: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </section>
+                <section className="quiz-rules-editor" aria-label="Règles QL">
+                  <div className="quiz-rules-editor-heading live">
+                    <span>QL</span>
+                    <div>
+                      <strong>Quiz Live</strong>
+                      <small>Pour les sessions en direct</small>
+                    </div>
+                  </div>
+                  <div className="quiz-rules-controls">
+                    <label className="switch-row">
+                      Afficher le popup QL
+                      <input
+                        checked={quizRulesForm.qlEnabled}
+                        onChange={(event) =>
+                          setQuizRulesForm((current) => ({
+                            ...current,
+                            qlEnabled: event.target.checked,
+                          }))
+                        }
+                        type="checkbox"
+                      />
+                    </label>
+                    <label>
+                      Nombre d’affichages
+                      <input
+                        min="0"
+                        step="1"
+                        type="number"
+                        value={quizRulesForm.qlShowCount}
+                        onChange={(event) =>
+                          setQuizRulesForm((current) => ({
+                            ...current,
+                            qlShowCount: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Titre du popup
+                    <input
+                      value={quizRulesForm.qlTitle}
+                      onChange={(event) =>
+                        setQuizRulesForm((current) => ({
+                          ...current,
+                          qlTitle: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Objectif
+                    <textarea
+                      rows={3}
+                      value={quizRulesForm.qlObjective}
+                      onChange={(event) =>
+                        setQuizRulesForm((current) => ({
+                          ...current,
+                          qlObjective: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Règles
+                    <textarea
+                      rows={7}
+                      value={quizRulesForm.qlRules}
+                      onChange={(event) =>
+                        setQuizRulesForm((current) => ({
+                          ...current,
+                          qlRules: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </section>
+              </div>
+              <div className="quiz-rules-admin-footer">
+                <p>
+                  Les accents et apostrophes sont conservés. Les lignes vides
+                  sont ignorées automatiquement à l’enregistrement.
+                </p>
+                <button
+                  className="primary-action"
+                  disabled={isAppFeatureFlagSaving}
+                  type="submit"
+                >
+                  {isAppFeatureFlagSaving ? 'Enregistrement...' : 'Enregistrer les règles'}
+                </button>
+              </div>
+            </form>
           </article>
           <article className="panel">
             <div className="section-heading">
