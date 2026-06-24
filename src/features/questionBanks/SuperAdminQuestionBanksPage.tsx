@@ -489,6 +489,23 @@ async function loadQuestionBankData() {
   if (linksResponse.error) throw linksResponse.error
   if (questionsResponse.error) throw questionsResponse.error
 
+  const bankIds = (banksResponse.data ?? [])
+    .map((bank) => bank.id as string | null)
+    .filter((bankId): bankId is string => Boolean(bankId))
+
+  const questionCountResults = await Promise.all(
+    bankIds.map(async (bankId) => {
+      const { count, error } = await supabase
+        .from('questions')
+        .select('id', { count: 'exact', head: true })
+        .eq('question_bank_id', bankId)
+        .eq('is_active', true)
+
+      if (error) throw error
+      return [bankId, count ?? 0] as const
+    }),
+  )
+
   const categoryIdsByBank = new Map<string, string[]>()
   for (const link of linksResponse.data ?? []) {
     const bankId = link.question_bank_id as string | null
@@ -497,12 +514,7 @@ async function loadQuestionBankData() {
     categoryIdsByBank.set(bankId, [...(categoryIdsByBank.get(bankId) ?? []), categoryId])
   }
 
-  const questionsCountByBank = new Map<string, number>()
-  for (const question of questionsResponse.data ?? []) {
-    const bankId = question.question_bank_id as string | null
-    if (!bankId) continue
-    questionsCountByBank.set(bankId, (questionsCountByBank.get(bankId) ?? 0) + 1)
-  }
+  const questionsCountByBank = new Map<string, number>(questionCountResults)
 
   const banks: QuestionBank[] = (banksResponse.data ?? []).map((bank) => ({
     id: bank.id as string,
