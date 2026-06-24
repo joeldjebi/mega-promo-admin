@@ -576,42 +576,6 @@ export function SuperAdminUsersPage({
     )
   }
 
-  async function handleClearPlayerHistory(user: PlayerUserItem) {
-    const confirmed = window.confirm(
-      `Vider l’historique de jeux de "${user.username || user.phone}" ? Le joueur pourra participer de nouveau aux concours concernés.`,
-    )
-    if (!confirmed) return
-
-    setUsersError('')
-    setUsersNotice('')
-
-    try {
-      const { error: deleteError } = await supabase
-        .from('participations')
-        .delete()
-        .eq('user_id', user.id)
-
-      if (deleteError) throw deleteError
-
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({
-          participations_today: 0,
-          last_participation_date: null,
-        })
-        .eq('id', user.id)
-
-      if (updateError) throw updateError
-
-      await loadUsers()
-      setUsersNotice('Historique de jeux vidé. Le joueur peut rejouer.')
-    } catch (error) {
-      setUsersError(
-        formatUnknownError(error, 'Impossible de vider l’historique du joueur.'),
-      )
-    }
-  }
-
   function openDeletionDialog(user: PlayerUserItem, action: UserDeletionAction) {
     setUsersError('')
     setUsersNotice('')
@@ -688,11 +652,6 @@ export function SuperAdminUsersPage({
 
     if (action === 'premium') {
       void handleTogglePremium(user)
-      return
-    }
-
-    if (action === 'clear_history') {
-      void handleClearPlayerHistory(user)
       return
     }
 
@@ -1008,7 +967,6 @@ export function SuperAdminUsersPage({
                       <option value="premium">
                         {user.isPremium ? 'Retirer premium' : 'Activer premium'}
                       </option>
-                      <option value="clear_history">Vider historique</option>
                       <option value="schedule_deletion">
                         Programmer suppression
                       </option>

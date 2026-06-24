@@ -348,6 +348,8 @@ type PlayerParticipationItem = {
   id: string
   contestId: string
   contestTitle: string
+  contestType: string
+  isLive: boolean
   score: number
   rank: number | null
   completed: boolean
@@ -1261,7 +1263,7 @@ async function fetchPlayerDetailData(
   ) as string[]
   const contestResponse =
     contestIds.length > 0
-      ? await supabase.from('contests').select('id, title').in('id', contestIds)
+      ? await supabase.from('contests').select('id, title, type, is_live').in('id', contestIds)
       : { data: [], error: null }
 
   if (contestResponse.error) throw contestResponse.error
@@ -1270,6 +1272,15 @@ async function fetchPlayerDetailData(
     (contestResponse.data ?? []).map((contest) => [
       contest.id as string,
       (contest.title as string | null) ?? 'Concours',
+    ]),
+  )
+  const contestMetadata = new Map(
+    (contestResponse.data ?? []).map((contest) => [
+      contest.id as string,
+      {
+        type: ((contest.type as string | null) ?? '').trim().toLowerCase(),
+        isLive: Boolean(contest.is_live),
+      },
     ]),
   )
   const planNames = new Map(plans.map((plan) => [plan.id, plan.name]))
@@ -1301,6 +1312,9 @@ async function fetchPlayerDetailData(
       id: participation.participation_id as string,
       contestId: participation.contest_id ?? '',
       contestTitle: participation.contest_title ?? 'Concours',
+      contestType:
+        contestMetadata.get(participation.contest_id ?? '')?.type ?? '',
+      isLive: contestMetadata.get(participation.contest_id ?? '')?.isLive ?? false,
       score: participation.score ?? 0,
       rank: participation.rank ?? null,
       completed: participation.completed ?? false,
@@ -2576,6 +2590,7 @@ function SuperAdminUserDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [clearingContestHistoryId, setClearingContestHistoryId] = useState('')
   const [savingKycRequestId, setSavingKycRequestId] = useState('')
   const [isSavingSubscription, setIsSavingSubscription] = useState(false)
   const [subscriptionAssignForm, setSubscriptionAssignForm] =
@@ -2653,6 +2668,77 @@ function SuperAdminUserDetailPage() {
       setNotice(message)
     } catch {
       setError('Impossible de copier cette valeur.')
+    }
+  }
+
+  async function handleClearPlayerJcqHistory(participation: PlayerParticipationItem) {
+    if (!user || clearingContestHistoryId || !participation.contestId) return
+
+    const confirmed = window.confirm(
+      `Vider uniquement l’historique du JCQ "${participation.contestTitle}" pour "${user.username || user.phone}" ? Le joueur pourra rejouer ce JCQ.`,
+    )
+    if (!confirmed) return
+
+    setNotice('')
+    setError('')
+    setClearingContestHistoryId(participation.contestId)
+
+    try {
+      const { data: rpcData, error: clearError } = await supabase.rpc(
+        'admin_clear_player_jcq_history',
+        {
+          p_user_id: user.id,
+          p_contest_id: participation.contestId,
+        },
+      )
+
+      if (clearError) throw clearError
+
+      const payload = (rpcData ?? {}) as {
+        contest_id?: string
+        deleted_participations?: number
+        deleted_question_assignments?: number
+      }
+
+      await loadUserDetail()
+      void logAdminAction({
+        feature: 'users',
+        action: 'clear_player_jcq_history',
+        message: 'Historique JCQ joueur vide par le SA.',
+        userId: user.id,
+        entityType: 'contest',
+        entityId: participation.contestId,
+        metadata: {
+          player_label: user.username || user.phone,
+          contest_title: participation.contestTitle,
+          deleted_participations: payload.deleted_participations ?? 0,
+          deleted_question_assignments:
+            payload.deleted_question_assignments ?? 0,
+        },
+      })
+      setNotice(
+        `Historique du JCQ "${participation.contestTitle}" vidé. Le joueur peut rejouer ce JCQ.`,
+      )
+    } catch (clearHistoryError) {
+      const message = formatUnknownError(
+        clearHistoryError,
+        'Impossible de vider l’historique de ce JCQ pour ce joueur.',
+      )
+      void logError({
+        feature: 'users',
+        action: 'clear_player_jcq_history_failed',
+        message: 'Echec vidage historique JCQ joueur par le SA.',
+        userId: user.id,
+        entityType: 'contest',
+        entityId: participation.contestId,
+        metadata: {
+          contest_title: participation.contestTitle,
+          error: message,
+        },
+      })
+      setError(message)
+    } finally {
+      setClearingContestHistoryId('')
     }
   }
 
@@ -3385,6 +3471,22 @@ function SuperAdminUserDetailPage() {
                           type="button"
                         >
                           Historique
+                        </button>
+                      ) : null}
+                      {participation.contestId &&
+                      participation.contestType === 'quiz' &&
+                      !participation.isLive ? (
+                        <button
+                          className="table-action-button danger"
+                          disabled={
+                            clearingContestHistoryId === participation.contestId
+                          }
+                          onClick={() => handleClearPlayerJcqHistory(participation)}
+                          type="button"
+                        >
+                          {clearingContestHistoryId === participation.contestId
+                            ? 'Vidage...'
+                            : 'Permettre rejouer'}
                         </button>
                       ) : null}
                     </div>
@@ -4922,6 +5024,7 @@ function SuperAdminContestHistoryPage() {
   const [selectedParticipation, setSelectedParticipation] =
     useState<ContestHistoryItem | null>(null)
   const [isHistoryLoading, setIsHistoryLoading] = useState(true)
+  const [clearingParticipationId, setClearingParticipationId] = useState('')
   const [historyError, setHistoryError] = useState('')
   const [historyNotice, setHistoryNotice] = useState('')
 
@@ -4979,42 +5082,81 @@ function SuperAdminContestHistoryPage() {
     navigate(SUPER_ADMIN_AUTH_ROUTE, { replace: true })
   }
 
-  async function handleClearHistory() {
-    if (!historyData) return
+  async function handleClearPlayerJcqHistory(participation: ContestHistoryItem) {
+    if (!historyData || clearingParticipationId) return
 
     const confirmed = window.confirm(
-      `Vider tout l’historique de participation du concours "${historyData.contest.title}" ? Cette action supprime les lignes participations.`,
+      `Permettre à "${participation.userLabel}" de rejouer le JCQ "${historyData.contest.title}" ? Seule sa participation à ce JCQ sera supprimée.`,
     )
     if (!confirmed) return
 
     setHistoryError('')
     setHistoryNotice('')
-    setIsHistoryLoading(true)
+    setClearingParticipationId(participation.id)
 
     try {
-      const { error } = await supabase
-        .from('participations')
-        .delete()
-        .eq('contest_id', historyData.contest.id)
+      const { data: rpcData, error } = await supabase.rpc(
+        'admin_clear_player_jcq_history',
+        {
+          p_user_id: participation.userId,
+          p_contest_id: historyData.contest.id,
+        },
+      )
 
       if (error) throw error
 
-      setHistoryData({
-        contest: { ...historyData.contest, participants: 0 },
-        participations: [],
-        questions: historyData.questions,
-        questionsByParticipationId: {},
+      const payload = (rpcData ?? {}) as {
+        deleted_participations?: number
+        deleted_question_assignments?: number
+      }
+
+      await loadHistory()
+      if (selectedParticipation?.id === participation.id) {
+        setSelectedParticipation(null)
+      }
+      void logAdminAction({
+        feature: 'contests',
+        action: 'clear_player_jcq_history_from_contest_history',
+        message: 'Historique JCQ joueur vide depuis la page historique concours.',
+        userId: participation.userId,
+        entityType: 'contest',
+        entityId: historyData.contest.id,
+        metadata: {
+          contest_title: historyData.contest.title,
+          player_label: participation.userLabel,
+          participation_id: participation.id,
+          deleted_participations: payload.deleted_participations ?? 0,
+          deleted_question_assignments:
+            payload.deleted_question_assignments ?? 0,
+        },
       })
-      setSelectedParticipation(null)
-      setHistoryNotice('Historique de participation vidé pour ce concours.')
+      setHistoryNotice(
+        `${participation.userLabel} peut rejouer ce JCQ. ${payload.deleted_participations ?? 0} participation(s) supprimée(s).`,
+      )
     } catch (error) {
-      setHistoryError(
+      const message =
         error instanceof Error
           ? error.message
-          : 'Impossible de vider cet historique.',
+          : 'Impossible de vider cet historique pour ce joueur.'
+      void logError({
+        feature: 'contests',
+        action: 'clear_player_jcq_history_from_contest_history_failed',
+        message: 'Echec vidage historique JCQ joueur depuis historique concours.',
+        userId: participation.userId,
+        entityType: 'contest',
+        entityId: historyData.contest.id,
+        metadata: {
+          contest_title: historyData.contest.title,
+          player_label: participation.userLabel,
+          participation_id: participation.id,
+          error: message,
+        },
+      })
+      setHistoryError(
+        message,
       )
     } finally {
-      setIsHistoryLoading(false)
+      setClearingParticipationId('')
     }
   }
 
@@ -5126,14 +5268,6 @@ function SuperAdminContestHistoryPage() {
                   >
                     Actualiser
                   </button>
-                  <button
-                    className="table-action-button danger"
-                    disabled={isHistoryLoading || historyData.participations.length === 0}
-                    onClick={handleClearHistory}
-                    type="button"
-                  >
-                    Vider l’historique
-                  </button>
                 </div>
               </div>
 
@@ -5168,12 +5302,7 @@ function SuperAdminContestHistoryPage() {
               <div className="history-list page-history-list">
                 {historyData.participations.length > 0 ? (
                   historyData.participations.map((participation) => (
-                    <button
-                      className="history-row history-row-button"
-                      key={participation.id}
-                      onClick={() => setSelectedParticipation(participation)}
-                      type="button"
-                    >
+                    <article className="history-row" key={participation.id}>
                       <div>
                         <strong>
                           #{participation.rank} · {participation.userLabel}
@@ -5185,7 +5314,30 @@ function SuperAdminContestHistoryPage() {
                       <span className={`status-pill ${participation.completed ? 'active' : 'pending'}`}>
                         {participation.completed ? 'Terminé' : 'En cours'}
                       </span>
-                    </button>
+                      <div className="table-actions compact">
+                        <button
+                          className="table-action-button"
+                          onClick={() => setSelectedParticipation(participation)}
+                          type="button"
+                        >
+                          Détail
+                        </button>
+                        {historyData.contest.type === 'quiz' &&
+                        !historyData.contest.isLive &&
+                        participation.userId ? (
+                          <button
+                            className="table-action-button danger"
+                            disabled={clearingParticipationId === participation.id}
+                            onClick={() => handleClearPlayerJcqHistory(participation)}
+                            type="button"
+                          >
+                            {clearingParticipationId === participation.id
+                              ? 'Vidage...'
+                              : 'Permettre rejouer'}
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
                   ))
                 ) : (
                   <p className="empty-panel-text">

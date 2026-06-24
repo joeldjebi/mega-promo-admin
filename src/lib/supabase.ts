@@ -58,6 +58,7 @@ const tablePermissionFeatures: Record<string, string> = {
 
 const rpcPermissionFeatures: Record<string, string> = {
   admin_assign_player_subscription: 'users',
+  admin_clear_player_jcq_history: 'users',
   admin_delete_player_subscription: 'users',
   admin_anonymize_user_now: 'users',
   admin_hard_delete_user_now: 'users',

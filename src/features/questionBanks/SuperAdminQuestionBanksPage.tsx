@@ -98,6 +98,13 @@ type QuestionAnswerField = {
   imageKey: 'optionAImageUrl' | 'optionBImageUrl' | 'optionCImageUrl' | 'optionDImageUrl'
 }
 
+type QuestionImageFieldKey =
+  | 'questionImageUrl'
+  | 'optionAImageUrl'
+  | 'optionBImageUrl'
+  | 'optionCImageUrl'
+  | 'optionDImageUrl'
+
 type QuestionMediaMode = 'text' | 'question_image' | 'answer_images' | 'mixed'
 type CategoryQuestionMediaFilter = 'all' | QuestionMediaMode
 
@@ -288,6 +295,25 @@ function buildQuestionCsvTemplate() {
 
 function normalizeOptionalUrl(value: string) {
   return value.trim()
+}
+
+function createClientUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = char === 'x' ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
+}
+
+function safeStorageFileName(fileName: string) {
+  return fileName
+    .replace(/\.[^/.]+$/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/(^-|-$)/g, '')
 }
 
 function stringifyJsonObject(value: unknown) {
@@ -606,6 +632,8 @@ export function SuperAdminQuestionBanksPage({
   const [isLoading, setIsLoading] = useState(true)
   const [isSavingBank, setIsSavingBank] = useState(false)
   const [isSavingQuestion, setIsSavingQuestion] = useState(false)
+  const [uploadingQuestionImageKey, setUploadingQuestionImageKey] =
+    useState<QuestionImageFieldKey | ''>('')
   const [isBankFormVisible, setIsBankFormVisible] = useState(false)
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false)
   const [csvImportBankIds, setCsvImportBankIds] = useState<string[]>([])
@@ -907,6 +935,57 @@ export function SuperAdminQuestionBanksPage({
   function updateQuestionMediaMode(mode: QuestionMediaMode) {
     setQuestionMediaMode(mode)
     setQuestionForm((current) => applyQuestionMediaMode(current, mode))
+  }
+
+  async function handleQuestionImageUpload(
+    event: ChangeEvent<HTMLInputElement>,
+    imageKey: QuestionImageFieldKey,
+  ) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      setError('Format accepté : PNG, JPG, WEBP ou GIF.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('L’image ne doit pas dépasser 5 Mo.')
+      return
+    }
+
+    const activeBankId = questionForm.bankId || selectedBankId || 'unassigned'
+    setUploadingQuestionImageKey(imageKey)
+    setError('')
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const safeName = safeStorageFileName(file.name) || 'question-image'
+      const path = `question-media/${activeBankId}/${createClientUuid()}-${safeName}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from('brand-assets')
+        .upload(path, file, {
+          cacheControl: '31536000',
+          contentType: file.type,
+          upsert: false,
+        })
+
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage.from('brand-assets').getPublicUrl(path)
+      setQuestionForm((current) => {
+        const nextForm = { ...current, [imageKey]: data.publicUrl }
+        setQuestionMediaMode(detectQuestionMediaMode(nextForm))
+        return nextForm
+      })
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : 'Impossible de charger cette image.',
+      )
+    } finally {
+      setUploadingQuestionImageKey('')
+    }
   }
 
   function toggleBankCategory(categoryId: string) {
@@ -2005,6 +2084,22 @@ export function SuperAdminQuestionBanksPage({
                     }
                     placeholder="https://..."
                   />
+                  <div className="question-bank-media-upload-row">
+                    <label className="question-bank-media-upload-button">
+                      Charger une image
+                      <input
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        disabled={Boolean(uploadingQuestionImageKey)}
+                        onChange={(event) => handleQuestionImageUpload(event, 'questionImageUrl')}
+                        type="file"
+                      />
+                    </label>
+                    <small>
+                      {uploadingQuestionImageKey === 'questionImageUrl'
+                        ? 'Chargement...'
+                        : 'Stockage MegaPromo, évite les limites des sites externes.'}
+                    </small>
+                  </div>
                   {questionForm.questionImageUrl ? (
                     <span className="question-bank-media-preview">
                       <img src={questionForm.questionImageUrl} alt="" loading="lazy" />
@@ -2053,6 +2148,22 @@ export function SuperAdminQuestionBanksPage({
                               }
                               placeholder="https://..."
                             />
+                            <div className="question-bank-media-upload-row is-compact">
+                              <label className="question-bank-media-upload-button">
+                                Charger
+                                <input
+                                  accept="image/png,image/jpeg,image/webp,image/gif"
+                                  disabled={Boolean(uploadingQuestionImageKey)}
+                                  onChange={(event) => handleQuestionImageUpload(event, imageKey)}
+                                  type="file"
+                                />
+                              </label>
+                              <small>
+                                {uploadingQuestionImageKey === imageKey
+                                  ? 'Chargement...'
+                                  : 'Image stockée par MegaPromo.'}
+                              </small>
+                            </div>
                           </label>
                         ) : null}
                         {shouldShowAnswerImages && imageValue ? (
