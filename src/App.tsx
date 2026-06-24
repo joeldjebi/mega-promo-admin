@@ -1384,6 +1384,37 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
   if (participationsError) throw participationsError
   if (questionsResponse.error) throw questionsResponse.error
 
+  const directQuestions = (questionsResponse.data ?? []).map(questionRowToItem)
+  const answerQuestionIds = collectQuestionIdsFromParticipations(participationsData)
+  const knownQuestionIds = new Set(directQuestions.map((question) => question.id))
+  const missingQuestionIds = answerQuestionIds.filter((questionId) => !knownQuestionIds.has(questionId))
+  const bankQuestionsResponse =
+    missingQuestionIds.length > 0
+      ? await supabase
+          .from('questions')
+          .select(
+            'id, question_text, question_image_url, option_a, option_b, option_c, option_d, option_a_image_url, option_b_image_url, option_c_image_url, option_d_image_url, correct_answer, points, time_limit, order_index',
+          )
+          .in('id', missingQuestionIds)
+      : { data: [], error: null }
+
+  if (bankQuestionsResponse.error) throw bankQuestionsResponse.error
+
+  const questionsById = new Map<string, QuizQuestionItem>()
+  for (const question of directQuestions) questionsById.set(question.id, question)
+  for (const question of (bankQuestionsResponse.data ?? []).map(questionRowToItem)) {
+    questionsById.set(question.id, question)
+  }
+  const answerQuestionOrder = new Map(answerQuestionIds.map((questionId, index) => [questionId, index]))
+  const questions = Array.from(questionsById.values()).sort((first, second) => {
+    const firstOrder = answerQuestionOrder.get(first.id)
+    const secondOrder = answerQuestionOrder.get(second.id)
+    if (firstOrder !== undefined || secondOrder !== undefined) {
+      return (firstOrder ?? Number.MAX_SAFE_INTEGER) - (secondOrder ?? Number.MAX_SAFE_INTEGER)
+    }
+    return first.orderIndex - second.orderIndex
+  })
+
   const userIds = Array.from(
     new Set(
       (participationsData ?? [])
@@ -1420,7 +1451,7 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
 
   return {
     contest,
-    questions: (questionsResponse.data ?? []).map(questionRowToItem),
+    questions,
     participations: participationsData.map((participation) => {
       const userId = (participation.user_id as string | null) ?? ''
       const answers = participation.answers
@@ -1437,6 +1468,23 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
       }
     }),
   }
+}
+
+function collectQuestionIdsFromParticipations(
+  participations: Array<Record<string, unknown>>,
+) {
+  const questionIds: string[] = []
+  const seen = new Set<string>()
+
+  for (const participation of participations) {
+    for (const answer of extractParticipationAnswerRecords(participation.answers)) {
+      if (!answer.questionId || seen.has(answer.questionId)) continue
+      seen.add(answer.questionId)
+      questionIds.push(answer.questionId)
+    }
+  }
+
+  return questionIds
 }
 
 async function fetchContestGameData(contestId: string): Promise<ContestGameData> {
@@ -4653,6 +4701,13 @@ function ParticipationAnswerDetailModal({
 }) {
   const answers = extractParticipationAnswerRecords(participation.rawAnswers)
   const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]))
+  const questionsById = new Map(questions.map((question) => [question.id, question]))
+  const participationQuestions =
+    answers.length > 0
+      ? answers
+          .map((answer) => questionsById.get(answer.questionId))
+          .filter((question): question is QuizQuestionItem => Boolean(question))
+      : questions
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -4678,9 +4733,13 @@ function ParticipationAnswerDetailModal({
         </div>
 
         <div className="answer-detail-list">
-          {questions.length > 0 ? (
-            questions.map((question, index) => {
+          {participationQuestions.length > 0 ? (
+            participationQuestions.map((question, index) => {
               const answer = answersByQuestion.get(question.id)
+              const correctIndex =
+                answer?.correctIndex !== null && answer?.correctIndex !== undefined
+                  ? answer.correctIndex
+                  : correctIndexForQuestion(question)
               return (
                 <article className="answer-detail-row" key={question.id}>
                   <div className="answer-detail-question">
@@ -4704,12 +4763,24 @@ function ParticipationAnswerDetailModal({
                     </div>
                     <div>
                       <span>Réponse système</span>
-                      <strong>{optionTextForIndex(question, correctIndexForQuestion(question))}</strong>
+                      <strong>{optionTextForIndex(question, correctIndex)}</strong>
                     </div>
                     <div>
                       <span>Résultat</span>
-                      <strong className={answer?.isCorrect ? 'success-text' : 'danger-text'}>
-                        {answer?.isCorrect ? 'Correct' : 'Incorrect'}
+                      <strong
+                        className={
+                          answer?.isCorrect === true
+                            ? 'success-text'
+                            : answer?.isCorrect === false
+                              ? 'danger-text'
+                              : ''
+                        }
+                      >
+                        {answer?.isCorrect === null || answer?.isCorrect === undefined
+                          ? 'Non calculé'
+                          : answer.isCorrect
+                            ? 'Correct'
+                            : 'Incorrect'}
                       </strong>
                     </div>
                     <div>
@@ -4726,7 +4797,7 @@ function ParticipationAnswerDetailModal({
             })
           ) : (
             <p className="empty-panel-text">
-              Aucune question disponible pour détailler les réponses.
+              Aucune question disponible pour détailler les réponses de ce joueur.
             </p>
           )}
         </div>
@@ -4749,16 +4820,39 @@ function extractParticipationAnswerRecords(rawAnswers: unknown): ParticipationAn
   return items
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
     .map((item) => ({
-      questionId: (item.question_id as string | null) ?? '',
-      selectedIndex:
-        typeof item.selected_index === 'number' ? item.selected_index : null,
-      correctIndex:
-        typeof item.correct_index === 'number' ? item.correct_index : null,
-      isCorrect: typeof item.is_correct === 'boolean' ? item.is_correct : null,
-      points: typeof item.points === 'number' ? item.points : 0,
-      elapsedMs: typeof item.elapsed_ms === 'number' ? item.elapsed_ms : 0,
+      questionId:
+        typeof item.question_id === 'string'
+          ? item.question_id
+          : typeof item.questionId === 'string'
+            ? item.questionId
+            : typeof item.id === 'string'
+              ? item.id
+              : '',
+      selectedIndex: numberFromUnknown(item.selected_index ?? item.selectedIndex),
+      correctIndex: numberFromUnknown(item.correct_index ?? item.correctIndex),
+      isCorrect: booleanFromUnknown(item.is_correct ?? item.isCorrect),
+      points: numberFromUnknown(item.points) ?? 0,
+      elapsedMs: numberFromUnknown(item.elapsed_ms ?? item.elapsedMs) ?? 0,
     }))
     .filter((item) => item.questionId)
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsedValue = Number(value)
+    return Number.isFinite(parsedValue) ? parsedValue : null
+  }
+  return null
+}
+
+function booleanFromUnknown(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true
+    if (value.toLowerCase() === 'false') return false
+  }
+  return null
 }
 
 function correctIndexForQuestion(question: QuizQuestionItem) {
