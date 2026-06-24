@@ -197,6 +197,7 @@ type ContestHistoryData = {
   contest: ContestItem
   participations: ContestHistoryItem[]
   questions: QuizQuestionItem[]
+  questionsByParticipationId: Record<string, QuizQuestionItem[]>
 }
 type QuizQuestionItem = {
   id: string
@@ -1405,6 +1406,33 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
   for (const question of (bankQuestionsResponse.data ?? []).map(questionRowToItem)) {
     questionsById.set(question.id, question)
   }
+
+  const assignedQuestionsResponse = await supabase.rpc(
+    'admin_get_contest_history_questions',
+    {
+      p_contest_id: contest.id,
+    },
+  )
+  const assignedQuestionRows =
+    assignedQuestionsResponse.error && isMissingRpcError(assignedQuestionsResponse.error)
+      ? []
+      : assignedQuestionsResponse.data ?? []
+  if (assignedQuestionsResponse.error && !isMissingRpcError(assignedQuestionsResponse.error)) {
+    throw assignedQuestionsResponse.error
+  }
+
+  const questionsByParticipationId: Record<string, QuizQuestionItem[]> = {}
+  for (const row of assignedQuestionRows as Array<Record<string, unknown>>) {
+    const participationId = (row.participation_id as string | null) ?? ''
+    if (!participationId) continue
+    const question = questionRowToItem(row)
+    questionsById.set(question.id, question)
+    questionsByParticipationId[participationId] = [
+      ...(questionsByParticipationId[participationId] ?? []),
+      question,
+    ]
+  }
+
   const answerQuestionOrder = new Map(answerQuestionIds.map((questionId, index) => [questionId, index]))
   const questions = Array.from(questionsById.values()).sort((first, second) => {
     const firstOrder = answerQuestionOrder.get(first.id)
@@ -1452,6 +1480,7 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
   return {
     contest,
     questions,
+    questionsByParticipationId,
     participations: participationsData.map((participation) => {
       const userId = (participation.user_id as string | null) ?? ''
       const answers = participation.answers
@@ -1787,6 +1816,13 @@ function isMissingTableError(error: unknown, tableName: string) {
   const payload = error as SupabaseLikeError
   const message = String(payload.message ?? '')
   return payload.code === 'PGRST205' && message.includes(`'public.${tableName}'`)
+}
+
+function isMissingRpcError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const payload = error as SupabaseLikeError
+  const message = String(payload.message ?? '')
+  return payload.code === 'PGRST202' || message.includes('Could not find the function')
 }
 
 function createDefaultContestForm(): ContestFormState {
@@ -4967,6 +5003,7 @@ function SuperAdminContestHistoryPage() {
         contest: { ...historyData.contest, participants: 0 },
         participations: [],
         questions: historyData.questions,
+        questionsByParticipationId: {},
       })
       setSelectedParticipation(null)
       setHistoryNotice('Historique de participation vidé pour ce concours.')
@@ -5171,7 +5208,10 @@ function SuperAdminContestHistoryPage() {
         {historyData && selectedParticipation ? (
           <ParticipationAnswerDetailModal
             participation={selectedParticipation}
-            questions={historyData.questions}
+            questions={
+              historyData.questionsByParticipationId[selectedParticipation.id] ??
+              historyData.questions
+            }
             onClose={() => setSelectedParticipation(null)}
           />
         ) : null}
