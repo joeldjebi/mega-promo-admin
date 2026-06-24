@@ -12,6 +12,7 @@ type CategoryItem = {
   id: string
   name: string
   contests: number
+  questionBanks: number
   color: string
   description: string
   isActive: boolean
@@ -21,17 +22,31 @@ type CategoryFormState = Pick<CategoryItem, 'name' | 'color' | 'description'>
 function formatNumber(value: number) { return new Intl.NumberFormat('fr-FR').format(value) }
 function createClientUuid() { if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID(); return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => { const random = Math.floor(Math.random() * 16); const value = char === 'x' ? random : (random & 0x3) | 0x8; return value.toString(16) }) }
 function getVisibleCategoryNavItems(permissions: string[] | undefined, navItems: CategoriesNavItem[]) { return navItems.filter((item) => hasAdminPermission(permissions, item.permission, 'read')) }
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return fallback
+}
 async function fetchCategoriesData(): Promise<CategoryItem[]> {
-  const [categoriesResponse, contestCategoriesResponse] = await Promise.all([
+  const [
+    categoriesResponse,
+    contestCategoriesResponse,
+    bankCategoriesResponse,
+  ] = await Promise.all([
     supabase
       .from('categories')
       .select('id, name, description, color, is_active, created_at')
       .order('created_at', { ascending: false }),
     supabase.from('contests').select('category_id'),
+    supabase.from('question_bank_categories').select('category_id'),
   ])
 
   if (categoriesResponse.error) throw categoriesResponse.error
   if (contestCategoriesResponse.error) throw contestCategoriesResponse.error
+  if (bankCategoriesResponse.error) throw bankCategoriesResponse.error
 
   const contestsByCategory = new Map<string, number>()
   for (const contest of contestCategoriesResponse.data ?? []) {
@@ -40,12 +55,23 @@ async function fetchCategoriesData(): Promise<CategoryItem[]> {
     contestsByCategory.set(categoryId, (contestsByCategory.get(categoryId) ?? 0) + 1)
   }
 
+  const questionBanksByCategory = new Map<string, number>()
+  for (const bankCategory of bankCategoriesResponse.data ?? []) {
+    const categoryId = bankCategory.category_id as string | null
+    if (!categoryId) continue
+    questionBanksByCategory.set(
+      categoryId,
+      (questionBanksByCategory.get(categoryId) ?? 0) + 1,
+    )
+  }
+
   return (categoriesResponse.data ?? []).map((category) => ({
     id: category.id as string,
     name: (category.name as string | null) ?? 'Catégorie',
     description: (category.description as string | null) ?? '',
     color: (category.color as string | null) || '#6b7fff',
     contests: contestsByCategory.get(category.id as string) ?? 0,
+    questionBanks: questionBanksByCategory.get(category.id as string) ?? 0,
     isActive: (category.is_active as boolean | null) ?? true,
   }))
 }
@@ -134,9 +160,7 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
       setCategories(nextCategories)
     } catch (error) {
       setCategoriesError(
-        error instanceof Error
-          ? error.message
-          : 'Impossible de charger les catégories.',
+        errorMessage(error, 'Impossible de charger les catégories.'),
       )
     } finally {
       setIsCategoriesLoading(false)
@@ -153,9 +177,7 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
       .catch((error) => {
         if (!isMounted) return
         setCategoriesError(
-          error instanceof Error
-            ? error.message
-            : 'Impossible de charger les catégories.',
+          errorMessage(error, 'Impossible de charger les catégories.'),
         )
       })
       .finally(() => {
@@ -250,9 +272,7 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
       closeCategoryModal()
     } catch (error) {
       setCategoryError(
-        error instanceof Error
-          ? error.message
-          : 'Impossible d’enregistrer cette catégorie.',
+        errorMessage(error, 'Impossible d’enregistrer cette catégorie.'),
       )
     } finally {
       setIsSavingCategory(false)
@@ -260,38 +280,54 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
   }
 
   async function handleDeleteCategory(category: CategoryItem) {
-    const message =
-      category.contests > 0
-        ? `Supprimer la catégorie "${category.name}" ? Les ${category.contests} concours liés seront dissociés de cette catégorie.`
-        : `Supprimer la catégorie "${category.name}" ?`
-    const confirmed = window.confirm(message)
+    if (category.contests > 0 || category.questionBanks > 0) {
+      setCategoriesError(
+        `Impossible de supprimer "${category.name}" : ${formatNumber(
+          category.contests,
+        )} JCQ et ${formatNumber(
+          category.questionBanks,
+        )} banque(s) de questions sont liés à cette catégorie.`,
+      )
+      return
+    }
+
+    const confirmed = window.confirm(`Supprimer la catégorie "${category.name}" ?`)
     if (!confirmed) return
 
     setCategoriesError('')
 
     try {
-      if (category.contests > 0) {
-        const { error: unlinkError } = await supabase
-          .from('contests')
-          .update({ category_id: null })
-          .eq('category_id', category.id)
-
-        if (unlinkError) throw unlinkError
-      }
-
-      const { error } = await supabase
-        .from('categories')
-        .delete()
-        .eq('id', category.id)
+      const { data, error } = await supabase.rpc('delete_unused_category', {
+        p_category_id: category.id,
+      })
 
       if (error) throw error
+
+      const result = data?.[0] as
+        | {
+            deleted?: boolean | null
+            reason?: string | null
+            contests_count?: number | null
+            question_banks_count?: number | null
+          }
+        | undefined
+
+      if (!result?.deleted) {
+        setCategoriesError(
+          result?.reason ??
+            `Impossible de supprimer "${category.name}" : ${formatNumber(
+              result?.contests_count ?? 0,
+            )} JCQ et ${formatNumber(
+              result?.question_banks_count ?? 0,
+            )} banque(s) de questions sont liés à cette catégorie.`,
+        )
+        return
+      }
 
       await loadCategories()
     } catch (error) {
       setCategoriesError(
-        error instanceof Error
-          ? error.message
-          : 'Impossible de supprimer cette catégorie.',
+        errorMessage(error, 'Impossible de supprimer cette catégorie.'),
       )
     }
   }
@@ -430,6 +466,7 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
               <span></span>
               <span>Catégorie</span>
               <span>Concours</span>
+              <span>Banques</span>
               <span>Statut</span>
               <span>Actions</span>
             </div>
@@ -445,6 +482,7 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
                     <p>{category.description || 'Aucune description'}</p>
                   </div>
                   <small>{category.contests} concours</small>
+                  <small>{category.questionBanks} banques</small>
                   <span className={`status-pill ${category.isActive ? 'active' : 'inactive'}`}>
                     {category.isActive ? 'Active' : 'Inactive'}
                   </span>
