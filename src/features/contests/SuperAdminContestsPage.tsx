@@ -50,6 +50,8 @@ type ContestItem = {
   connectedCount: number
   currentQuestionIndex: number
   participants: number
+  paidWinnersCount: number
+  lastPaidWinnerAt: string
 }
 type ContestListItem = ContestItem & { seriesItems?: ContestItem[] }
 
@@ -118,6 +120,10 @@ type ContestsData = {
   partners: PartnerOption[]
   types: ContestTypeOption[]
   rewards: RewardCatalogItem[]
+}
+type ContestWinnerPaymentSummary = {
+  paidWinnersCount: number
+  lastPaidWinnerAt: string
 }
 type PlayerPlanAccessPreset = 'all' | 'free' | 'premium' | 'vip' | 'premium_vip'
 const playerPlanAccessOptions: Array<{ key: PlayerPlanAccessKey; label: string }> = [
@@ -203,6 +209,23 @@ function createClientUuid() { if (typeof crypto !== 'undefined' && 'randomUUID' 
 function toDatetimeLocalValue(date: Date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16) }
 function isoToDatetimeLocalValue(value: string) { if (!value) return ''; return toDatetimeLocalValue(new Date(value)) }
 function hasContestEnded(endsAt: string) { const endDate = new Date(endsAt); return !Number.isNaN(endDate.getTime()) && endDate <= new Date() }
+function paidWinnerReadyAt(contest: ContestItem) {
+  if (!contest.lastPaidWinnerAt) return null
+  const lastPaidAt = new Date(contest.lastPaidWinnerAt)
+  if (Number.isNaN(lastPaidAt.getTime())) return null
+  return new Date(lastPaidAt.getTime() + 24 * 60 * 60 * 1000)
+}
+function canRepublishContest(contest: ContestItem) {
+  const readyAt = paidWinnerReadyAt(contest)
+  return (
+    contest.type === 'quiz' &&
+    !contest.isLive &&
+    hasContestEnded(contest.endsAt) &&
+    contest.paidWinnersCount >= Math.max(1, contest.winnersCount || 1) &&
+    readyAt !== null &&
+    readyAt <= new Date()
+  )
+}
 function liveStatusLabel(status: string) {
   const normalized = status.toLowerCase()
   if (normalized === 'playing' || normalized === 'active' || normalized === 'open') return 'En direct'
@@ -338,6 +361,7 @@ async function fetchContestsData(): Promise<ContestsData> {
     typesResponse,
     rewardsResponse,
     participationsResponse,
+    winnersResponse,
   ] = await Promise.all([
       supabase
         .from('contests')
@@ -368,6 +392,10 @@ async function fetchContestsData(): Promise<ContestsData> {
         .eq('is_active', true)
         .order('name', { ascending: true }),
       supabase.from('participations').select('contest_id'),
+      supabase
+        .from('winners')
+        .select('contest_id, status, reward_claim_status, sent_at')
+        .not('sent_at', 'is', null),
     ])
 
   if (contestsResponse.error) throw contestsResponse.error
@@ -376,6 +404,7 @@ async function fetchContestsData(): Promise<ContestsData> {
   if (typesResponse.error) throw typesResponse.error
   if (rewardsResponse.error) throw rewardsResponse.error
   if (participationsResponse.error) throw participationsResponse.error
+  if (winnersResponse.error) throw winnersResponse.error
 
   const categories = (categoriesResponse.data ?? []).map((category) => ({
     id: category.id as string,
@@ -415,6 +444,7 @@ async function fetchContestsData(): Promise<ContestsData> {
     rewards.map((reward) => [reward.id, reward.valueLabel || reward.name]),
   )
   const participationsByContest = new Map<string, number>()
+  const winnerPaymentsByContest = new Map<string, ContestWinnerPaymentSummary>()
 
   for (const participation of participationsResponse.data ?? []) {
     const contestId = participation.contest_id as string | null
@@ -423,6 +453,37 @@ async function fetchContestsData(): Promise<ContestsData> {
       contestId,
       (participationsByContest.get(contestId) ?? 0) + 1,
     )
+  }
+
+  for (const winner of winnersResponse.data ?? []) {
+    const contestId = winner.contest_id as string | null
+    const sentAt = winner.sent_at as string | null
+    if (!contestId || !sentAt) continue
+
+    const status = String(winner.status ?? 'pending').toLowerCase()
+    const rewardClaimStatus = String(winner.reward_claim_status ?? 'pending').toLowerCase()
+    const isPaid =
+      ['sent', 'paid', 'received', 'recu', 'reçu'].includes(status) ||
+      ['sent', 'claimed', 'used'].includes(rewardClaimStatus)
+
+    if (!isPaid) continue
+
+    const current = winnerPaymentsByContest.get(contestId) ?? {
+      paidWinnersCount: 0,
+      lastPaidWinnerAt: '',
+    }
+    const currentLastPaidAt = current.lastPaidWinnerAt
+      ? new Date(current.lastPaidWinnerAt).getTime()
+      : 0
+    const nextPaidAt = new Date(sentAt).getTime()
+
+    winnerPaymentsByContest.set(contestId, {
+      paidWinnersCount: current.paidWinnersCount + 1,
+      lastPaidWinnerAt:
+        Number.isFinite(nextPaidAt) && nextPaidAt > currentLastPaidAt
+          ? sentAt
+          : current.lastPaidWinnerAt,
+    })
   }
 
   return {
@@ -500,6 +561,10 @@ async function fetchContestsData(): Promise<ContestsData> {
         currentQuestionIndex:
           (contest.current_question_index as number | null) ?? 0,
         participants: participationsByContest.get(id) ?? 0,
+        paidWinnersCount:
+          winnerPaymentsByContest.get(id)?.paidWinnersCount ?? 0,
+        lastPaidWinnerAt:
+          winnerPaymentsByContest.get(id)?.lastPaidWinnerAt ?? '',
       }
     }),
   }
@@ -691,6 +756,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
   const [contestError, setContestError] = useState('')
   const [isSavingContest, setIsSavingContest] = useState(false)
   const [isProcessingLiveQueue, setIsProcessingLiveQueue] = useState(false)
+  const [republishingContestId, setRepublishingContestId] = useState<string | null>(null)
   const [contestSearch, setContestSearch] = useState('')
   const [contestStatusFilter, setContestStatusFilter] = useState('all')
   const [contestTypeFilter, setContestTypeFilter] = useState('all')
@@ -1402,6 +1468,79 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     }
   }
 
+  async function handleRepublishContest(contest: ContestItem) {
+    setContestsError('')
+    setContestsNotice('')
+
+    const readyAt = paidWinnerReadyAt(contest)
+    if (!canRepublishContest(contest)) {
+      setContestsError(
+        readyAt && readyAt > new Date()
+          ? `La remise en jeu sera disponible le ${formatDate(readyAt.toISOString())}.`
+          : 'Ce JCQ doit être terminé, avoir ses gagnants désignés et payés depuis au moins 24h.',
+      )
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Remettre en jeu "${contest.title}" ? Une nouvelle session active sera créée sans modifier l’ancien JCQ.`,
+    )
+    if (!confirmed) return
+
+    setRepublishingContestId(contest.id)
+
+    try {
+      const { data, error } = await supabase.rpc('republish_completed_jcq', {
+        p_contest_id: contest.id,
+        p_duration_days: 30,
+      })
+      if (error) throw error
+
+      const payload = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
+      const newContestId =
+        typeof payload.new_contest_id === 'string' ? payload.new_contest_id : ''
+
+      await loadContests()
+      setContestsNotice(
+        newContestId
+          ? `JCQ remis en jeu. Nouvelle session créée : ${newContestId}.`
+          : 'JCQ remis en jeu. Nouvelle session active créée.',
+      )
+      void logAdminAction({
+        feature: 'contests',
+        action: 'republish_completed_jcq',
+        message: 'JCQ remis en jeu par le SA.',
+        entityType: 'contest',
+        entityId: newContestId || contest.id,
+        metadata: {
+          source_contest_id: contest.id,
+          title: contest.title,
+          duration_days: 30,
+          new_contest_id: newContestId,
+        },
+      })
+    } catch (error) {
+      void logError({
+        feature: 'contests',
+        action: 'republish_completed_jcq_failed',
+        message: 'Echec remise en jeu JCQ.',
+        entityType: 'contest',
+        entityId: contest.id,
+        metadata: {
+          title: contest.title,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+      setContestsError(
+        error instanceof Error
+          ? error.message
+          : 'Impossible de remettre ce JCQ en jeu.',
+      )
+    } finally {
+      setRepublishingContestId(null)
+    }
+  }
+
   function handleContestTableAction(contest: ContestListItem, action: string) {
     if (!action) return
 
@@ -1427,6 +1566,11 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
 
     if (action === 'generate') {
       void handleGenerateWinners(contest)
+      return
+    }
+
+    if (action === 'republish') {
+      void handleRepublishContest(contest)
       return
     }
 
@@ -1655,6 +1799,8 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                 const rowLiveStatus = seriesCount > 0
                   ? liveSeriesSummaryStatus(contest.seriesItems ?? [])
                   : contest.liveStatus
+                const isRepublishReady = canRepublishContest(contest)
+                const isRepublishingThisContest = republishingContestId === contest.id
                 return (
                 <div className="premium-contest-row" key={contest.liveSeriesId || contest.id}>
                   <div>
@@ -1698,17 +1844,23 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                     <select
                       aria-label={`Actions pour ${contest.title}`}
                       className="table-action-select"
+                      disabled={isRepublishingThisContest}
                       onChange={(event) => {
                         handleContestTableAction(contest, event.target.value)
                         event.currentTarget.value = ''
                       }}
                       value=""
                     >
-                      <option value="">Actions</option>
+                      <option value="">
+                        {isRepublishingThisContest ? 'Remise en jeu...' : 'Actions'}
+                      </option>
                       <option value="edit">Modifier</option>
                       {seriesCount > 1 ? null : <option value="game">Configurer</option>}
                       <option value="history">Historique</option>
                       <option value="generate">Générer gagnants</option>
+                      {isRepublishReady ? (
+                        <option value="republish">Remettre en jeu</option>
+                      ) : null}
                       <option value="status">
                         {contest.status === 'active' ? 'Désactiver' : 'Activer'}
                       </option>

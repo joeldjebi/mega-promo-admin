@@ -76,6 +76,7 @@ const rpcPermissionFeatures: Record<string, string> = {
   disable_reward_catalog_item: 'reward_catalog',
   disable_reward_type: 'reward_catalog',
   generate_pending_winners_for_contest: 'winners',
+  republish_completed_jcq: 'contests',
   upsert_reward_catalog_item: 'reward_catalog',
   upsert_reward_type: 'reward_catalog',
 }
