@@ -135,6 +135,9 @@ const emptyQuestionForm: QuestionForm = {
 }
 
 const CATEGORY_QUESTIONS_PAGE_SIZE = 8
+const QUESTION_BANK_QUESTIONS_PAGE_SIZE = 1000
+const questionSelectColumns =
+  'id, question_bank_id, category_id, question_type, prediction_type, prediction_payload, question_text, question_image_url, option_a, option_a_image_url, option_b, option_b_image_url, option_c, option_c_image_url, option_d, option_d_image_url, correct_answer, points, time_limit, is_active, difficulty'
 const questionAnswerFields: QuestionAnswerField[] = [
   { letter: 'A', textKey: 'optionA', imageKey: 'optionAImageUrl' },
   { letter: 'B', textKey: 'optionB', imageKey: 'optionBImageUrl' },
@@ -462,8 +465,33 @@ function parseQuestionCsv(text: string) {
     )
 }
 
+async function fetchAllQuestionBankRows() {
+  const rows: Record<string, unknown>[] = []
+  let from = 0
+
+  while (true) {
+    const to = from + QUESTION_BANK_QUESTIONS_PAGE_SIZE - 1
+    const { data, error } = await supabase
+      .from('questions')
+      .select(questionSelectColumns)
+      .not('question_bank_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (error) throw error
+
+    const pageRows = (data ?? []) as Record<string, unknown>[]
+    rows.push(...pageRows)
+
+    if (pageRows.length < QUESTION_BANK_QUESTIONS_PAGE_SIZE) break
+    from += QUESTION_BANK_QUESTIONS_PAGE_SIZE
+  }
+
+  return rows
+}
+
 async function loadQuestionBankData() {
-  const [banksResponse, categoriesResponse, linksResponse, questionsResponse] =
+  const [banksResponse, categoriesResponse, linksResponse, questionRows] =
     await Promise.all([
       supabase
         .from('question_banks')
@@ -475,19 +503,12 @@ async function loadQuestionBankData() {
         .eq('is_active', true)
         .order('name', { ascending: true }),
       supabase.from('question_bank_categories').select('question_bank_id, category_id'),
-      supabase
-        .from('questions')
-        .select(
-          'id, question_bank_id, category_id, question_type, prediction_type, prediction_payload, question_text, question_image_url, option_a, option_a_image_url, option_b, option_b_image_url, option_c, option_c_image_url, option_d, option_d_image_url, correct_answer, points, time_limit, is_active, difficulty',
-        )
-        .not('question_bank_id', 'is', null)
-        .order('created_at', { ascending: false }),
+      fetchAllQuestionBankRows(),
     ])
 
   if (banksResponse.error) throw banksResponse.error
   if (categoriesResponse.error) throw categoriesResponse.error
   if (linksResponse.error) throw linksResponse.error
-  if (questionsResponse.error) throw questionsResponse.error
 
   const bankIds = (banksResponse.data ?? [])
     .map((bank) => bank.id as string | null)
@@ -532,7 +553,7 @@ async function loadQuestionBankData() {
     name: (category.name as string | null) ?? 'Catégorie',
   }))
 
-  const questions: BankQuestion[] = (questionsResponse.data ?? []).map((question) => ({
+  const questions: BankQuestion[] = questionRows.map((question) => ({
     id: question.id as string,
     bankId: (question.question_bank_id as string | null) ?? '',
     questionType: (question.question_type as string | null) ?? 'quiz',
