@@ -2501,9 +2501,52 @@ h3 {
 }
 
 .question-bank-category-delete-button {
+  align-items: center;
+  align-self: start;
+  background: rgb(220 38 38 / 6%);
+  border: 1px solid rgb(220 38 38 / 14%);
+  border-radius: 999px;
+  color: #b91c1c;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 7px;
   justify-content: center;
   min-height: 34px;
-  width: 100%;
+  padding: 0 11px 0 8px;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  width: fit-content;
+}
+
+.question-bank-category-delete-button:hover {
+  background: rgb(220 38 38 / 10%);
+  border-color: rgb(220 38 38 / 24%);
+  transform: translateY(-1px);
+}
+
+.question-bank-category-delete-button > span {
+  align-items: center;
+  background: rgb(220 38 38 / 12%);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 17px;
+  font-weight: 900;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  width: 20px;
+}
+
+.question-bank-category-delete-button strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.question-bank-category-delete-button small {
+  color: rgb(153 27 27 / 78%);
+  font-size: 11px;
+  font-weight: 750;
+  margin: 0;
 }
 
 .question-bank-catalog-empty {

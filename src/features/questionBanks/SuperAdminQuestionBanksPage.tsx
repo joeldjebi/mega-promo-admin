@@ -1539,14 +1539,17 @@ export function SuperAdminQuestionBanksPage({
                       : 'Questions détectées, banque introuvable dans le catalogue'}
                   </p>
                   <button
-                    className="danger-button small question-bank-category-delete-button"
+                    className="question-bank-category-delete-button"
                     onClick={(event) => {
                       event.stopPropagation()
                       void deleteQuestionBankCategory(summary)
                     }}
+                    title="Supprimer cette catégorie, ses liens de banques et ses questions de banque"
                     type="button"
                   >
-                    Supprimer cette catégorie et ses questions
+                    <span aria-hidden="true">×</span>
+                    <strong>Supprimer</strong>
+                    <small>catégorie + questions</small>
                   </button>
                 </article>
               ))}
