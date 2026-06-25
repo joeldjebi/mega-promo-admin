@@ -382,22 +382,6 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
   }
 
 
-  function handleCategoryTableAction(category: CategoryItem, action: string) {
-    if (action === 'edit') {
-      openEditCategory(category)
-      return
-    }
-
-    if (action === 'delete') {
-      void handleDeleteCategory(category)
-      return
-    }
-
-    if (action === 'delete_question_bank_category') {
-      void handleDeleteQuestionBankCategory(category)
-    }
-  }
-
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -542,24 +526,30 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
                     {category.isActive ? 'Active' : 'Inactive'}
                   </span>
                   <div className="table-actions compact">
-                    <select
-                      aria-label={`Actions pour ${category.name}`}
-                      className="table-action-select"
-                      onChange={(event) => {
-                        handleCategoryTableAction(category, event.target.value)
-                        event.currentTarget.value = ''
-                      }}
-                      value=""
+                    <button
+                      className="table-action-button"
+                      onClick={() => openEditCategory(category)}
+                      type="button"
                     >
-                      <option value="">Actions</option>
-                      <option value="edit">Modifier</option>
-                      <option value="delete">Supprimer</option>
-                      {category.questionBanks > 0 ? (
-                        <option value="delete_question_bank_category">
-                          Supprimer banques + questions
-                        </option>
-                      ) : null}
-                    </select>
+                      Modifier
+                    </button>
+                    {category.questionBanks > 0 ? (
+                      <button
+                        className="danger-button small"
+                        onClick={() => void handleDeleteQuestionBankCategory(category)}
+                        type="button"
+                      >
+                        Supprimer banques + questions
+                      </button>
+                    ) : (
+                      <button
+                        className="danger-button small"
+                        onClick={() => void handleDeleteCategory(category)}
+                        type="button"
+                      >
+                        Supprimer
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
