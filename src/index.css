@@ -2500,6 +2500,12 @@ h3 {
   margin: 0;
 }
 
+.question-bank-category-delete-button {
+  justify-content: center;
+  min-height: 34px;
+  width: 100%;
+}
+
 .question-bank-catalog-empty {
   align-items: center;
   background:

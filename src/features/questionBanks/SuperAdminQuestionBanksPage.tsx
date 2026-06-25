@@ -1302,6 +1302,52 @@ export function SuperAdminQuestionBanksPage({
     }
   }
 
+  async function deleteQuestionBankCategory(summary: (typeof bankCategorySummaries)[number]) {
+    const confirmed = window.confirm(
+      `Supprimer définitivement la catégorie "${summary.name}", ses liens de banques et ses questions de banque ? Cette action sera bloquée si un concours utilise encore cette catégorie.`,
+    )
+    if (!confirmed) return
+
+    setError('')
+    try {
+      const { data, error: deleteError } = await supabase.rpc(
+        'admin_delete_question_bank_category',
+        { p_category_id: summary.id },
+      )
+      if (deleteError) throw deleteError
+
+      const result = data as
+        | {
+            deleted_questions?: number | null
+            deleted_bank_links?: number | null
+            deleted_empty_banks?: number | null
+          }
+        | null
+
+      await refreshData(
+        selectedBank && summary.banks.some((bank) => bank.id === selectedBank.id)
+          ? ''
+          : selectedBankId,
+      )
+      setSelectedCategoryId('')
+      setError(
+        `Catégorie supprimée. ${formatNumber(
+          result?.deleted_questions ?? 0,
+        )} question(s), ${formatNumber(
+          result?.deleted_bank_links ?? 0,
+        )} lien(s) de banque et ${formatNumber(
+          result?.deleted_empty_banks ?? 0,
+        )} banque(s) vide(s) supprimés.`,
+      )
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Suppression de la catégorie de banque impossible.',
+      )
+    }
+  }
+
   async function handleLogout() {
     await adminAuth.logout()
     navigate(authRoute, { replace: true })
@@ -1492,6 +1538,16 @@ export function SuperAdminQuestionBanksPage({
                           .join(' · ')
                       : 'Questions détectées, banque introuvable dans le catalogue'}
                   </p>
+                  <button
+                    className="danger-button small question-bank-category-delete-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void deleteQuestionBankCategory(summary)
+                    }}
+                    type="button"
+                  >
+                    Supprimer cette catégorie et ses questions
+                  </button>
                 </article>
               ))}
             </div>
