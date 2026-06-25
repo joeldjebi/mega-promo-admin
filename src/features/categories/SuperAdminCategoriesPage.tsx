@@ -332,55 +332,18 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
     }
   }
 
-  async function handleDeleteQuestionBankCategory(category: CategoryItem) {
-    if (category.contests > 0) {
-      setCategoriesError(
-        `Impossible de supprimer "${category.name}" : ${formatNumber(
-          category.contests,
-        )} concours utilisent encore cette catégorie.`,
-      )
+
+
+  function handleCategoryTableAction(category: CategoryItem, action: string) {
+    if (action === 'edit') {
+      openEditCategory(category)
       return
     }
 
-    const confirmed = window.confirm(
-      `Supprimer définitivement la catégorie "${category.name}", ses liens de banques et ses questions de banque ? Cette action ne touche pas aux autres catégories.`,
-    )
-    if (!confirmed) return
-
-    setCategoriesError('')
-
-    try {
-      const { data, error } = await supabase.rpc('admin_delete_question_bank_category', {
-        p_category_id: category.id,
-      })
-
-      if (error) throw error
-
-      const result = data as
-        | {
-            deleted_questions?: number | null
-            deleted_bank_links?: number | null
-            deleted_empty_banks?: number | null
-          }
-        | null
-
-      await loadCategories()
-      setCategoriesError(
-        `Catégorie supprimée. ${formatNumber(
-          result?.deleted_questions ?? 0,
-        )} question(s), ${formatNumber(
-          result?.deleted_bank_links ?? 0,
-        )} lien(s) de banque et ${formatNumber(
-          result?.deleted_empty_banks ?? 0,
-        )} banque(s) vide(s) supprimés.`,
-      )
-    } catch (error) {
-      setCategoriesError(
-        errorMessage(error, 'Impossible de supprimer cette catégorie et ses questions.'),
-      )
+    if (action === 'delete') {
+      void handleDeleteCategory(category)
     }
   }
-
 
   return (
     <main className="app-shell">
@@ -526,30 +489,19 @@ export function SuperAdminCategoriesPage({ authRoute, rootRoute, navItems }: Sup
                     {category.isActive ? 'Active' : 'Inactive'}
                   </span>
                   <div className="table-actions compact">
-                    <button
-                      className="table-action-button"
-                      onClick={() => openEditCategory(category)}
-                      type="button"
+                    <select
+                      aria-label={`Actions pour ${category.name}`}
+                      className="table-action-select"
+                      onChange={(event) => {
+                        handleCategoryTableAction(category, event.target.value)
+                        event.currentTarget.value = ''
+                      }}
+                      value=""
                     >
-                      Modifier
-                    </button>
-                    {category.questionBanks > 0 ? (
-                      <button
-                        className="danger-button small"
-                        onClick={() => void handleDeleteQuestionBankCategory(category)}
-                        type="button"
-                      >
-                        Supprimer banques + questions
-                      </button>
-                    ) : (
-                      <button
-                        className="danger-button small"
-                        onClick={() => void handleDeleteCategory(category)}
-                        type="button"
-                      >
-                        Supprimer
-                      </button>
-                    )}
+                      <option value="">Actions</option>
+                      <option value="edit">Modifier</option>
+                      <option value="delete">Supprimer</option>
+                    </select>
                   </div>
                 </div>
               ))
