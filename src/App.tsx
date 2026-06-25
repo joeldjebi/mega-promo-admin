@@ -379,6 +379,24 @@ type PlayerSavedPaymentMethodItem = {
   createdAt: string
   updatedAt: string
 }
+type PlayerAuthMethodItem = {
+  method: string
+  label: string
+  isLinked: boolean
+  email: string
+  phone: string
+  linkedAt: string
+  lastSignInAt: string
+}
+type PlayerAuthMethodRpcRow = {
+  method: string | null
+  label: string | null
+  is_linked: boolean | null
+  email: string | null
+  phone: string | null
+  linked_at: string | null
+  last_sign_in_at: string | null
+}
 type PlayersData = {
   users: PlayerUserItem[]
   plans: PlayerPlanItem[]
@@ -391,6 +409,7 @@ type PlayerDetailData = {
   badges: PlayerBadgeItem[]
   paymentMethods: PlayerSavedPaymentMethodItem[]
   kycRequests: PlayerKycRequestItem[]
+  authMethods: PlayerAuthMethodItem[]
 }
 type PlayerParticipationHistoryRow = {
   participation_id: string
@@ -1190,6 +1209,7 @@ async function fetchPlayerDetailData(
     userBadgesResponse,
     paymentMethodsResponse,
     kycRequestsResponse,
+    authMethodsResponse,
   ] =
     await Promise.all([
       supabase
@@ -1228,6 +1248,9 @@ async function fetchPlayerDetailData(
         .select('id, user_id, document_type, document_front_url, document_back_url, status, rejection_reason, created_at, reviewed_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: false }),
+      supabase.rpc('admin_get_user_auth_methods', {
+        p_user_id: userId,
+      }),
     ])
 
   if (participationsResponse.error) throw participationsResponse.error
@@ -1246,6 +1269,9 @@ async function fetchPlayerDetailData(
     !isMissingTableError(kycRequestsResponse.error, 'player_kyc_requests')
   ) {
     throw kycRequestsResponse.error
+  }
+  if (authMethodsResponse.error && !isMissingFunctionError(authMethodsResponse.error)) {
+    throw authMethodsResponse.error
   }
 
   const contestIds = Array.from(
@@ -1335,6 +1361,15 @@ async function fetchPlayerDetailData(
       status: (method.status as string | null) ?? 'active',
       createdAt: (method.created_at as string | null) ?? '',
       updatedAt: (method.updated_at as string | null) ?? '',
+    })),
+    authMethods: ((authMethodsResponse.data ?? []) as PlayerAuthMethodRpcRow[]).map((method) => ({
+      method: (method.method as string | null) ?? '',
+      label: (method.label as string | null) ?? 'Moyen de connexion',
+      isLinked: (method.is_linked as boolean | null) ?? false,
+      email: (method.email as string | null) ?? '',
+      phone: (method.phone as string | null) ?? '',
+      linkedAt: (method.linked_at as string | null) ?? '',
+      lastSignInAt: (method.last_sign_in_at as string | null) ?? '',
     })),
     kycRequests: (kycRequestsResponse.data ?? []).map((request) => ({
       id: request.id as string,
@@ -1739,6 +1774,17 @@ function isMissingTableError(error: unknown, tableName: string) {
   const payload = error as SupabaseLikeError
   const message = String(payload.message ?? '')
   return payload.code === 'PGRST205' && message.includes(`'public.${tableName}'`)
+}
+
+function isMissingFunctionError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const payload = error as SupabaseLikeError
+  const message = String(payload.message ?? '').toLowerCase()
+  return (
+    payload.code === 'PGRST202' ||
+    message.includes('could not find the function') ||
+    message.includes('admin_get_user_auth_methods')
+  )
 }
 
 function createDefaultContestForm(): ContestFormState {
@@ -2488,6 +2534,7 @@ function SuperAdminUserDetailPage() {
     badges: [],
     paymentMethods: [],
     kycRequests: [],
+    authMethods: [],
   })
   const [isLoading, setIsLoading] = useState(true)
   const [notice, setNotice] = useState('')
@@ -3094,6 +3141,57 @@ function SuperAdminUserDetailPage() {
                   </button>
                 </div>
               </form>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Sécurité</p>
+                  <h2>Moyens de connexion</h2>
+                </div>
+                <span className="pill">
+                  {detail.authMethods.filter((method) => method.isLinked).length}/
+                  {detail.authMethods.length || 3}
+                </span>
+              </div>
+              <div className="premium-mini-table">
+                {detail.authMethods.length > 0 ? (
+                  detail.authMethods.map((method) => (
+                    <article key={method.method || method.label}>
+                      <div>
+                        <strong>{method.label}</strong>
+                        <p>
+                          {method.email ||
+                            method.phone ||
+                            (method.isLinked
+                              ? 'Compte lié'
+                              : 'Aucune liaison détectée')}
+                        </p>
+                      </div>
+                      <span
+                        className={`status-pill ${
+                          method.isLinked ? 'active' : 'inactive'
+                        }`}
+                      >
+                        {method.isLinked ? 'Lié' : 'Non lié'}
+                      </span>
+                      <small>
+                        {method.isLinked
+                          ? `Lié le ${formatDate(method.linkedAt)} · Dernière connexion : ${formatDate(
+                              method.lastSignInAt,
+                            )}`
+                          : 'Ce moyen de connexion n’est pas associé à ce compte.'}
+                      </small>
+                    </article>
+                  ))
+                ) : (
+                  <p className="empty-panel-text">
+                    Moyens de connexion non disponibles. Exécute la migration RPC
+                    admin_get_user_auth_methods pour afficher téléphone, Google et
+                    Apple.
+                  </p>
+                )}
+              </div>
             </article>
 
             <article className="panel">
