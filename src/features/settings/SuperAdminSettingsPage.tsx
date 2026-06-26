@@ -734,6 +734,8 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     useState<MobileInfoMessageFormState>(createDefaultMobileInfoMessageForm())
   const [isMobileInfoMessageSaving, setIsMobileInfoMessageSaving] =
     useState(false)
+  const [deletingMobileInfoMessageId, setDeletingMobileInfoMessageId] =
+    useState<string | null>(null)
   const [appUpdateConfigForm, setAppUpdateConfigForm] =
     useState<AppUpdateConfigFormState>(defaultAppUpdateConfigForm)
   const [appUpdateConfigUpdatedAt, setAppUpdateConfigUpdatedAt] = useState('')
@@ -1232,6 +1234,38 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
       )
     } finally {
       setIsMobileInfoMessageSaving(false)
+    }
+  }
+
+  async function handleDeleteMobileInfoMessage(message: MobileInfoMessageItem) {
+    const confirmed = window.confirm(
+      `Supprimer définitivement le message d’information "${message.title}" ?`,
+    )
+    if (!confirmed) return
+
+    setNotice('')
+    setSettingsError('')
+    setDeletingMobileInfoMessageId(message.id)
+
+    try {
+      const { error } = await supabase
+        .from('mobile_info_messages')
+        .delete()
+        .eq('id', message.id)
+
+      if (error) throw error
+
+      if (mobileInfoMessageForm.id === message.id) {
+        setMobileInfoMessageForm(createDefaultMobileInfoMessageForm())
+      }
+      await loadMobileInfoMessages()
+      setNotice('Message d’information supprimé.')
+    } catch (error) {
+      setSettingsError(
+        formatUnknownError(error, 'Impossible de supprimer le message d’information.'),
+      )
+    } finally {
+      setDeletingMobileInfoMessageId(null)
     }
   }
 
@@ -3118,35 +3152,48 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                   </div>
                 </article>
               ) : (
-                mobileInfoMessages.map((message) => (
-                  <article key={message.id}>
-                    <div>
-                      <strong>{message.title}</strong>
-                      <p>{message.body}</p>
-                      <small>{formatDate(message.createdAt)}</small>
-                    </div>
-                    <div className="table-actions compact">
-                      <span
-                        className={`status-pill ${
-                          message.isActive ? 'active' : 'inactive'
-                        }`}
-                      >
-                        {message.isActive ? 'Actif' : 'Inactif'}
-                      </span>
-                      <button
-                        className="table-action-button"
-                        onClick={() =>
-                          setMobileInfoMessageForm(
-                            mobileInfoMessageToForm(message),
-                          )
-                        }
-                        type="button"
-                      >
-                        Modifier
-                      </button>
-                    </div>
-                  </article>
-                ))
+                mobileInfoMessages.map((message) => {
+                  const isDeletingThisMessage =
+                    deletingMobileInfoMessageId === message.id
+                  return (
+                    <article key={message.id}>
+                      <div>
+                        <strong>{message.title}</strong>
+                        <p>{message.body}</p>
+                        <small>{formatDate(message.createdAt)}</small>
+                      </div>
+                      <div className="table-actions compact">
+                        <span
+                          className={`status-pill ${
+                            message.isActive ? 'active' : 'inactive'
+                          }`}
+                        >
+                          {message.isActive ? 'Actif' : 'Inactif'}
+                        </span>
+                        <button
+                          className="table-action-button"
+                          disabled={isDeletingThisMessage}
+                          onClick={() =>
+                            setMobileInfoMessageForm(
+                              mobileInfoMessageToForm(message),
+                            )
+                          }
+                          type="button"
+                        >
+                          Modifier
+                        </button>
+                        <button
+                          className="table-action-button danger"
+                          disabled={isDeletingThisMessage}
+                          onClick={() => void handleDeleteMobileInfoMessage(message)}
+                          type="button"
+                        >
+                          {isDeletingThisMessage ? 'Suppression...' : 'Supprimer'}
+                        </button>
+                      </div>
+                    </article>
+                  )
+                })
               )}
             </div>
           </article>
