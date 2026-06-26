@@ -42,6 +42,8 @@ type ContestItem = {
   liveStartsAt: string
   liveStatus: string
   rewardMetadata: Record<string, unknown>
+  isRepublished: boolean
+  republishSequence: number
   liveSeriesId: string
   liveSeriesIndex: number | null
   liveSeriesCount: number | null
@@ -499,6 +501,17 @@ async function fetchContestsData(): Promise<ContestsData> {
         contest.reward_metadata && typeof contest.reward_metadata === 'object'
           ? (contest.reward_metadata as Record<string, unknown>)
           : {}
+      const republishedFromContestId =
+        typeof rewardMetadata.republished_from_contest_id === 'string'
+          ? rewardMetadata.republished_from_contest_id
+          : ''
+      const rawRepublishSequence = rewardMetadata.republish_sequence
+      const republishSequence =
+        typeof rawRepublishSequence === 'number'
+          ? rawRepublishSequence
+          : typeof rawRepublishSequence === 'string'
+            ? Number.parseInt(rawRepublishSequence, 10) || 1
+            : 1
       const liveSeriesId =
         typeof rewardMetadata.live_series_id === 'string'
           ? rewardMetadata.live_series_id
@@ -552,6 +565,8 @@ async function fetchContestsData(): Promise<ContestsData> {
         liveStartsAt: (contest.live_starts_at as string | null) ?? '',
         liveStatus: (contest.live_status as string | null) ?? 'scheduled',
         rewardMetadata,
+        isRepublished: republishedFromContestId.length > 0,
+        republishSequence,
         liveSeriesId,
         liveSeriesIndex,
         liveSeriesCount,
@@ -2032,6 +2047,13 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                       {contest.partner} · {contest.category}
                       {seriesCount > 1 ? ` · Série de ${seriesCount} QL` : ''}
                     </p>
+                    {contest.isRepublished ? (
+                      <span className="status-pill warning">
+                        {contest.republishSequence > 1
+                          ? `Remis en jeu #${contest.republishSequence}`
+                          : 'Remis en jeu'}
+                      </span>
+                    ) : null}
                   </div>
                   <span className="contest-type-pill">{contest.type}</span>
                   <span
