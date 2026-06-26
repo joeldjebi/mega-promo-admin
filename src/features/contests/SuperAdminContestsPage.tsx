@@ -1875,6 +1875,10 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                 const rowLiveStatus = seriesCount > 0
                   ? liveSeriesSummaryStatus(contest.seriesItems ?? [])
                   : contest.liveStatus
+                const isPronosticContest = contest.type.toLowerCase() === 'pronostic'
+                const isEndedContest = hasContestEnded(contest.endsAt)
+                const canGenerateWinners = !isPronosticContest && isEndedContest
+                const canResolvePronostic = isPronosticContest && isEndedContest
                 return (
                 <div className="premium-contest-row" key={contest.liveSeriesId || contest.id}>
                   <div>
@@ -1928,8 +1932,10 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                       <option value="edit">Modifier</option>
                       {seriesCount > 1 ? null : <option value="game">Configurer</option>}
                       <option value="history">Historique</option>
-                      <option value="generate">Générer gagnants</option>
-                      {contest.type.toLowerCase() === 'pronostic' ? (
+                      {canGenerateWinners ? (
+                        <option value="generate">Générer gagnants</option>
+                      ) : null}
+                      {canResolvePronostic ? (
                         <option value="resolve_pronostic">Résoudre pronostic</option>
                       ) : null}
                       <option value="status">
