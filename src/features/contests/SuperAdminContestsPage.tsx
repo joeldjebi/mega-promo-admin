@@ -639,6 +639,116 @@ function contestToForm(contest: ContestItem): ContestFormState {
 }
 
 
+type PronosticResolutionFormState = {
+  homeScore: string
+  awayScore: string
+  allowCorrectResult: boolean
+}
+
+function ResolvePronosticModal({
+  contest,
+  form,
+  error,
+  isResolving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  contest: ContestItem
+  form: PronosticResolutionFormState
+  error: string
+  isResolving: boolean
+  onChange: (form: PronosticResolutionFormState) => void
+  onClose: () => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section
+        aria-label="Résoudre le pronostic"
+        aria-modal="true"
+        className="category-modal contest-modal"
+        role="dialog"
+      >
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Pronostic</p>
+            <h2>Résoudre le score final</h2>
+            <p className="page-subtitle">
+              {contest.title} · {contest.winnersCount || 1} gagnant(s) configuré(s)
+            </p>
+          </div>
+          <button disabled={isResolving} onClick={onClose} type="button">
+            Fermer
+          </button>
+        </div>
+
+        <form className="category-form contest-form" onSubmit={onSubmit}>
+          {error ? (
+            <div className="dashboard-alert compact" role="alert">
+              <p>{error}</p>
+            </div>
+          ) : null}
+
+          <div className="contest-context-note">
+            Le système compare les pronostics déjà enregistrés, classe les joueurs par
+            score exact puis bon résultat, départage par ordre de validation, crée les
+            gagnants et envoie les notifications.
+          </div>
+
+          <div className="form-grid two-columns">
+            <label>
+              <span>Score équipe 1 / domicile</span>
+              <input
+                autoFocus
+                disabled={isResolving}
+                min="0"
+                onChange={(event) => onChange({ ...form, homeScore: event.target.value })}
+                placeholder="Ex : 1"
+                type="number"
+                value={form.homeScore}
+              />
+            </label>
+            <label>
+              <span>Score équipe 2 / extérieur</span>
+              <input
+                disabled={isResolving}
+                min="0"
+                onChange={(event) => onChange({ ...form, awayScore: event.target.value })}
+                placeholder="Ex : 2"
+                type="number"
+                value={form.awayScore}
+              />
+            </label>
+          </div>
+
+          <label className="checkbox-line">
+            <input
+              checked={form.allowCorrectResult}
+              disabled={isResolving}
+              onChange={(event) =>
+                onChange({ ...form, allowCorrectResult: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>Récompenser aussi le bon résultat si les places ne sont pas toutes prises par des scores exacts</span>
+          </label>
+
+          <div className="modal-actions">
+            <button disabled={isResolving} onClick={onClose} type="button">
+              Annuler
+            </button>
+            <button className="primary-button" disabled={isResolving} type="submit">
+              {isResolving ? 'Résolution...' : 'Générer les gagnants'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+
 function DeleteAllContestsConfirmModal({
   confirmation,
   contestsCount,
@@ -756,6 +866,14 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
   const [contestError, setContestError] = useState('')
   const [isSavingContest, setIsSavingContest] = useState(false)
   const [isProcessingLiveQueue, setIsProcessingLiveQueue] = useState(false)
+  const [selectedPronosticContest, setSelectedPronosticContest] = useState<ContestItem | null>(null)
+  const [pronosticResolutionForm, setPronosticResolutionForm] = useState<PronosticResolutionFormState>({
+    homeScore: '',
+    awayScore: '',
+    allowCorrectResult: true,
+  })
+  const [pronosticResolutionError, setPronosticResolutionError] = useState('')
+  const [isResolvingPronostic, setIsResolvingPronostic] = useState(false)
   const [republishingContestId, setRepublishingContestId] = useState<string | null>(null)
   const [contestSearch, setContestSearch] = useState('')
   const [contestStatusFilter, setContestStatusFilter] = useState('all')
@@ -1403,6 +1521,103 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     await loadContests()
   }
 
+  function openPronosticResolutionModal(contest: ContestItem) {
+    setContestsError('')
+    setContestsNotice('')
+    setPronosticResolutionError('')
+    setPronosticResolutionForm({
+      homeScore: '',
+      awayScore: '',
+      allowCorrectResult: true,
+    })
+    setSelectedPronosticContest(contest)
+  }
+
+  function closePronosticResolutionModal() {
+    if (isResolvingPronostic) return
+    setSelectedPronosticContest(null)
+    setPronosticResolutionError('')
+  }
+
+  async function handleResolvePronosticSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedPronosticContest) return
+
+    const homeScore = Number(pronosticResolutionForm.homeScore)
+    const awayScore = Number(pronosticResolutionForm.awayScore)
+
+    if (
+      !Number.isInteger(homeScore) ||
+      !Number.isInteger(awayScore) ||
+      homeScore < 0 ||
+      awayScore < 0
+    ) {
+      setPronosticResolutionError('Renseigne un score final valide pour les deux équipes.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Résoudre le pronostic "${selectedPronosticContest.title}" avec le score ${homeScore}-${awayScore} ? Les gagnants seront générés et notifiés.`,
+    )
+    if (!confirmed) return
+
+    setIsResolvingPronostic(true)
+    setPronosticResolutionError('')
+    setContestsError('')
+    setContestsNotice('')
+
+    try {
+      const { data, error } = await supabase.rpc('admin_resolve_pronostic_contest', {
+        p_contest_id: selectedPronosticContest.id,
+        p_home_score: homeScore,
+        p_away_score: awayScore,
+        p_winners_count: null,
+        p_allow_correct_result: pronosticResolutionForm.allowCorrectResult,
+      })
+      if (error) throw error
+
+      const result = (data ?? {}) as {
+        inserted_winners?: number
+        requested_winners?: number
+        notified_non_winners?: number
+        scored_participations?: number
+      }
+      await loadContests()
+      setSelectedPronosticContest(null)
+      setContestsNotice(
+        `Pronostic résolu : ${Number(result.inserted_winners ?? 0)} gagnant(s) généré(s) sur ${Number(result.requested_winners ?? (selectedPronosticContest.winnersCount || 1))} prévu(s). ${Number(result.notified_non_winners ?? 0)} joueur(s) non gagnant(s) notifié(s).`,
+      )
+      void logAdminAction({
+        feature: 'contests',
+        action: 'resolve_pronostic',
+        message: 'Pronostic resolu et gagnants generes par le SA.',
+        entityType: 'contest',
+        entityId: selectedPronosticContest.id,
+        metadata: {
+          contest_title: selectedPronosticContest.title,
+          final_score: `${homeScore}-${awayScore}`,
+          result,
+        },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Impossible de résoudre ce pronostic.'
+      setPronosticResolutionError(message)
+      void logError({
+        feature: 'contests',
+        action: 'resolve_pronostic_failed',
+        message: 'Echec resolution pronostic par le SA.',
+        entityType: 'contest',
+        entityId: selectedPronosticContest.id,
+        metadata: {
+          contest_title: selectedPronosticContest.title,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      })
+    } finally {
+      setIsResolvingPronostic(false)
+    }
+  }
+
   async function handleGenerateWinners(contest: ContestItem) {
     setContestsError('')
     setContestsNotice('')
@@ -1566,6 +1781,11 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
 
     if (action === 'generate') {
       void handleGenerateWinners(contest)
+      return
+    }
+
+    if (action === 'resolve_pronostic') {
+      openPronosticResolutionModal(contest)
       return
     }
 
@@ -1800,6 +2020,9 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                   ? liveSeriesSummaryStatus(contest.seriesItems ?? [])
                   : contest.liveStatus
                 const isRepublishReady = canRepublishContest(contest)
+                const isPronosticContest = contest.type.toLowerCase() === 'pronostic'
+                const isEndedContest = hasContestEnded(contest.endsAt)
+                const canGenerateWinners = isPronosticContest && isEndedContest
                 const isRepublishingThisContest = republishingContestId === contest.id
                 return (
                 <div className="premium-contest-row" key={contest.liveSeriesId || contest.id}>
@@ -1857,7 +2080,9 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                       <option value="edit">Modifier</option>
                       {seriesCount > 1 ? null : <option value="game">Configurer</option>}
                       <option value="history">Historique</option>
-                      <option value="generate">Générer gagnants</option>
+                      {canGenerateWinners ? (
+                        <option value="resolve_pronostic">Générer gagnants</option>
+                      ) : null}
                       {isRepublishReady ? (
                         <option value="republish">Remettre en jeu</option>
                       ) : null}
@@ -1938,6 +2163,18 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
           </div>
         </section>
       </section>
+
+      {selectedPronosticContest ? (
+        <ResolvePronosticModal
+          contest={selectedPronosticContest}
+          error={pronosticResolutionError}
+          form={pronosticResolutionForm}
+          isResolving={isResolvingPronostic}
+          onChange={setPronosticResolutionForm}
+          onClose={closePronosticResolutionModal}
+          onSubmit={handleResolvePronosticSubmit}
+        />
+      ) : null}
 
       {isContestModalOpen ? (
         <ContestModal
