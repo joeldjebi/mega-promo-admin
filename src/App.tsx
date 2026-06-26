@@ -1038,12 +1038,16 @@ async function fetchPlayersData({
       'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
       { count: 'exact' },
     )
-    .neq('role', 'admin')
+    .or('role.is.null,role.not.in.(admin,super_admin,super-admin,sa)')
     .order('created_at', { ascending: false })
     .range(from, to)
   const cleanedSearch = search.trim()
 
-  if (roleFilter !== 'all_non_admin') {
+  if (roleFilter === 'player') {
+    usersQuery = usersQuery.or(
+      'role.is.null,role.not.in.(admin,super_admin,super-admin,sa,partner)',
+    )
+  } else if (roleFilter !== 'all_non_admin') {
     usersQuery = usersQuery.eq('role', roleFilter)
   }
 
