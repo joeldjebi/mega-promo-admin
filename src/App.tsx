@@ -343,6 +343,14 @@ type PlayerSubscriptionAssignState = {
   paymentMethod: string
   paymentReference: string
 }
+type PlayerPaymentMethodFormState = {
+  id: string
+  operatorName: string
+  operatorKey: string
+  phone: string
+  isPrimary: boolean
+  isWhatsapp: boolean
+}
 type PlayerParticipationItem = {
   id: string
   contestId: string
@@ -998,6 +1006,19 @@ function createDefaultPlayerSubscriptionAssignState(
     planId: plans.find((plan) => plan.isActive)?.id ?? plans[0]?.id ?? '',
     paymentMethod: 'Mobile Money',
     paymentReference: '',
+  }
+}
+
+function createDefaultPlayerPaymentMethodFormState(
+  method?: PlayerSavedPaymentMethodItem,
+): PlayerPaymentMethodFormState {
+  return {
+    id: method?.id ?? '',
+    operatorName: method?.operatorName || 'Mobile Money',
+    operatorKey: method?.operatorKey || 'mobile_money',
+    phone: method?.phone ?? '',
+    isPrimary: method?.isPrimary ?? true,
+    isWhatsapp: method?.isWhatsapp ?? true,
   }
 }
 
@@ -2545,9 +2566,14 @@ function SuperAdminUserDetailPage() {
   const [error, setError] = useState('')
   const [savingKycRequestId, setSavingKycRequestId] = useState('')
   const [isSavingSubscription, setIsSavingSubscription] = useState(false)
+  const [isSavingPaymentMethod, setIsSavingPaymentMethod] = useState(false)
   const [subscriptionAssignForm, setSubscriptionAssignForm] =
     useState<PlayerSubscriptionAssignState>(() =>
       createDefaultPlayerSubscriptionAssignState(),
+    )
+  const [paymentMethodForm, setPaymentMethodForm] =
+    useState<PlayerPaymentMethodFormState>(() =>
+      createDefaultPlayerPaymentMethodFormState(),
     )
   const [previewKycRequest, setPreviewKycRequest] =
     useState<PlayerKycRequestItem | null>(null)
@@ -2569,6 +2595,9 @@ function SuperAdminUserDetailPage() {
       setUser(nextUser.user)
       setPlans(nextUser.plans)
       setDetail(nextDetail)
+      setPaymentMethodForm(
+        createDefaultPlayerPaymentMethodFormState(nextDetail.paymentMethods[0]),
+      )
       setSubscriptionAssignForm((currentForm) => ({
         planId:
           currentForm.planId &&
@@ -2854,6 +2883,89 @@ function SuperAdminUserDetailPage() {
       )
     } finally {
       setIsSavingSubscription(false)
+    }
+  }
+
+  async function handleRegisterPlayerPaymentMethod(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user) return
+
+    setNotice('')
+    setError('')
+
+    if (detail.paymentMethods.length > 0) {
+      setError(
+        'Ce joueur a déjà un moyen de paiement enregistré. Le SA ne peut pas le modifier depuis cette fiche.',
+      )
+      return
+    }
+
+    const phone = paymentMethodForm.phone.trim()
+    const digits = phone.replace(/\D/g, '')
+    if (digits.length < 8) {
+      setError('Ajoute un numéro de paiement valide avant d’enregistrer.')
+      return
+    }
+
+    const operatorName = paymentMethodForm.operatorName.trim() || 'Mobile Money'
+    const operatorKey =
+      paymentMethodForm.operatorKey.trim().toLowerCase() ||
+      operatorName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') ||
+      'mobile_money'
+
+    setIsSavingPaymentMethod(true)
+    try {
+      const { error: saveError } = await supabase.rpc(
+        'admin_register_player_payment_method_if_empty',
+        {
+          p_user_id: user.id,
+          p_operator_key: operatorKey,
+          p_operator_name: operatorName,
+          p_phone: phone,
+          p_is_whatsapp: paymentMethodForm.isWhatsapp,
+          p_label: 'Enregistré par le SA',
+        },
+      )
+
+      if (saveError) throw saveError
+
+      await loadUserDetail()
+      void logAdminAction({
+        feature: 'users',
+        action: 'register_player_payment_method',
+        message: 'Premier moyen de paiement joueur enregistre par le SA.',
+        userId: user.id,
+        entityType: 'player_payment_method',
+        metadata: {
+          operator_key: operatorKey,
+          operator_name: operatorName,
+          has_phone: Boolean(phone),
+          is_whatsapp: paymentMethodForm.isWhatsapp,
+        },
+      })
+      setNotice('Moyen de paiement enregistré pour ce joueur.')
+    } catch (paymentError) {
+      void logError({
+        feature: 'users',
+        action: 'register_player_payment_method_failed',
+        message: 'Echec enregistrement moyen de paiement joueur par le SA.',
+        userId: user.id,
+        entityType: 'player_payment_method',
+        metadata: {
+          error: formatUnknownError(
+            paymentError,
+            'Impossible d’enregistrer le moyen de paiement.',
+          ),
+        },
+      })
+      setError(
+        formatUnknownError(
+          paymentError,
+          'Impossible d’enregistrer le moyen de paiement.',
+        ),
+      )
+    } finally {
+      setIsSavingPaymentMethod(false)
     }
   }
 
@@ -3253,6 +3365,99 @@ function SuperAdminUserDetailPage() {
                 </div>
                 <span className="pill">{detail.paymentMethods.length}/2</span>
               </div>
+              {detail.paymentMethods.length === 0 ? (
+                <form
+                  className="player-subscription-box"
+                  onSubmit={handleRegisterPlayerPaymentMethod}
+                >
+                  <div className="subscription-assign-header">
+                    <div>
+                      <span>Ajout SA</span>
+                      <strong>Enregistrer le premier moyen de paiement</strong>
+                      <p>
+                        Disponible uniquement si le joueur n’a encore aucun numéro
+                        enregistré.
+                      </p>
+                    </div>
+                    <span className="status-pill active">Autorisé</span>
+                  </div>
+
+                  <div className="subscription-assign-grid">
+                    <label>
+                      <span>Opérateur</span>
+                      <input
+                        disabled={isSavingPaymentMethod}
+                        onChange={(event) =>
+                          setPaymentMethodForm((currentForm) => ({
+                            ...currentForm,
+                            operatorName: event.target.value,
+                            operatorKey:
+                              event.target.value
+                                .trim()
+                                .toLowerCase()
+                                .replace(/[^a-z0-9]+/g, '_')
+                                .replace(/^_+|_+$/g, '') || currentForm.operatorKey,
+                          }))
+                        }
+                        placeholder="Orange Money, Wave, MTN..."
+                        value={paymentMethodForm.operatorName}
+                      />
+                    </label>
+
+                    <label>
+                      <span>Numéro de paiement</span>
+                      <input
+                        disabled={isSavingPaymentMethod}
+                        inputMode="tel"
+                        onChange={(event) =>
+                          setPaymentMethodForm((currentForm) => ({
+                            ...currentForm,
+                            phone: event.target.value,
+                          }))
+                        }
+                        placeholder="+225 07 00 00 00 00"
+                        value={paymentMethodForm.phone}
+                      />
+                    </label>
+
+                    <label>
+                      <span>WhatsApp</span>
+                      <select
+                        disabled={isSavingPaymentMethod}
+                        onChange={(event) =>
+                          setPaymentMethodForm((currentForm) => ({
+                            ...currentForm,
+                            isWhatsapp: event.target.value === 'yes',
+                          }))
+                        }
+                        value={paymentMethodForm.isWhatsapp ? 'yes' : 'no'}
+                      >
+                        <option value="yes">Oui</option>
+                        <option value="no">Non</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="subscription-assign-footer">
+                    <p>
+                      Après enregistrement, le SA pourra consulter et copier ce numéro,
+                      mais ne pourra plus le modifier depuis cette fiche.
+                    </p>
+                    <button
+                      className="primary-action-button compact"
+                      disabled={isSavingPaymentMethod || !paymentMethodForm.phone.trim()}
+                      type="submit"
+                    >
+                      {isSavingPaymentMethod ? 'Enregistrement...' : 'Enregistrer'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <p className="empty-panel-text">
+                  Un moyen de paiement est déjà enregistré. Le SA peut le consulter,
+                  mais la modification reste réservée au joueur.
+                </p>
+              )}
               <div className="premium-mini-table">
                 {detail.paymentMethods.map((method) => (
                   <article key={method.id}>
