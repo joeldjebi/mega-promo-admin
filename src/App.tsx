@@ -396,6 +396,33 @@ type PlayerAuthMethodItem = {
   linkedAt: string
   lastSignInAt: string
 }
+type PlayerReferredUserItem = {
+  referralId: string
+  userId: string
+  username: string
+  phone: string
+  status: string
+  createdAt: string
+  rewardedAt: string
+}
+type PlayerCurrentReferralItem = {
+  referralId: string
+  referrerUserId: string
+  referrerUsername: string
+  referralCode: string
+  status: string
+  createdAt: string
+  rewardedAt: string
+}
+type PlayerReferralOverview = {
+  jokerBalance: number
+  earnedJokers: number
+  usedJokers: number
+  currentReferral: PlayerCurrentReferralItem | null
+  referredUsers: PlayerReferredUserItem[]
+  referredUsersCount: number
+  rewardedReferralsCount: number
+}
 type PlayerAuthMethodRpcRow = {
   method: string | null
   label: string | null
@@ -418,6 +445,7 @@ type PlayerDetailData = {
   paymentMethods: PlayerSavedPaymentMethodItem[]
   kycRequests: PlayerKycRequestItem[]
   authMethods: PlayerAuthMethodItem[]
+  referralOverview: PlayerReferralOverview
 }
 type PlayerParticipationHistoryRow = {
   participation_id: string
@@ -427,6 +455,79 @@ type PlayerParticipationHistoryRow = {
   rank: number | null
   completed: boolean | null
   participated_at: string | null
+}
+type PlayerReferralOverviewRpc = {
+  joker_balance?: number | null
+  earned_jokers?: number | null
+  used_jokers?: number | null
+  current_referral?: {
+    referral_id?: string | null
+    referrer_user_id?: string | null
+    referrer_username?: string | null
+    referral_code?: string | null
+    status?: string | null
+    created_at?: string | null
+    rewarded_at?: string | null
+  } | null
+  referred_users?: Array<{
+    referral_id?: string | null
+    user_id?: string | null
+    username?: string | null
+    phone?: string | null
+    status?: string | null
+    created_at?: string | null
+    rewarded_at?: string | null
+  }> | null
+  referred_users_count?: number | null
+  rewarded_referrals_count?: number | null
+}
+
+function createEmptyPlayerReferralOverview(): PlayerReferralOverview {
+  return {
+    jokerBalance: 0,
+    earnedJokers: 0,
+    usedJokers: 0,
+    currentReferral: null,
+    referredUsers: [],
+    referredUsersCount: 0,
+    rewardedReferralsCount: 0,
+  }
+}
+
+function mapPlayerReferralOverview(data: unknown): PlayerReferralOverview {
+  if (!data || typeof data !== 'object') return createEmptyPlayerReferralOverview()
+
+  const overview = data as PlayerReferralOverviewRpc
+  const currentReferral = overview.current_referral
+    ? {
+        referralId: overview.current_referral.referral_id ?? '',
+        referrerUserId: overview.current_referral.referrer_user_id ?? '',
+        referrerUsername: overview.current_referral.referrer_username ?? '',
+        referralCode: overview.current_referral.referral_code ?? '',
+        status: overview.current_referral.status ?? '',
+        createdAt: overview.current_referral.created_at ?? '',
+        rewardedAt: overview.current_referral.rewarded_at ?? '',
+      }
+    : null
+  const referredUsers = (overview.referred_users ?? []).map((item) => ({
+    referralId: item.referral_id ?? '',
+    userId: item.user_id ?? '',
+    username: item.username ?? '',
+    phone: item.phone ?? '',
+    status: item.status ?? '',
+    createdAt: item.created_at ?? '',
+    rewardedAt: item.rewarded_at ?? '',
+  }))
+
+  return {
+    jokerBalance: Number(overview.joker_balance ?? 0),
+    earnedJokers: Number(overview.earned_jokers ?? 0),
+    usedJokers: Number(overview.used_jokers ?? 0),
+    currentReferral,
+    referredUsers,
+    referredUsersCount: Number(overview.referred_users_count ?? referredUsers.length),
+    rewardedReferralsCount: Number(overview.rewarded_referrals_count ?? 0),
+  }
 }
 type CategoryOption = {
   id: string
@@ -1235,6 +1336,7 @@ async function fetchPlayerDetailData(
     paymentMethodsResponse,
     kycRequestsResponse,
     authMethodsResponse,
+    referralOverviewResponse,
   ] =
     await Promise.all([
       supabase
@@ -1276,6 +1378,9 @@ async function fetchPlayerDetailData(
       supabase.rpc('admin_get_user_auth_methods', {
         p_user_id: userId,
       }),
+      supabase.rpc('admin_get_player_referral_overview', {
+        p_user_id: userId,
+      }),
     ])
 
   if (participationsResponse.error) throw participationsResponse.error
@@ -1298,6 +1403,16 @@ async function fetchPlayerDetailData(
   if (authMethodsResponse.error && !isMissingFunctionError(authMethodsResponse.error)) {
     throw authMethodsResponse.error
   }
+  if (
+    referralOverviewResponse.error &&
+    !isMissingFunctionError(referralOverviewResponse.error)
+  ) {
+    throw referralOverviewResponse.error
+  }
+
+  const referralOverview = referralOverviewResponse.error
+    ? createEmptyPlayerReferralOverview()
+    : mapPlayerReferralOverview(referralOverviewResponse.data)
 
   const contestIds = Array.from(
     new Set(
@@ -1396,6 +1511,7 @@ async function fetchPlayerDetailData(
       linkedAt: (method.linked_at as string | null) ?? '',
       lastSignInAt: (method.last_sign_in_at as string | null) ?? '',
     })),
+    referralOverview,
     kycRequests: (kycRequestsResponse.data ?? []).map((request) => ({
       id: request.id as string,
       userId: (request.user_id as string | null) ?? userId,
@@ -2560,6 +2676,7 @@ function SuperAdminUserDetailPage() {
     paymentMethods: [],
     kycRequests: [],
     authMethods: [],
+    referralOverview: createEmptyPlayerReferralOverview(),
   })
   const [isLoading, setIsLoading] = useState(true)
   const [notice, setNotice] = useState('')
@@ -2567,6 +2684,7 @@ function SuperAdminUserDetailPage() {
   const [savingKycRequestId, setSavingKycRequestId] = useState('')
   const [isSavingSubscription, setIsSavingSubscription] = useState(false)
   const [isSavingPaymentMethod, setIsSavingPaymentMethod] = useState(false)
+  const [isDeletingReferral, setIsDeletingReferral] = useState(false)
   const [subscriptionAssignForm, setSubscriptionAssignForm] =
     useState<PlayerSubscriptionAssignState>(() =>
       createDefaultPlayerSubscriptionAssignState(),
@@ -2632,6 +2750,9 @@ function SuperAdminUserDetailPage() {
       'user_badges',
       'player_kyc_requests',
       'player_payment_methods',
+      'player_referrals',
+      'player_joker_transactions',
+      'player_joker_usages',
     ],
     loadUserDetail,
   )
@@ -2883,6 +3004,65 @@ function SuperAdminUserDetailPage() {
       )
     } finally {
       setIsSavingSubscription(false)
+    }
+  }
+
+  async function handleDeletePlayerReferral() {
+    if (!user || !detail.referralOverview.currentReferral) return
+
+    const confirmed = window.confirm(
+      'Supprimer le code parrainage de ce joueur ? Il pourra renseigner un autre parrain s’il n’a pas encore joué de JCQ.',
+    )
+    if (!confirmed) return
+
+    setNotice('')
+    setError('')
+    setIsDeletingReferral(true)
+
+    try {
+      const { error: deleteError } = await supabase.rpc(
+        'admin_delete_player_referral',
+        {
+          p_user_id: user.id,
+        },
+      )
+
+      if (deleteError) throw deleteError
+
+      await loadUserDetail()
+      void logAdminAction({
+        feature: 'users',
+        action: 'delete_player_referral',
+        message: 'Parrainage joueur supprime par le SA.',
+        userId: user.id,
+        entityType: 'player_referral',
+        entityId: detail.referralOverview.currentReferral.referralId,
+        metadata: {
+          referrer_user_id: detail.referralOverview.currentReferral.referrerUserId,
+          referrer_username: detail.referralOverview.currentReferral.referrerUsername,
+          status: detail.referralOverview.currentReferral.status,
+        },
+      })
+      setNotice('Code parrainage supprimé. Le joueur peut renseigner un nouveau parrain s’il reste éligible.')
+    } catch (deleteError) {
+      void logError({
+        feature: 'users',
+        action: 'delete_player_referral_failed',
+        message: 'Echec suppression parrainage joueur par le SA.',
+        userId: user.id,
+        entityType: 'player_referral',
+        metadata: {
+          error: formatUnknownError(
+            deleteError,
+            'Impossible de supprimer le parrainage.',
+          ),
+        },
+      })
+      setError(
+        formatUnknownError(deleteError, 'Impossible de supprimer le parrainage.'),
+      )
+    } finally {
+      setIsDeletingReferral(false)
     }
   }
 
@@ -3257,6 +3437,98 @@ function SuperAdminUserDetailPage() {
                   </button>
                 </div>
               </form>
+            </article>
+
+            <article className="panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Parrainage</p>
+                  <h2>Jokers et filleuls</h2>
+                </div>
+                <span className="status-pill sent">
+                  {detail.referralOverview.jokerBalance} joker(s)
+                </span>
+              </div>
+              <div className="player-metrics">
+                <div>
+                  <span>Jokers disponibles</span>
+                  <strong>{detail.referralOverview.jokerBalance}</strong>
+                </div>
+                <div>
+                  <span>Jokers gagnés</span>
+                  <strong>{detail.referralOverview.earnedJokers}</strong>
+                </div>
+                <div>
+                  <span>Jokers utilisés</span>
+                  <strong>{detail.referralOverview.usedJokers}</strong>
+                </div>
+                <div>
+                  <span>Users parrainés</span>
+                  <strong>{detail.referralOverview.referredUsersCount}</strong>
+                </div>
+                <div>
+                  <span>Parrainages récompensés</span>
+                  <strong>{detail.referralOverview.rewardedReferralsCount}</strong>
+                </div>
+              </div>
+              <div className="dashboard-grid">
+                <section>
+                  <h3>Parrain actuel du joueur</h3>
+                  {detail.referralOverview.currentReferral ? (
+                    <div className="compact-list">
+                      <article>
+                        <div>
+                          <strong>
+                            {detail.referralOverview.currentReferral.referrerUsername ||
+                              detail.referralOverview.currentReferral.referralCode ||
+                              'Parrain'}
+                          </strong>
+                          <p>
+                            {detail.referralOverview.currentReferral.status} · Enregistré le{' '}
+                            {formatDate(detail.referralOverview.currentReferral.createdAt)}
+                          </p>
+                        </div>
+                        <div className="table-actions compact">
+                          <span className={`status-pill ${detail.referralOverview.currentReferral.status}`}>
+                            {detail.referralOverview.currentReferral.status}
+                          </span>
+                          <button
+                            className="table-action-button danger"
+                            disabled={isDeletingReferral}
+                            onClick={handleDeletePlayerReferral}
+                            type="button"
+                          >
+                            {isDeletingReferral ? 'Suppression...' : 'Supprimer'}
+                          </button>
+                        </div>
+                      </article>
+                    </div>
+                  ) : (
+                    <p className="empty-panel-text">Aucun parrain enregistré.</p>
+                  )}
+                </section>
+                <section>
+                  <h3>Users parrainés</h3>
+                  <div className="compact-list">
+                    {detail.referralOverview.referredUsers.slice(0, 8).map((referredUser) => (
+                      <article key={referredUser.referralId || referredUser.userId}>
+                        <div>
+                          <strong>{referredUser.username || referredUser.phone || referredUser.userId}</strong>
+                          <p>
+                            {referredUser.status} · {formatDate(referredUser.createdAt)}
+                          </p>
+                        </div>
+                        <span className={`status-pill ${referredUser.status}`}>
+                          {referredUser.status}
+                        </span>
+                      </article>
+                    ))}
+                    {detail.referralOverview.referredUsers.length === 0 ? (
+                      <p className="empty-panel-text">Aucun user parrainé.</p>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
             </article>
 
             <article className="panel">
