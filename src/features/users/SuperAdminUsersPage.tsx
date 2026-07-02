@@ -499,7 +499,7 @@ async function fetchPlayersData({
     return true
   })
   const sortedUsers = [...filteredUsers].sort((first, second) => {
-    if (contestId) {
+    if (contestId && sortFilter === 'contest_score_desc') {
       const scoreDiff = (second.contestScore ?? 0) - (first.contestScore ?? 0)
       if (scoreDiff !== 0) return scoreDiff
       const timeDiff =
@@ -1223,8 +1223,8 @@ export function SuperAdminUsersPage({
               value={userSortFilter}
             >
               <option value="recent">Plus récents</option>
-              <option value="points_desc">Meilleurs points</option>
-              <option value="contest_score_desc">Meilleur score concours</option>
+              <option value="points_desc">Points généraux décroissants</option>
+              <option value="contest_score_desc">Score concours décroissant</option>
             </select>
             <select
               onChange={(event) => {
