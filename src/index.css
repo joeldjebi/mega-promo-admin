@@ -5246,7 +5246,7 @@ h3 {
   border-radius: 18px;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   padding: 14px;
 }
 
@@ -5278,6 +5278,27 @@ h3 {
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
+}
+
+.history-response-time {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  min-width: 86px;
+}
+
+.history-response-time small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.history-response-time strong {
+  color: var(--blue-dark);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .contest-table-row {

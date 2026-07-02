@@ -188,6 +188,7 @@ type ContestHistoryItem = {
   userLabel: string
   score: number
   rank: number
+  responseTimeMs: number
   completed: boolean
   participatedAt: string
   answers: string
@@ -1670,12 +1671,17 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
     participations: participationsData.map((participation) => {
       const userId = (participation.user_id as string | null) ?? ''
       const answers = participation.answers
+      const responseTimeMs = extractParticipationAnswerRecords(answers).reduce(
+        (total, answer) => total + answer.elapsedMs,
+        0,
+      )
       return {
         id: participation.id as string,
         userId,
         userLabel: userLabels.get(userId) ?? 'Joueur',
         score: (participation.score as number | null) ?? 0,
         rank: ranks.get(participation.id as string) ?? 0,
+        responseTimeMs,
         completed: (participation.completed as boolean | null) ?? false,
         participatedAt: (participation.participated_at as string | null) ?? '',
         answers: formatParticipationAnswers(answers),
@@ -5875,6 +5881,10 @@ function SuperAdminContestHistoryPage() {
                         <small>{participation.answers}</small>
                       </div>
                       <span>{participation.score} pts</span>
+                      <span className="history-response-time">
+                        <small>Temps réponse</small>
+                        <strong>{formatDurationMs(participation.responseTimeMs)}</strong>
+                      </span>
                       <span className={`status-pill ${participation.completed ? 'active' : 'pending'}`}>
                         {participation.completed ? 'Terminé' : 'En cours'}
                       </span>
