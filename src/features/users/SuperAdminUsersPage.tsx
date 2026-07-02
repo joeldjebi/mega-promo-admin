@@ -231,6 +231,10 @@ function extractParticipationResponseTimeMs(rawAnswers: unknown) {
     rawAnswers && typeof rawAnswers === 'object'
       ? (rawAnswers as Record<string, unknown>)
       : null
+  const durationMs = numberFromUnknown(
+    payload?.duration_ms ?? payload?.durationMs,
+  )
+  if (durationMs > 0) return durationMs
   const items = Array.isArray(rawAnswers)
     ? rawAnswers
     : Array.isArray(payload?.items)

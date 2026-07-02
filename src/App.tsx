@@ -1671,10 +1671,7 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
     participations: participationsData.map((participation) => {
       const userId = (participation.user_id as string | null) ?? ''
       const answers = participation.answers
-      const responseTimeMs = extractParticipationAnswerRecords(answers).reduce(
-        (total, answer) => total + answer.elapsedMs,
-        0,
-      )
+      const responseTimeMs = extractParticipationResponseTimeMs(answers)
       return {
         id: participation.id as string,
         userId,
@@ -5543,6 +5540,21 @@ function extractParticipationAnswerRecords(rawAnswers: unknown): ParticipationAn
       elapsedMs: numberFromUnknown(item.elapsed_ms ?? item.elapsedMs) ?? 0,
     }))
     .filter((item) => item.questionId)
+}
+
+function extractParticipationResponseTimeMs(rawAnswers: unknown) {
+  const payload =
+    rawAnswers && typeof rawAnswers === 'object'
+      ? (rawAnswers as Record<string, unknown>)
+      : null
+  const durationMs = numberFromUnknown(
+    payload?.duration_ms ?? payload?.durationMs,
+  )
+  if (durationMs && durationMs > 0) return durationMs
+  return extractParticipationAnswerRecords(rawAnswers).reduce(
+    (total, answer) => total + answer.elapsedMs,
+    0,
+  )
 }
 
 function numberFromUnknown(value: unknown): number | null {
