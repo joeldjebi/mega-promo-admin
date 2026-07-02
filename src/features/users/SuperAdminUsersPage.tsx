@@ -302,23 +302,32 @@ async function fetchPlayersData({
   pageSize,
   search,
   roleFilter,
+  statusFilter,
+  planFilter,
+  pushFilter,
+  appVersionFilter,
+  appUpdateConfig,
 }: {
   page: number
   pageSize: number
   search: string
   roleFilter: UserRoleFilter
+  statusFilter: UserStatusFilter
+  planFilter: UserPlanFilter
+  pushFilter: UserPushFilter
+  appVersionFilter: UserAppVersionFilter
+  appUpdateConfig: AppUpdateConfigSummary | null
 }): Promise<PlayersData> {
   const from = page * pageSize
-  const to = from + pageSize - 1
+  const to = from + pageSize
   let usersQuery = supabase
     .from('users')
     .select(
       'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
-      { count: 'exact' },
     )
     .neq('role', 'admin')
     .order('created_at', { ascending: false })
-    .range(from, to)
+    .limit(5000)
   const cleanedSearch = search.trim()
 
   if (roleFilter !== 'all_non_admin') {
@@ -336,36 +345,60 @@ async function fetchPlayersData({
 
   if (usersResponse.error) throw usersResponse.error
 
+  const mappedUsers = (usersResponse.data ?? []).map((user) => ({
+    id: user.id as string,
+    phone: (user.phone as string | null) ?? '',
+    username: (user.username as string | null) ?? '',
+    avatarUrl: (user.avatar_url as string | null) ?? '',
+    role: (user.role as string | null) ?? 'player',
+    fcmToken: (user.fcm_token as string | null) ?? '',
+    fcmTokenPlatform: (user.fcm_token_platform as string | null) ?? '',
+    fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
+    fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
+    fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
+    isPremium: (user.is_premium as boolean | null) ?? false,
+    premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
+    pointsTotal: (user.points_total as number | null) ?? 0,
+    participationsToday: (user.participations_today as number | null) ?? 0,
+    lastParticipationDate:
+      (user.last_participation_date as string | null) ?? '',
+    deviceInfo: ((user.device_info as Record<string, unknown> | null) ?? {}),
+    locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
+    deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
+    isActive: (user.is_active as boolean | null) ?? true,
+    accountStatus: (user.account_status as string | null) ?? 'active',
+    deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
+    deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
+    deletedAt: (user.deleted_at as string | null) ?? '',
+    anonymizedRef: (user.anonymized_ref as string | null) ?? '',
+    createdAt: (user.created_at as string | null) ?? '',
+  }))
+
+  const filteredUsers = mappedUsers.filter((user) => {
+    if (statusFilter === 'active' && !user.isActive) return false
+    if (statusFilter === 'inactive' && user.isActive) return false
+    if (planFilter === 'premium' && !user.isPremium) return false
+    if (planFilter === 'standard' && user.isPremium) return false
+    if (pushFilter === 'enabled' && !user.fcmToken) return false
+    if (pushFilter === 'disabled' && user.fcmToken) return false
+    if (
+      appVersionFilter === 'latest' &&
+      !isUserOnLatestAppVersion(user, appUpdateConfig)
+    ) {
+      return false
+    }
+    if (
+      appVersionFilter === 'outdated' &&
+      isUserOnLatestAppVersion(user, appUpdateConfig)
+    ) {
+      return false
+    }
+    return true
+  })
+
   return {
-    totalCount: usersResponse.count ?? 0,
-    users: (usersResponse.data ?? []).map((user) => ({
-      id: user.id as string,
-      phone: (user.phone as string | null) ?? '',
-      username: (user.username as string | null) ?? '',
-      avatarUrl: (user.avatar_url as string | null) ?? '',
-      role: (user.role as string | null) ?? 'player',
-      fcmToken: (user.fcm_token as string | null) ?? '',
-      fcmTokenPlatform: (user.fcm_token_platform as string | null) ?? '',
-      fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
-      fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
-      fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
-      isPremium: (user.is_premium as boolean | null) ?? false,
-      premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
-      pointsTotal: (user.points_total as number | null) ?? 0,
-      participationsToday: (user.participations_today as number | null) ?? 0,
-      lastParticipationDate:
-        (user.last_participation_date as string | null) ?? '',
-      deviceInfo: ((user.device_info as Record<string, unknown> | null) ?? {}),
-      locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
-      deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
-      isActive: (user.is_active as boolean | null) ?? true,
-      accountStatus: (user.account_status as string | null) ?? 'active',
-      deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
-      deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
-      deletedAt: (user.deleted_at as string | null) ?? '',
-      anonymizedRef: (user.anonymized_ref as string | null) ?? '',
-      createdAt: (user.created_at as string | null) ?? '',
-    })),
+    totalCount: filteredUsers.length,
+    users: filteredUsers.slice(from, to),
   }
 }
 
@@ -470,47 +503,26 @@ export function SuperAdminUsersPage({
       (_, index) => normalizedFirstPage + index,
     )
   }, [totalPages, usersPage])
-  const filteredUsers = useMemo(() => {
-    return playersData.users.filter((user) => {
-      if (userStatusFilter === 'active' && !user.isActive) return false
-      if (userStatusFilter === 'inactive' && user.isActive) return false
-      if (userPlanFilter === 'premium' && !user.isPremium) return false
-      if (userPlanFilter === 'standard' && user.isPremium) return false
-      if (userPushFilter === 'enabled' && !user.fcmToken) return false
-      if (userPushFilter === 'disabled' && user.fcmToken) return false
-      if (
-        userAppVersionFilter === 'latest' &&
-        !isUserOnLatestAppVersion(user, appUpdateConfig)
-      ) {
-        return false
-      }
-      if (
-        userAppVersionFilter === 'outdated' &&
-        isUserOnLatestAppVersion(user, appUpdateConfig)
-      ) {
-        return false
-      }
-      return true
-    })
-  }, [
-    appUpdateConfig,
-    playersData.users,
-    userAppVersionFilter,
-    userPlanFilter,
-    userPushFilter,
-    userStatusFilter,
-  ])
+  const visibleUsers = playersData.users
 
   const loadUsers = useCallback(async (nextPage = usersPage) => {
     setIsUsersLoading(true)
     setUsersError('')
 
     try {
+      const nextAppUpdateConfig =
+        appUpdateConfig ?? (await fetchAppUpdateConfigSummary())
+      if (!appUpdateConfig) setAppUpdateConfig(nextAppUpdateConfig)
       const nextPlayersData = await fetchPlayersData({
         page: nextPage,
         pageSize,
         search: debouncedUsersSearch,
         roleFilter: userRoleFilter,
+        statusFilter: userStatusFilter,
+        planFilter: userPlanFilter,
+        pushFilter: userPushFilter,
+        appVersionFilter: userAppVersionFilter,
+        appUpdateConfig: nextAppUpdateConfig,
       })
       setPlayersData(nextPlayersData)
     } catch (error) {
@@ -518,7 +530,17 @@ export function SuperAdminUsersPage({
     } finally {
       setIsUsersLoading(false)
     }
-  }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
+  }, [
+    appUpdateConfig,
+    debouncedUsersSearch,
+    pageSize,
+    userAppVersionFilter,
+    userPlanFilter,
+    userPushFilter,
+    userRoleFilter,
+    userStatusFilter,
+    usersPage,
+  ])
 
   const loadCoordinatesFlag = useCallback(async () => {
     try {
@@ -559,16 +581,23 @@ export function SuperAdminUsersPage({
   useEffect(() => {
     let isMounted = true
 
-    void fetchPlayersData({
-      page: usersPage,
-      pageSize,
-      search: debouncedUsersSearch,
-      roleFilter: userRoleFilter,
-    })
-      .then((nextPlayersData) => {
+    void fetchAppUpdateConfigSummary()
+      .then(async (nextAppUpdateConfig) => {
+        if (!isMounted) return
+        setAppUpdateConfig(nextAppUpdateConfig)
+        const nextPlayersData = await fetchPlayersData({
+          page: usersPage,
+          pageSize,
+          search: debouncedUsersSearch,
+          roleFilter: userRoleFilter,
+          statusFilter: userStatusFilter,
+          planFilter: userPlanFilter,
+          pushFilter: userPushFilter,
+          appVersionFilter: userAppVersionFilter,
+          appUpdateConfig: nextAppUpdateConfig,
+        })
         if (!isMounted) return
         setPlayersData(nextPlayersData)
-        void loadAppUpdateConfig()
       })
       .catch((error) => {
         if (!isMounted) return
@@ -581,7 +610,16 @@ export function SuperAdminUsersPage({
     return () => {
       isMounted = false
     }
-  }, [debouncedUsersSearch, loadAppUpdateConfig, pageSize, userRoleFilter, usersPage])
+  }, [
+    debouncedUsersSearch,
+    pageSize,
+    userAppVersionFilter,
+    userPlanFilter,
+    userPushFilter,
+    userRoleFilter,
+    userStatusFilter,
+    usersPage,
+  ])
 
   useEffect(() => {
     void loadCoordinatesFlag()
@@ -1016,8 +1054,8 @@ export function SuperAdminUsersPage({
               <span>Création</span>
               <span>Actions</span>
             </div>
-            {filteredUsers.length > 0 ? (
-              filteredUsers.map((user) => (
+            {visibleUsers.length > 0 ? (
+              visibleUsers.map((user) => (
                 <div
                   className="premium-user-row"
                   key={user.id}
