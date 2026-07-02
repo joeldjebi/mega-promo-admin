@@ -46,6 +46,11 @@ type PlayerUserItem = {
   deletedAt: string
   anonymizedRef: string
   createdAt: string
+  contestScore: number | null
+  contestRank: number | null
+  contestResponseTimeMs: number | null
+  contestCompleted: boolean | null
+  contestParticipatedAt: string
 }
 
 type UserRoleFilter = 'player' | 'partner' | 'all_non_admin'
@@ -53,6 +58,13 @@ type UserStatusFilter = 'all' | 'active' | 'inactive'
 type UserPlanFilter = 'all' | 'premium' | 'standard'
 type UserPushFilter = 'all' | 'enabled' | 'disabled'
 type UserAppVersionFilter = 'all' | 'latest' | 'outdated'
+type UserSortFilter = 'recent' | 'points_desc' | 'contest_score_desc'
+
+type ContestFilterOption = {
+  id: string
+  title: string
+  status: string
+}
 
 type PlayersData = {
   users: PlayerUserItem[]
@@ -205,6 +217,38 @@ function numberFromRecord(source: Record<string, unknown>, keys: string[]) {
   return 0
 }
 
+function numberFromUnknown(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function extractParticipationResponseTimeMs(rawAnswers: unknown) {
+  const payload =
+    rawAnswers && typeof rawAnswers === 'object'
+      ? (rawAnswers as Record<string, unknown>)
+      : null
+  const items = Array.isArray(rawAnswers)
+    ? rawAnswers
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : []
+
+  return items.reduce((total, item) => {
+    if (!item || typeof item !== 'object') return total
+    const answer = item as Record<string, unknown>
+    return total + numberFromUnknown(answer.elapsed_ms ?? answer.elapsedMs)
+  }, 0)
+}
+
+function formatDurationMs(value: number | null) {
+  if (!value || !Number.isFinite(value) || value <= 0) return 'Non mesuré'
+  return `${(value / 1000).toFixed(2)}s`
+}
+
 function normalizeMobilePlatform(user: PlayerUserItem) {
   return textFromRecord(user.deviceInfo, ['os', 'platform'], user.fcmTokenPlatform)
     .toLowerCase()
@@ -307,6 +351,8 @@ async function fetchPlayersData({
   pushFilter,
   appVersionFilter,
   appUpdateConfig,
+  sortFilter,
+  contestId,
 }: {
   page: number
   pageSize: number
@@ -317,6 +363,8 @@ async function fetchPlayersData({
   pushFilter: UserPushFilter
   appVersionFilter: UserAppVersionFilter
   appUpdateConfig: AppUpdateConfigSummary | null
+  sortFilter: UserSortFilter
+  contestId: string
 }): Promise<PlayersData> {
   const from = page * pageSize
   const to = from + pageSize
@@ -345,36 +393,91 @@ async function fetchPlayersData({
 
   if (usersResponse.error) throw usersResponse.error
 
-  const mappedUsers = (usersResponse.data ?? []).map((user) => ({
-    id: user.id as string,
-    phone: (user.phone as string | null) ?? '',
-    username: (user.username as string | null) ?? '',
-    avatarUrl: (user.avatar_url as string | null) ?? '',
-    role: (user.role as string | null) ?? 'player',
-    fcmToken: (user.fcm_token as string | null) ?? '',
-    fcmTokenPlatform: (user.fcm_token_platform as string | null) ?? '',
-    fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
-    fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
-    fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
-    isPremium: (user.is_premium as boolean | null) ?? false,
-    premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
-    pointsTotal: (user.points_total as number | null) ?? 0,
-    participationsToday: (user.participations_today as number | null) ?? 0,
-    lastParticipationDate:
-      (user.last_participation_date as string | null) ?? '',
-    deviceInfo: ((user.device_info as Record<string, unknown> | null) ?? {}),
-    locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
-    deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
-    isActive: (user.is_active as boolean | null) ?? true,
-    accountStatus: (user.account_status as string | null) ?? 'active',
-    deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
-    deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
-    deletedAt: (user.deleted_at as string | null) ?? '',
-    anonymizedRef: (user.anonymized_ref as string | null) ?? '',
-    createdAt: (user.created_at as string | null) ?? '',
-  }))
+  const contestParticipationsResponse = contestId
+    ? await supabase
+        .from('participations')
+        .select('id, user_id, score, answers, completed, participated_at')
+        .eq('contest_id', contestId)
+        .limit(5000)
+    : { data: [], error: null }
+
+  if (contestParticipationsResponse.error) {
+    throw contestParticipationsResponse.error
+  }
+
+  const contestParticipations = new Map<
+    string,
+    {
+      score: number
+      responseTimeMs: number
+      completed: boolean
+      participatedAt: string
+    }
+  >()
+
+  for (const participation of contestParticipationsResponse.data ?? []) {
+    const userId = (participation.user_id as string | null) ?? ''
+    if (!userId) continue
+    const currentScore = (participation.score as number | null) ?? 0
+    const responseTimeMs = extractParticipationResponseTimeMs(participation.answers)
+    const participatedAt = (participation.participated_at as string | null) ?? ''
+    const previous = contestParticipations.get(userId)
+    if (
+      !previous ||
+      currentScore > previous.score ||
+      (currentScore === previous.score &&
+        responseTimeMs > 0 &&
+        (previous.responseTimeMs <= 0 || responseTimeMs < previous.responseTimeMs))
+    ) {
+      contestParticipations.set(userId, {
+        score: currentScore,
+        responseTimeMs,
+        completed: (participation.completed as boolean | null) ?? false,
+        participatedAt,
+      })
+    }
+  }
+
+  const mappedUsers = (usersResponse.data ?? []).map((user) => {
+    const id = user.id as string
+    const contestParticipation = contestParticipations.get(id)
+    return {
+      id,
+      phone: (user.phone as string | null) ?? '',
+      username: (user.username as string | null) ?? '',
+      avatarUrl: (user.avatar_url as string | null) ?? '',
+      role: (user.role as string | null) ?? 'player',
+      fcmToken: (user.fcm_token as string | null) ?? '',
+      fcmTokenPlatform: (user.fcm_token_platform as string | null) ?? '',
+      fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
+      fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
+      fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
+      isPremium: (user.is_premium as boolean | null) ?? false,
+      premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
+      pointsTotal: (user.points_total as number | null) ?? 0,
+      participationsToday: (user.participations_today as number | null) ?? 0,
+      lastParticipationDate:
+        (user.last_participation_date as string | null) ?? '',
+      deviceInfo: ((user.device_info as Record<string, unknown> | null) ?? {}),
+      locationInfo: ((user.location_info as Record<string, unknown> | null) ?? {}),
+      deviceLastSeenAt: (user.device_last_seen_at as string | null) ?? '',
+      isActive: (user.is_active as boolean | null) ?? true,
+      accountStatus: (user.account_status as string | null) ?? 'active',
+      deletionRequestedAt: (user.deletion_requested_at as string | null) ?? '',
+      deletionScheduledAt: (user.deletion_scheduled_at as string | null) ?? '',
+      deletedAt: (user.deleted_at as string | null) ?? '',
+      anonymizedRef: (user.anonymized_ref as string | null) ?? '',
+      createdAt: (user.created_at as string | null) ?? '',
+      contestScore: contestParticipation?.score ?? null,
+      contestRank: null,
+      contestResponseTimeMs: contestParticipation?.responseTimeMs ?? null,
+      contestCompleted: contestParticipation?.completed ?? null,
+      contestParticipatedAt: contestParticipation?.participatedAt ?? '',
+    }
+  })
 
   const filteredUsers = mappedUsers.filter((user) => {
+    if (contestId && !contestParticipations.has(user.id)) return false
     if (statusFilter === 'active' && !user.isActive) return false
     if (statusFilter === 'inactive' && user.isActive) return false
     if (planFilter === 'premium' && !user.isPremium) return false
@@ -395,11 +498,52 @@ async function fetchPlayersData({
     }
     return true
   })
+  const sortedUsers = [...filteredUsers].sort((first, second) => {
+    if (contestId) {
+      const scoreDiff = (second.contestScore ?? 0) - (first.contestScore ?? 0)
+      if (scoreDiff !== 0) return scoreDiff
+      const timeDiff =
+        (first.contestResponseTimeMs || Number.MAX_SAFE_INTEGER) -
+        (second.contestResponseTimeMs || Number.MAX_SAFE_INTEGER)
+      if (timeDiff !== 0) return timeDiff
+      return (
+        new Date(first.contestParticipatedAt || first.createdAt).getTime() -
+        new Date(second.contestParticipatedAt || second.createdAt).getTime()
+      )
+    }
+    if (sortFilter === 'points_desc' || sortFilter === 'contest_score_desc') {
+      const pointDiff = second.pointsTotal - first.pointsTotal
+      if (pointDiff !== 0) return pointDiff
+    }
+    return (
+      new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime()
+    )
+  })
+  const rankedUsers = sortedUsers.map((user, index) => ({
+    ...user,
+    contestRank: contestId ? index + 1 : null,
+  }))
 
   return {
-    totalCount: filteredUsers.length,
-    users: filteredUsers.slice(from, to),
+    totalCount: rankedUsers.length,
+    users: rankedUsers.slice(from, to),
   }
+}
+
+async function fetchContestFilterOptions(): Promise<ContestFilterOption[]> {
+  const { data, error } = await supabase
+    .from('contests')
+    .select('id, title, status')
+    .order('created_at', { ascending: false })
+    .limit(300)
+
+  if (error) throw error
+
+  return (data ?? []).map((contest) => ({
+    id: contest.id as string,
+    title: (contest.title as string | null) ?? 'Concours',
+    status: (contest.status as string | null) ?? '',
+  }))
 }
 
 async function fetchAppFeatureFlag(
@@ -474,6 +618,9 @@ export function SuperAdminUsersPage({
   const [userPushFilter, setUserPushFilter] = useState<UserPushFilter>('all')
   const [userAppVersionFilter, setUserAppVersionFilter] =
     useState<UserAppVersionFilter>('all')
+  const [userSortFilter, setUserSortFilter] = useState<UserSortFilter>('recent')
+  const [userContestFilter, setUserContestFilter] = useState('')
+  const [contestOptions, setContestOptions] = useState<ContestFilterOption[]>([])
   const [usersPage, setUsersPage] = useState(0)
   const [isUsersLoading, setIsUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState('')
@@ -523,6 +670,8 @@ export function SuperAdminUsersPage({
         pushFilter: userPushFilter,
         appVersionFilter: userAppVersionFilter,
         appUpdateConfig: nextAppUpdateConfig,
+        sortFilter: userSortFilter,
+        contestId: userContestFilter,
       })
       setPlayersData(nextPlayersData)
     } catch (error) {
@@ -535,9 +684,11 @@ export function SuperAdminUsersPage({
     debouncedUsersSearch,
     pageSize,
     userAppVersionFilter,
+    userContestFilter,
     userPlanFilter,
     userPushFilter,
     userRoleFilter,
+    userSortFilter,
     userStatusFilter,
     usersPage,
   ])
@@ -560,6 +711,10 @@ export function SuperAdminUsersPage({
     setAppUpdateConfig(await fetchAppUpdateConfigSummary())
   }, [])
 
+  const loadContestOptions = useCallback(async () => {
+    setContestOptions(await fetchContestFilterOptions())
+  }, [])
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setUsersPage(0)
@@ -576,7 +731,14 @@ export function SuperAdminUsersPage({
 
   useEffect(() => {
     setUsersPage(0)
-  }, [userAppVersionFilter, userPlanFilter, userPushFilter, userStatusFilter])
+  }, [
+    userAppVersionFilter,
+    userContestFilter,
+    userPlanFilter,
+    userPushFilter,
+    userSortFilter,
+    userStatusFilter,
+  ])
 
   useEffect(() => {
     let isMounted = true
@@ -595,6 +757,8 @@ export function SuperAdminUsersPage({
           pushFilter: userPushFilter,
           appVersionFilter: userAppVersionFilter,
           appUpdateConfig: nextAppUpdateConfig,
+          sortFilter: userSortFilter,
+          contestId: userContestFilter,
         })
         if (!isMounted) return
         setPlayersData(nextPlayersData)
@@ -614,9 +778,11 @@ export function SuperAdminUsersPage({
     debouncedUsersSearch,
     pageSize,
     userAppVersionFilter,
+    userContestFilter,
     userPlanFilter,
     userPushFilter,
     userRoleFilter,
+    userSortFilter,
     userStatusFilter,
     usersPage,
   ])
@@ -625,14 +791,24 @@ export function SuperAdminUsersPage({
     void loadCoordinatesFlag()
   }, [loadCoordinatesFlag])
 
+  useEffect(() => {
+    void loadContestOptions()
+  }, [loadContestOptions])
+
   const refreshUsersRealtime = useCallback(async () => {
-    await Promise.all([loadUsers(), loadCoordinatesFlag(), loadAppUpdateConfig()])
-  }, [loadAppUpdateConfig, loadCoordinatesFlag, loadUsers])
+    await Promise.all([
+      loadUsers(),
+      loadCoordinatesFlag(),
+      loadAppUpdateConfig(),
+      loadContestOptions(),
+    ])
+  }, [loadAppUpdateConfig, loadContestOptions, loadCoordinatesFlag, loadUsers])
 
   useRealtimeRefresh(
     'sa-users-realtime',
     [
       'users',
+      'contests',
       'participations',
       'winners',
       'player_subscriptions',
@@ -1042,12 +1218,35 @@ export function SuperAdminUsersPage({
               <option value="latest">App à jour</option>
               <option value="outdated">App à vérifier</option>
             </select>
+            <select
+              onChange={(event) => setUserSortFilter(event.target.value as UserSortFilter)}
+              value={userSortFilter}
+            >
+              <option value="recent">Plus récents</option>
+              <option value="points_desc">Meilleurs points</option>
+              <option value="contest_score_desc">Meilleur score concours</option>
+            </select>
+            <select
+              onChange={(event) => {
+                setUserContestFilter(event.target.value)
+                if (event.target.value) setUserSortFilter('contest_score_desc')
+              }}
+              value={userContestFilter}
+            >
+              <option value="">Tous concours</option>
+              {contestOptions.map((contest) => (
+                <option key={contest.id} value={contest.id}>
+                  {contest.title}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="premium-user-table">
             <div className="premium-user-head">
               <span>Utilisateur</span>
               <span>Rôle</span>
+              <span>Performance</span>
               <span>Activité</span>
               <span>Forfait</span>
               <span>Mobile</span>
@@ -1075,7 +1274,29 @@ export function SuperAdminUsersPage({
                   </button>
                   <div>
                     <strong>{user.role}</strong>
-                    <p>{formatNumber(user.pointsTotal)} pts</p>
+                    <p>{userContestFilter ? 'Participant' : 'Compte'}</p>
+                  </div>
+                  <div className="user-performance-cell">
+                    {userContestFilter ? (
+                      <>
+                        <strong>
+                          #{user.contestRank ?? '-'} · {formatNumber(user.contestScore ?? 0)} pts
+                        </strong>
+                        <p>{formatDurationMs(user.contestResponseTimeMs)}</p>
+                        <span
+                          className={`status-pill ${
+                            user.contestCompleted ? 'active' : 'pending'
+                          }`}
+                        >
+                          {user.contestCompleted ? 'Terminé' : 'En cours'}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <strong>{formatNumber(user.pointsTotal)} pts</strong>
+                        <p>{user.participationsToday} aujourd’hui</p>
+                      </>
+                    )}
                   </div>
                   <div>
                     <span
@@ -1100,7 +1321,9 @@ export function SuperAdminUsersPage({
                     <p>
                       {user.accountStatus === 'pending_deletion' && user.deletionScheduledAt
                         ? `Fin ${formatDate(user.deletionScheduledAt)}`
-                        : `${user.participationsToday} aujourd’hui`}
+                        : userContestFilter && user.contestParticipatedAt
+                          ? formatDate(user.contestParticipatedAt)
+                          : `${user.participationsToday} aujourd’hui`}
                     </p>
                   </div>
                   <div>

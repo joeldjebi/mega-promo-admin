@@ -3896,12 +3896,12 @@ h3 {
 
 .premium-user-head,
 .premium-user-row {
-  min-width: 1120px;
+  min-width: 1260px;
 }
 
 .premium-user-head,
 .premium-user-row {
-  grid-template-columns: minmax(240px, 1.45fr) 100px 135px 135px 155px 150px 135px;
+  grid-template-columns: minmax(240px, 1.45fr) 100px 145px 135px 135px 155px 150px 135px;
 }
 
 .premium-contest-head,
@@ -3978,6 +3978,16 @@ h3 {
   font-size: 12px;
   line-height: 1.25;
   margin: 4px 0 0;
+}
+
+.user-performance-cell {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+}
+
+.user-performance-cell .status-pill {
+  width: fit-content;
 }
 
 .premium-partner-row > span:not(.status-pill),
