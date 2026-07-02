@@ -57,6 +57,12 @@ type PlayersData = {
   totalCount: number
 }
 
+type AppUpdateConfigSummary = {
+  latestAndroidBuild: number
+  latestIosBuild: number
+  updatedAt: string
+}
+
 type AppFeatureFlagState = {
   isEnabled: boolean
   updatedAt: string
@@ -170,6 +176,77 @@ function formatUnknownError(error: unknown, fallback: string) {
     return message || fallback
   }
   return fallback
+}
+
+function textFromRecord(
+  source: Record<string, unknown>,
+  keys: string[],
+  fallback = '',
+) {
+  for (const key of keys) {
+    const value = source[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return fallback
+}
+
+function numberFromRecord(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string') {
+      const parsed = Number.parseInt(value, 10)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return 0
+}
+
+function normalizeMobilePlatform(user: PlayerUserItem) {
+  return textFromRecord(user.deviceInfo, ['os', 'platform'], user.fcmTokenPlatform)
+    .toLowerCase()
+}
+
+function userLatestBuildTarget(
+  user: PlayerUserItem,
+  appUpdateConfig: AppUpdateConfigSummary | null,
+) {
+  if (!appUpdateConfig) return 0
+  const platform = normalizeMobilePlatform(user)
+  if (platform.includes('ios') || platform.includes('apple')) {
+    return appUpdateConfig.latestIosBuild
+  }
+  if (platform.includes('android')) return appUpdateConfig.latestAndroidBuild
+  return Math.max(appUpdateConfig.latestAndroidBuild, appUpdateConfig.latestIosBuild)
+}
+
+function userAppBuild(user: PlayerUserItem) {
+  return numberFromRecord(user.deviceInfo, [
+    'app_build',
+    'build_number',
+    'buildNumber',
+    'version_code',
+    'versionCode',
+  ])
+}
+
+function userAppVersionLabel(user: PlayerUserItem) {
+  const version = textFromRecord(user.deviceInfo, ['app_version', 'version'])
+  const build = userAppBuild(user)
+  if (version && build > 0) return `v${version} (${build})`
+  if (version) return `v${version}`
+  if (build > 0) return `build ${build}`
+  return 'Version inconnue'
+}
+
+function isUserOnLatestAppVersion(
+  user: PlayerUserItem,
+  appUpdateConfig: AppUpdateConfigSummary | null,
+) {
+  const currentBuild = userAppBuild(user)
+  const latestBuild = userLatestBuildTarget(user, appUpdateConfig)
+  return currentBuild > 0 && latestBuild > 0 && currentBuild >= latestBuild
 }
 
 function getVisibleUsersNavItems(
@@ -308,6 +385,27 @@ async function fetchAppFeatureFlag(
   }
 }
 
+async function fetchAppUpdateConfigSummary(): Promise<AppUpdateConfigSummary | null> {
+  const { data, error } = await supabase
+    .from('app_update_config')
+    .select('latest_android_build, latest_ios_build, updated_at')
+    .eq('key', 'main')
+    .maybeSingle()
+
+  if (error) {
+    console.warn('[MegaPromo][SA users][appUpdateConfig]', error)
+    return null
+  }
+
+  if (!data) return null
+
+  return {
+    latestAndroidBuild: (data.latest_android_build as number | null) ?? 0,
+    latestIosBuild: (data.latest_ios_build as number | null) ?? 0,
+    updatedAt: (data.updated_at as string | null) ?? '',
+  }
+}
+
 export function SuperAdminUsersPage({
   authRoute,
   navItems,
@@ -331,6 +429,8 @@ export function SuperAdminUsersPage({
     users: [],
     totalCount: 0,
   })
+  const [appUpdateConfig, setAppUpdateConfig] =
+    useState<AppUpdateConfigSummary | null>(null)
   const [usersSearch, setUsersSearch] = useState('')
   const [debouncedUsersSearch, setDebouncedUsersSearch] = useState('')
   const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('player')
@@ -408,6 +508,10 @@ export function SuperAdminUsersPage({
     }
   }, [])
 
+  const loadAppUpdateConfig = useCallback(async () => {
+    setAppUpdateConfig(await fetchAppUpdateConfigSummary())
+  }, [])
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setUsersPage(0)
@@ -438,6 +542,7 @@ export function SuperAdminUsersPage({
       .then((nextPlayersData) => {
         if (!isMounted) return
         setPlayersData(nextPlayersData)
+        void loadAppUpdateConfig()
       })
       .catch((error) => {
         if (!isMounted) return
@@ -450,15 +555,15 @@ export function SuperAdminUsersPage({
     return () => {
       isMounted = false
     }
-  }, [debouncedUsersSearch, pageSize, userRoleFilter, usersPage])
+  }, [debouncedUsersSearch, loadAppUpdateConfig, pageSize, userRoleFilter, usersPage])
 
   useEffect(() => {
     void loadCoordinatesFlag()
   }, [loadCoordinatesFlag])
 
   const refreshUsersRealtime = useCallback(async () => {
-    await Promise.all([loadUsers(), loadCoordinatesFlag()])
-  }, [loadCoordinatesFlag, loadUsers])
+    await Promise.all([loadUsers(), loadCoordinatesFlag(), loadAppUpdateConfig()])
+  }, [loadAppUpdateConfig, loadCoordinatesFlag, loadUsers])
 
   useRealtimeRefresh(
     'sa-users-realtime',
@@ -469,6 +574,7 @@ export function SuperAdminUsersPage({
       'player_subscriptions',
       'user_badges',
       'app_feature_flags',
+      'app_update_config',
     ],
     refreshUsersRealtime,
   )
@@ -862,6 +968,7 @@ export function SuperAdminUsersPage({
               <span>Rôle</span>
               <span>Activité</span>
               <span>Forfait</span>
+              <span>Mobile</span>
               <span>Création</span>
               <span>Actions</span>
             </div>
@@ -882,15 +989,6 @@ export function SuperAdminUsersPage({
                     <span>
                       <strong>{user.username || 'Pseudo non défini'}</strong>
                       <p>{user.phone || 'Téléphone non défini'}</p>
-                      {user.fcmToken ? (
-                        <span className="status-pill sent push-token-pill">
-                          Push {user.fcmTokenPlatform || 'mobile'}
-                        </span>
-                      ) : (
-                        <span className="status-pill inactive push-token-pill">
-                          Push absent
-                        </span>
-                      )}
                     </span>
                   </button>
                   <div>
@@ -930,6 +1028,35 @@ export function SuperAdminUsersPage({
                     <p>{user.premiumExpiresAt ? formatDate(user.premiumExpiresAt) : 'Sans échéance'}</p>
                   </div>
                   <div>
+                    {user.fcmToken ? (
+                      <span className="status-pill sent push-token-pill">
+                        Notifs activées
+                      </span>
+                    ) : (
+                      <span className="status-pill inactive push-token-pill">
+                        Notifs off
+                      </span>
+                    )}
+                    <p>{user.fcmTokenPlatform || normalizeMobilePlatform(user) || 'Plateforme inconnue'}</p>
+                    <span
+                      className={`status-pill push-token-pill ${
+                        isUserOnLatestAppVersion(user, appUpdateConfig)
+                          ? 'active'
+                          : 'warning'
+                      }`}
+                    >
+                      {isUserOnLatestAppVersion(user, appUpdateConfig)
+                        ? 'Dernière version'
+                        : 'Version à vérifier'}
+                    </span>
+                    <p>
+                      {userAppVersionLabel(user)}
+                      {userLatestBuildTarget(user, appUpdateConfig) > 0
+                        ? ` / latest ${userLatestBuildTarget(user, appUpdateConfig)}`
+                        : ''}
+                    </p>
+                  </div>
+                  <div>
                     <strong>{formatDate(user.createdAt)}</strong>
                     <p>Vu {formatDate(user.deviceLastSeenAt)}</p>
                     {user.fcmTokenLastError ? (
@@ -941,15 +1068,6 @@ export function SuperAdminUsersPage({
                     ) : null}
                   </div>
                   <div className="table-actions compact">
-                    {user.accountStatus !== 'deleted' ? (
-                      <button
-                        className="table-action-button danger"
-                        onClick={() => openDeletionDialog(user, 'schedule_deletion')}
-                        type="button"
-                      >
-                        Supprimer
-                      </button>
-                    ) : null}
                     <select
                       aria-label={`Actions pour ${user.username || user.phone || 'utilisateur'}`}
                       className="table-action-select"

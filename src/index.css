@@ -3896,7 +3896,12 @@ h3 {
 
 .premium-user-head,
 .premium-user-row {
-  grid-template-columns: minmax(260px, 1.6fr) 110px 150px 150px 150px 150px;
+  min-width: 1120px;
+}
+
+.premium-user-head,
+.premium-user-row {
+  grid-template-columns: minmax(240px, 1.45fr) 100px 135px 135px 155px 150px 135px;
 }
 
 .premium-contest-head,
