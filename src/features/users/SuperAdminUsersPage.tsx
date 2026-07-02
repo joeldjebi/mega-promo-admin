@@ -51,6 +51,8 @@ type PlayerUserItem = {
 type UserRoleFilter = 'player' | 'partner' | 'all_non_admin'
 type UserStatusFilter = 'all' | 'active' | 'inactive'
 type UserPlanFilter = 'all' | 'premium' | 'standard'
+type UserPushFilter = 'all' | 'enabled' | 'disabled'
+type UserAppVersionFilter = 'all' | 'latest' | 'outdated'
 
 type PlayersData = {
   users: PlayerUserItem[]
@@ -436,6 +438,9 @@ export function SuperAdminUsersPage({
   const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('player')
   const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>('all')
   const [userPlanFilter, setUserPlanFilter] = useState<UserPlanFilter>('all')
+  const [userPushFilter, setUserPushFilter] = useState<UserPushFilter>('all')
+  const [userAppVersionFilter, setUserAppVersionFilter] =
+    useState<UserAppVersionFilter>('all')
   const [usersPage, setUsersPage] = useState(0)
   const [isUsersLoading, setIsUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState('')
@@ -471,9 +476,30 @@ export function SuperAdminUsersPage({
       if (userStatusFilter === 'inactive' && user.isActive) return false
       if (userPlanFilter === 'premium' && !user.isPremium) return false
       if (userPlanFilter === 'standard' && user.isPremium) return false
+      if (userPushFilter === 'enabled' && !user.fcmToken) return false
+      if (userPushFilter === 'disabled' && user.fcmToken) return false
+      if (
+        userAppVersionFilter === 'latest' &&
+        !isUserOnLatestAppVersion(user, appUpdateConfig)
+      ) {
+        return false
+      }
+      if (
+        userAppVersionFilter === 'outdated' &&
+        isUserOnLatestAppVersion(user, appUpdateConfig)
+      ) {
+        return false
+      }
       return true
     })
-  }, [playersData.users, userPlanFilter, userStatusFilter])
+  }, [
+    appUpdateConfig,
+    playersData.users,
+    userAppVersionFilter,
+    userPlanFilter,
+    userPushFilter,
+    userStatusFilter,
+  ])
 
   const loadUsers = useCallback(async (nextPage = usersPage) => {
     setIsUsersLoading(true)
@@ -528,7 +554,7 @@ export function SuperAdminUsersPage({
 
   useEffect(() => {
     setUsersPage(0)
-  }, [userPlanFilter, userStatusFilter])
+  }, [userAppVersionFilter, userPlanFilter, userPushFilter, userStatusFilter])
 
   useEffect(() => {
     let isMounted = true
@@ -959,6 +985,24 @@ export function SuperAdminUsersPage({
               <option value="all">Tous forfaits</option>
               <option value="premium">Premium</option>
               <option value="standard">Standard</option>
+            </select>
+            <select
+              onChange={(event) => setUserPushFilter(event.target.value as UserPushFilter)}
+              value={userPushFilter}
+            >
+              <option value="all">Toutes notifs</option>
+              <option value="enabled">Push activé</option>
+              <option value="disabled">Push non activé</option>
+            </select>
+            <select
+              onChange={(event) =>
+                setUserAppVersionFilter(event.target.value as UserAppVersionFilter)
+              }
+              value={userAppVersionFilter}
+            >
+              <option value="all">Toutes versions</option>
+              <option value="latest">App à jour</option>
+              <option value="outdated">App à vérifier</option>
             </select>
           </div>
 
