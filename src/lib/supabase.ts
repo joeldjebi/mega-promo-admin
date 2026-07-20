@@ -61,6 +61,8 @@ const tablePermissionFeatures: Record<string, string> = {
 
 const rpcPermissionFeatures: Record<string, string> = {
   admin_assign_player_subscription: 'users',
+  admin_clear_player_jcq_history: 'users',
+  admin_delete_question_bank_category: 'categories',
   admin_delete_player_subscription: 'users',
   admin_delete_player_referral: 'users',
   admin_anonymize_user_now: 'users',
@@ -82,6 +84,9 @@ const rpcPermissionFeatures: Record<string, string> = {
   disable_reward_catalog_item: 'reward_catalog',
   disable_reward_type: 'reward_catalog',
   generate_pending_winners_for_contest: 'winners',
+  admin_get_contest_history_questions: 'contests',
+  admin_get_participation_questions: 'contests',
+  republish_completed_jcq: 'contests',
   upsert_reward_catalog_item: 'reward_catalog',
   upsert_reward_type: 'reward_catalog',
 }

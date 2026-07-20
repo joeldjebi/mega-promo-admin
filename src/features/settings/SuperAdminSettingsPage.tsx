@@ -50,6 +50,19 @@ function isMissingTableError(error: unknown, tableName: string) {
   )
 }
 
+function isMissingColumnError(error: unknown, columnName: string) {
+  if (!error || typeof error !== 'object') return false
+  const supabaseError = error as SupabaseLikeError
+  const message = `${supabaseError.message ?? ''} ${supabaseError.details ?? ''}`.toLowerCase()
+  const normalizedColumn = columnName.toLowerCase()
+  return (
+    supabaseError.code === '42703' ||
+    message.includes(`column ${normalizedColumn} does not exist`) ||
+    message.includes(`could not find the '${normalizedColumn}' column`) ||
+    message.includes(`could not find the column '${normalizedColumn}'`)
+  )
+}
+
 function getVisibleFeatureNavItems(permissions: string[] | undefined, navItems: FeatureNavItem[]) {
   return navItems.filter((item) =>
     hasAdminPermission(permissions, item.permission, 'read'),
@@ -130,6 +143,7 @@ type MobileInfoMessageItem = {
   textColor: string
   isActive: boolean
   orderIndex: number
+  targetPlatforms: string[]
   createdAt: string
 }
 type MobileInfoMessageFormState = {
@@ -143,6 +157,7 @@ type MobileInfoMessageFormState = {
   textColor: string
   isActive: boolean
   orderIndex: string
+  targetPlatforms: string[]
 }
 
 type LegalPageKey = 'terms' | 'privacy' | 'account-deletion'
@@ -265,6 +280,43 @@ const defaultLegalForms: Record<LegalPageKey, LegalPageFormState> = {
 }
 
 
+const mobileInfoPlatformOptions = [
+  { value: 'all', label: 'iOS / Android', platforms: ['ios', 'android'] },
+  { value: 'ios', label: 'iOS', platforms: ['ios'] },
+  { value: 'android', label: 'Android', platforms: ['android'] },
+] as const
+
+type MobileInfoPlatformOption = (typeof mobileInfoPlatformOptions)[number]['value']
+
+function normalizeMobileInfoPlatforms(value: unknown): string[] {
+  if (!Array.isArray(value)) return ['ios', 'android']
+  const platforms = value
+    .map((item) => String(item).toLowerCase().trim())
+    .filter((item): item is 'ios' | 'android' => item === 'ios' || item === 'android')
+  return platforms.length > 0 ? Array.from(new Set(platforms)) : ['ios', 'android']
+}
+
+function mobileInfoPlatformOptionFromPlatforms(platforms: string[]): MobileInfoPlatformOption {
+  const normalized = normalizeMobileInfoPlatforms(platforms)
+  if (normalized.length === 1 && normalized[0] === 'ios') return 'ios'
+  if (normalized.length === 1 && normalized[0] === 'android') return 'android'
+  return 'all'
+}
+
+function mobileInfoPlatformsFromOption(value: string): string[] {
+  return (
+    mobileInfoPlatformOptions.find((option) => option.value === value)?.platforms ??
+    mobileInfoPlatformOptions[0].platforms
+  ).slice()
+}
+
+function formatMobileInfoPlatforms(platforms: string[]) {
+  const option = mobileInfoPlatformOptions.find(
+    (item) => item.value === mobileInfoPlatformOptionFromPlatforms(platforms),
+  )
+  return option?.label ?? 'iOS / Android'
+}
+
 const defaultContactSettingsForm: ContactSettingsFormState = {
   whatsappNumber: '2250000000000',
   whatsappMessage: 'Bonjour MegaPromo, j’ai besoin d’informations.',
@@ -284,6 +336,7 @@ function createDefaultMobileInfoMessageForm(): MobileInfoMessageFormState {
     textColor: '#4B1609',
     isActive: true,
     orderIndex: '1',
+    targetPlatforms: ['ios', 'android'],
   }
 }
 
@@ -474,6 +527,7 @@ function mobileInfoMessageToForm(
     textColor: message.textColor,
     isActive: message.isActive,
     orderIndex: String(message.orderIndex),
+    targetPlatforms: normalizeMobileInfoPlatforms(message.targetPlatforms),
   }
 }
 
@@ -565,17 +619,29 @@ async function fetchLandingContactMessagesForAdmin(): Promise<ContactMessageItem
 
 
 async function fetchMobileInfoMessagesForAdmin(): Promise<MobileInfoMessageItem[]> {
-  const { data, error } = await supabase
+  const selectColumns =
+    'id, title, body, image_url, cta_label, cta_url, background_color, text_color, is_active, order_index, target_platforms, created_at'
+  let response: { data: Array<Record<string, unknown>> | null; error: unknown } = await supabase
     .from('mobile_info_messages')
-    .select(
-      'id, title, body, image_url, cta_label, cta_url, background_color, text_color, is_active, order_index, created_at',
-    )
+    .select(selectColumns)
     .order('order_index', { ascending: true })
     .order('created_at', { ascending: false })
 
-  if (error) throw error
+  let hasPlatformColumn = true
+  if (response.error && isMissingColumnError(response.error, 'target_platforms')) {
+    hasPlatformColumn = false
+    response = await supabase
+      .from('mobile_info_messages')
+      .select(
+        'id, title, body, image_url, cta_label, cta_url, background_color, text_color, is_active, order_index, created_at',
+      )
+      .order('order_index', { ascending: true })
+      .order('created_at', { ascending: false })
+  }
 
-  return (data ?? []).map((message) => ({
+  if (response.error) throw response.error
+
+  return (response.data ?? []).map((message) => ({
     id: message.id as string,
     title: (message.title as string | null) ?? '',
     body: (message.body as string | null) ?? '',
@@ -586,6 +652,9 @@ async function fetchMobileInfoMessagesForAdmin(): Promise<MobileInfoMessageItem[
     textColor: (message.text_color as string | null) ?? '#4B1609',
     isActive: (message.is_active as boolean | null) ?? true,
     orderIndex: (message.order_index as number | null) ?? 0,
+    targetPlatforms: hasPlatformColumn
+      ? normalizeMobileInfoPlatforms(message.target_platforms)
+      : ['ios', 'android'],
     createdAt: (message.created_at as string | null) ?? '',
   }))
 }
@@ -1213,15 +1282,28 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
         text_color: mobileInfoMessageForm.textColor.trim() || '#4B1609',
         is_active: mobileInfoMessageForm.isActive,
         order_index: Number(mobileInfoMessageForm.orderIndex) || 0,
+        target_platforms: normalizeMobileInfoPlatforms(
+          mobileInfoMessageForm.targetPlatforms,
+        ),
         updated_at: new Date().toISOString(),
       }
 
-      const response = mobileInfoMessageForm.id
+      let response = mobileInfoMessageForm.id
         ? await supabase
             .from('mobile_info_messages')
             .update(payload)
             .eq('id', mobileInfoMessageForm.id)
         : await supabase.from('mobile_info_messages').insert(payload)
+
+      if (response.error && isMissingColumnError(response.error, 'target_platforms')) {
+        const { target_platforms: _targetPlatforms, ...legacyPayload } = payload
+        response = mobileInfoMessageForm.id
+          ? await supabase
+              .from('mobile_info_messages')
+              .update(legacyPayload)
+              .eq('id', mobileInfoMessageForm.id)
+          : await supabase.from('mobile_info_messages').insert(legacyPayload)
+      }
 
       if (response.error) throw response.error
 
@@ -3111,19 +3193,43 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                   />
                 </label>
               </div>
-              <label className="checkbox-row">
-                <input
-                  checked={mobileInfoMessageForm.isActive}
-                  onChange={(event) =>
-                    setMobileInfoMessageForm((current) => ({
-                      ...current,
-                      isActive: event.target.checked,
-                    }))
-                  }
-                  type="checkbox"
-                />
-                <span>Afficher dans l’app mobile</span>
-              </label>
+              <div className="form-grid two-columns">
+                <label>
+                  <span>Design cible</span>
+                  <select
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        targetPlatforms: mobileInfoPlatformsFromOption(
+                          event.target.value,
+                        ),
+                      }))
+                    }
+                    value={mobileInfoPlatformOptionFromPlatforms(
+                      mobileInfoMessageForm.targetPlatforms,
+                    )}
+                  >
+                    {mobileInfoPlatformOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    checked={mobileInfoMessageForm.isActive}
+                    onChange={(event) =>
+                      setMobileInfoMessageForm((current) => ({
+                        ...current,
+                        isActive: event.target.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  <span>Afficher dans l’app mobile</span>
+                </label>
+              </div>
               <div className="modal-actions">
                 <button
                   className="secondary-action-button"
@@ -3160,7 +3266,10 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                       <div>
                         <strong>{message.title}</strong>
                         <p>{message.body}</p>
-                        <small>{formatDate(message.createdAt)}</small>
+                        <small>
+                          {formatDate(message.createdAt)} ·{' '}
+                          {formatMobileInfoPlatforms(message.targetPlatforms)}
+                        </small>
                       </div>
                       <div className="table-actions compact">
                         <span

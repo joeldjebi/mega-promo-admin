@@ -188,6 +188,7 @@ type ContestHistoryItem = {
   userLabel: string
   score: number
   rank: number
+  responseTimeMs: number
   completed: boolean
   participatedAt: string
   answers: string
@@ -197,6 +198,7 @@ type ContestHistoryData = {
   contest: ContestItem
   participations: ContestHistoryItem[]
   questions: QuizQuestionItem[]
+  questionsByParticipationId: Record<string, QuizQuestionItem[]>
 }
 type QuizQuestionItem = {
   id: string
@@ -355,6 +357,8 @@ type PlayerParticipationItem = {
   id: string
   contestId: string
   contestTitle: string
+  contestType: string
+  isLive: boolean
   score: number
   rank: number | null
   completed: boolean
@@ -1160,16 +1164,12 @@ async function fetchPlayersData({
       'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
       { count: 'exact' },
     )
-    .or('role.is.null,role.not.in.(admin,super_admin,super-admin,sa)')
+    .neq('role', 'admin')
     .order('created_at', { ascending: false })
     .range(from, to)
   const cleanedSearch = search.trim()
 
-  if (roleFilter === 'player') {
-    usersQuery = usersQuery.or(
-      'role.is.null,role.not.in.(admin,super_admin,super-admin,sa,partner)',
-    )
-  } else if (roleFilter !== 'all_non_admin') {
+  if (roleFilter !== 'all_non_admin') {
     usersQuery = usersQuery.eq('role', roleFilter)
   }
 
@@ -1400,12 +1400,12 @@ async function fetchPlayerDetailData(
   ) {
     throw kycRequestsResponse.error
   }
-  if (authMethodsResponse.error && !isMissingFunctionError(authMethodsResponse.error)) {
+  if (authMethodsResponse.error && !isMissingRpcError(authMethodsResponse.error)) {
     throw authMethodsResponse.error
   }
   if (
     referralOverviewResponse.error &&
-    !isMissingFunctionError(referralOverviewResponse.error)
+    !isMissingRpcError(referralOverviewResponse.error)
   ) {
     throw referralOverviewResponse.error
   }
@@ -1426,7 +1426,7 @@ async function fetchPlayerDetailData(
   ) as string[]
   const contestResponse =
     contestIds.length > 0
-      ? await supabase.from('contests').select('id, title').in('id', contestIds)
+      ? await supabase.from('contests').select('id, title, type, is_live').in('id', contestIds)
       : { data: [], error: null }
 
   if (contestResponse.error) throw contestResponse.error
@@ -1435,6 +1435,15 @@ async function fetchPlayerDetailData(
     (contestResponse.data ?? []).map((contest) => [
       contest.id as string,
       (contest.title as string | null) ?? 'Concours',
+    ]),
+  )
+  const contestMetadata = new Map(
+    (contestResponse.data ?? []).map((contest) => [
+      contest.id as string,
+      {
+        type: ((contest.type as string | null) ?? '').trim().toLowerCase(),
+        isLive: Boolean(contest.is_live),
+      },
     ]),
   )
   const planNames = new Map(plans.map((plan) => [plan.id, plan.name]))
@@ -1466,6 +1475,9 @@ async function fetchPlayerDetailData(
       id: participation.participation_id as string,
       contestId: participation.contest_id ?? '',
       contestTitle: participation.contest_title ?? 'Concours',
+      contestType:
+        contestMetadata.get(participation.contest_id ?? '')?.type ?? '',
+      isLive: contestMetadata.get(participation.contest_id ?? '')?.isLive ?? false,
       score: participation.score ?? 0,
       rank: participation.rank ?? null,
       completed: participation.completed ?? false,
@@ -1560,6 +1572,64 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
   if (participationsError) throw participationsError
   if (questionsResponse.error) throw questionsResponse.error
 
+  const directQuestions = (questionsResponse.data ?? []).map(questionRowToItem)
+  const answerQuestionIds = collectQuestionIdsFromParticipations(participationsData)
+  const knownQuestionIds = new Set(directQuestions.map((question) => question.id))
+  const missingQuestionIds = answerQuestionIds.filter((questionId) => !knownQuestionIds.has(questionId))
+  const bankQuestionsResponse =
+    missingQuestionIds.length > 0
+      ? await supabase
+          .from('questions')
+          .select(
+            'id, question_text, question_image_url, option_a, option_b, option_c, option_d, option_a_image_url, option_b_image_url, option_c_image_url, option_d_image_url, correct_answer, points, time_limit, order_index',
+          )
+          .in('id', missingQuestionIds)
+      : { data: [], error: null }
+
+  if (bankQuestionsResponse.error) throw bankQuestionsResponse.error
+
+  const questionsById = new Map<string, QuizQuestionItem>()
+  for (const question of directQuestions) questionsById.set(question.id, question)
+  for (const question of (bankQuestionsResponse.data ?? []).map(questionRowToItem)) {
+    questionsById.set(question.id, question)
+  }
+
+  const assignedQuestionsResponse = await supabase.rpc(
+    'admin_get_contest_history_questions',
+    {
+      p_contest_id: contest.id,
+    },
+  )
+  const assignedQuestionRows =
+    assignedQuestionsResponse.error && isMissingRpcError(assignedQuestionsResponse.error)
+      ? []
+      : assignedQuestionsResponse.data ?? []
+  if (assignedQuestionsResponse.error && !isMissingRpcError(assignedQuestionsResponse.error)) {
+    throw assignedQuestionsResponse.error
+  }
+
+  const questionsByParticipationId: Record<string, QuizQuestionItem[]> = {}
+  for (const row of assignedQuestionRows as Array<Record<string, unknown>>) {
+    const participationId = (row.participation_id as string | null) ?? ''
+    if (!participationId) continue
+    const question = questionRowToItem(row)
+    questionsById.set(question.id, question)
+    questionsByParticipationId[participationId] = [
+      ...(questionsByParticipationId[participationId] ?? []),
+      question,
+    ]
+  }
+
+  const answerQuestionOrder = new Map(answerQuestionIds.map((questionId, index) => [questionId, index]))
+  const questions = Array.from(questionsById.values()).sort((first, second) => {
+    const firstOrder = answerQuestionOrder.get(first.id)
+    const secondOrder = answerQuestionOrder.get(second.id)
+    if (firstOrder !== undefined || secondOrder !== undefined) {
+      return (firstOrder ?? Number.MAX_SAFE_INTEGER) - (secondOrder ?? Number.MAX_SAFE_INTEGER)
+    }
+    return first.orderIndex - second.orderIndex
+  })
+
   const userIds = Array.from(
     new Set(
       (participationsData ?? [])
@@ -1596,16 +1666,19 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
 
   return {
     contest,
-    questions: (questionsResponse.data ?? []).map(questionRowToItem),
+    questions,
+    questionsByParticipationId,
     participations: participationsData.map((participation) => {
       const userId = (participation.user_id as string | null) ?? ''
       const answers = participation.answers
+      const responseTimeMs = extractParticipationResponseTimeMs(answers)
       return {
         id: participation.id as string,
         userId,
         userLabel: userLabels.get(userId) ?? 'Joueur',
         score: (participation.score as number | null) ?? 0,
         rank: ranks.get(participation.id as string) ?? 0,
+        responseTimeMs,
         completed: (participation.completed as boolean | null) ?? false,
         participatedAt: (participation.participated_at as string | null) ?? '',
         answers: formatParticipationAnswers(answers),
@@ -1613,6 +1686,23 @@ async function fetchContestHistory(contest: ContestItem): Promise<ContestHistory
       }
     }),
   }
+}
+
+function collectQuestionIdsFromParticipations(
+  participations: Array<Record<string, unknown>>,
+) {
+  const questionIds: string[] = []
+  const seen = new Set<string>()
+
+  for (const participation of participations) {
+    for (const answer of extractParticipationAnswerRecords(participation.answers)) {
+      if (!answer.questionId || seen.has(answer.questionId)) continue
+      seen.add(answer.questionId)
+      questionIds.push(answer.questionId)
+    }
+  }
+
+  return questionIds
 }
 
 async function fetchContestGameData(contestId: string): Promise<ContestGameData> {
@@ -1917,15 +2007,11 @@ function isMissingTableError(error: unknown, tableName: string) {
   return payload.code === 'PGRST205' && message.includes(`'public.${tableName}'`)
 }
 
-function isMissingFunctionError(error: unknown) {
+function isMissingRpcError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const payload = error as SupabaseLikeError
-  const message = String(payload.message ?? '').toLowerCase()
-  return (
-    payload.code === 'PGRST202' ||
-    message.includes('could not find the function') ||
-    message.includes('admin_get_user_auth_methods')
-  )
+  const message = String(payload.message ?? '')
+  return payload.code === 'PGRST202' || message.includes('Could not find the function')
 }
 
 function createDefaultContestForm(): ContestFormState {
@@ -2681,6 +2767,7 @@ function SuperAdminUserDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [clearingContestHistoryId, setClearingContestHistoryId] = useState('')
   const [savingKycRequestId, setSavingKycRequestId] = useState('')
   const [isSavingSubscription, setIsSavingSubscription] = useState(false)
   const [isSavingPaymentMethod, setIsSavingPaymentMethod] = useState(false)
@@ -2770,6 +2857,77 @@ function SuperAdminUserDetailPage() {
       setNotice(message)
     } catch {
       setError('Impossible de copier cette valeur.')
+    }
+  }
+
+  async function handleClearPlayerJcqHistory(participation: PlayerParticipationItem) {
+    if (!user || clearingContestHistoryId || !participation.contestId) return
+
+    const confirmed = window.confirm(
+      `Vider uniquement l’historique du JCQ "${participation.contestTitle}" pour "${user.username || user.phone}" ? Le joueur pourra rejouer ce JCQ.`,
+    )
+    if (!confirmed) return
+
+    setNotice('')
+    setError('')
+    setClearingContestHistoryId(participation.contestId)
+
+    try {
+      const { data: rpcData, error: clearError } = await supabase.rpc(
+        'admin_clear_player_jcq_history',
+        {
+          p_user_id: user.id,
+          p_contest_id: participation.contestId,
+        },
+      )
+
+      if (clearError) throw clearError
+
+      const payload = (rpcData ?? {}) as {
+        contest_id?: string
+        deleted_participations?: number
+        deleted_question_assignments?: number
+      }
+
+      await loadUserDetail()
+      void logAdminAction({
+        feature: 'users',
+        action: 'clear_player_jcq_history',
+        message: 'Historique JCQ joueur vide par le SA.',
+        userId: user.id,
+        entityType: 'contest',
+        entityId: participation.contestId,
+        metadata: {
+          player_label: user.username || user.phone,
+          contest_title: participation.contestTitle,
+          deleted_participations: payload.deleted_participations ?? 0,
+          deleted_question_assignments:
+            payload.deleted_question_assignments ?? 0,
+        },
+      })
+      setNotice(
+        `Historique du JCQ "${participation.contestTitle}" vidé. Le joueur peut rejouer ce JCQ.`,
+      )
+    } catch (clearHistoryError) {
+      const message = formatUnknownError(
+        clearHistoryError,
+        'Impossible de vider l’historique de ce JCQ pour ce joueur.',
+      )
+      void logError({
+        feature: 'users',
+        action: 'clear_player_jcq_history_failed',
+        message: 'Echec vidage historique JCQ joueur par le SA.',
+        userId: user.id,
+        entityType: 'contest',
+        entityId: participation.contestId,
+        metadata: {
+          contest_title: participation.contestTitle,
+          error: message,
+        },
+      })
+      setError(message)
+    } finally {
+      setClearingContestHistoryId('')
     }
   }
 
@@ -3880,6 +4038,22 @@ function SuperAdminUserDetailPage() {
                           type="button"
                         >
                           Historique
+                        </button>
+                      ) : null}
+                      {participation.contestId &&
+                      participation.contestType === 'quiz' &&
+                      !participation.isLive ? (
+                        <button
+                          className="table-action-button danger"
+                          disabled={
+                            clearingContestHistoryId === participation.contestId
+                          }
+                          onClick={() => handleClearPlayerJcqHistory(participation)}
+                          type="button"
+                        >
+                          {clearingContestHistoryId === participation.contestId
+                            ? 'Vidage...'
+                            : 'Permettre rejouer'}
                         </button>
                       ) : null}
                     </div>
@@ -5232,6 +5406,13 @@ function ParticipationAnswerDetailModal({
 }) {
   const answers = extractParticipationAnswerRecords(participation.rawAnswers)
   const answersByQuestion = new Map(answers.map((answer) => [answer.questionId, answer]))
+  const questionsById = new Map(questions.map((question) => [question.id, question]))
+  const participationQuestions =
+    answers.length > 0
+      ? answers
+          .map((answer) => questionsById.get(answer.questionId))
+          .filter((question): question is QuizQuestionItem => Boolean(question))
+      : questions
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -5257,9 +5438,13 @@ function ParticipationAnswerDetailModal({
         </div>
 
         <div className="answer-detail-list">
-          {questions.length > 0 ? (
-            questions.map((question, index) => {
+          {participationQuestions.length > 0 ? (
+            participationQuestions.map((question, index) => {
               const answer = answersByQuestion.get(question.id)
+              const correctIndex =
+                answer?.correctIndex !== null && answer?.correctIndex !== undefined
+                  ? answer.correctIndex
+                  : correctIndexForQuestion(question)
               return (
                 <article className="answer-detail-row" key={question.id}>
                   <div className="answer-detail-question">
@@ -5283,12 +5468,24 @@ function ParticipationAnswerDetailModal({
                     </div>
                     <div>
                       <span>Réponse système</span>
-                      <strong>{optionTextForIndex(question, correctIndexForQuestion(question))}</strong>
+                      <strong>{optionTextForIndex(question, correctIndex)}</strong>
                     </div>
                     <div>
                       <span>Résultat</span>
-                      <strong className={answer?.isCorrect ? 'success-text' : 'danger-text'}>
-                        {answer?.isCorrect ? 'Correct' : 'Incorrect'}
+                      <strong
+                        className={
+                          answer?.isCorrect === true
+                            ? 'success-text'
+                            : answer?.isCorrect === false
+                              ? 'danger-text'
+                              : ''
+                        }
+                      >
+                        {answer?.isCorrect === null || answer?.isCorrect === undefined
+                          ? 'Non calculé'
+                          : answer.isCorrect
+                            ? 'Correct'
+                            : 'Incorrect'}
                       </strong>
                     </div>
                     <div>
@@ -5305,7 +5502,7 @@ function ParticipationAnswerDetailModal({
             })
           ) : (
             <p className="empty-panel-text">
-              Aucune question disponible pour détailler les réponses.
+              Aucune question disponible pour détailler les réponses de ce joueur.
             </p>
           )}
         </div>
@@ -5328,16 +5525,54 @@ function extractParticipationAnswerRecords(rawAnswers: unknown): ParticipationAn
   return items
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
     .map((item) => ({
-      questionId: (item.question_id as string | null) ?? '',
-      selectedIndex:
-        typeof item.selected_index === 'number' ? item.selected_index : null,
-      correctIndex:
-        typeof item.correct_index === 'number' ? item.correct_index : null,
-      isCorrect: typeof item.is_correct === 'boolean' ? item.is_correct : null,
-      points: typeof item.points === 'number' ? item.points : 0,
-      elapsedMs: typeof item.elapsed_ms === 'number' ? item.elapsed_ms : 0,
+      questionId:
+        typeof item.question_id === 'string'
+          ? item.question_id
+          : typeof item.questionId === 'string'
+            ? item.questionId
+            : typeof item.id === 'string'
+              ? item.id
+              : '',
+      selectedIndex: numberFromUnknown(item.selected_index ?? item.selectedIndex),
+      correctIndex: numberFromUnknown(item.correct_index ?? item.correctIndex),
+      isCorrect: booleanFromUnknown(item.is_correct ?? item.isCorrect),
+      points: numberFromUnknown(item.points) ?? 0,
+      elapsedMs: numberFromUnknown(item.elapsed_ms ?? item.elapsedMs) ?? 0,
     }))
     .filter((item) => item.questionId)
+}
+
+function extractParticipationResponseTimeMs(rawAnswers: unknown) {
+  const payload =
+    rawAnswers && typeof rawAnswers === 'object'
+      ? (rawAnswers as Record<string, unknown>)
+      : null
+  const durationMs = numberFromUnknown(
+    payload?.duration_ms ?? payload?.durationMs,
+  )
+  if (durationMs && durationMs > 0) return durationMs
+  return extractParticipationAnswerRecords(rawAnswers).reduce(
+    (total, answer) => total + answer.elapsedMs,
+    0,
+  )
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsedValue = Number(value)
+    return Number.isFinite(parsedValue) ? parsedValue : null
+  }
+  return null
+}
+
+function booleanFromUnknown(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true
+    if (value.toLowerCase() === 'false') return false
+  }
+  return null
 }
 
 function correctIndexForQuestion(question: QuizQuestionItem) {
@@ -5371,6 +5606,7 @@ function SuperAdminContestHistoryPage() {
   const [selectedParticipation, setSelectedParticipation] =
     useState<ContestHistoryItem | null>(null)
   const [isHistoryLoading, setIsHistoryLoading] = useState(true)
+  const [clearingParticipationId, setClearingParticipationId] = useState('')
   const [historyError, setHistoryError] = useState('')
   const [historyNotice, setHistoryNotice] = useState('')
 
@@ -5428,41 +5664,81 @@ function SuperAdminContestHistoryPage() {
     navigate(SUPER_ADMIN_AUTH_ROUTE, { replace: true })
   }
 
-  async function handleClearHistory() {
-    if (!historyData) return
+  async function handleClearPlayerJcqHistory(participation: ContestHistoryItem) {
+    if (!historyData || clearingParticipationId) return
 
     const confirmed = window.confirm(
-      `Vider tout l’historique de participation du concours "${historyData.contest.title}" ? Cette action supprime les lignes participations.`,
+      `Permettre à "${participation.userLabel}" de rejouer le JCQ "${historyData.contest.title}" ? Seule sa participation à ce JCQ sera supprimée.`,
     )
     if (!confirmed) return
 
     setHistoryError('')
     setHistoryNotice('')
-    setIsHistoryLoading(true)
+    setClearingParticipationId(participation.id)
 
     try {
-      const { error } = await supabase
-        .from('participations')
-        .delete()
-        .eq('contest_id', historyData.contest.id)
+      const { data: rpcData, error } = await supabase.rpc(
+        'admin_clear_player_jcq_history',
+        {
+          p_user_id: participation.userId,
+          p_contest_id: historyData.contest.id,
+        },
+      )
 
       if (error) throw error
 
-      setHistoryData({
-        contest: { ...historyData.contest, participants: 0 },
-        participations: [],
-        questions: historyData.questions,
+      const payload = (rpcData ?? {}) as {
+        deleted_participations?: number
+        deleted_question_assignments?: number
+      }
+
+      await loadHistory()
+      if (selectedParticipation?.id === participation.id) {
+        setSelectedParticipation(null)
+      }
+      void logAdminAction({
+        feature: 'contests',
+        action: 'clear_player_jcq_history_from_contest_history',
+        message: 'Historique JCQ joueur vide depuis la page historique concours.',
+        userId: participation.userId,
+        entityType: 'contest',
+        entityId: historyData.contest.id,
+        metadata: {
+          contest_title: historyData.contest.title,
+          player_label: participation.userLabel,
+          participation_id: participation.id,
+          deleted_participations: payload.deleted_participations ?? 0,
+          deleted_question_assignments:
+            payload.deleted_question_assignments ?? 0,
+        },
       })
-      setSelectedParticipation(null)
-      setHistoryNotice('Historique de participation vidé pour ce concours.')
+      setHistoryNotice(
+        `${participation.userLabel} peut rejouer ce JCQ. ${payload.deleted_participations ?? 0} participation(s) supprimée(s).`,
+      )
     } catch (error) {
-      setHistoryError(
+      const message =
         error instanceof Error
           ? error.message
-          : 'Impossible de vider cet historique.',
+          : 'Impossible de vider cet historique pour ce joueur.'
+      void logError({
+        feature: 'contests',
+        action: 'clear_player_jcq_history_from_contest_history_failed',
+        message: 'Echec vidage historique JCQ joueur depuis historique concours.',
+        userId: participation.userId,
+        entityType: 'contest',
+        entityId: historyData.contest.id,
+        metadata: {
+          contest_title: historyData.contest.title,
+          player_label: participation.userLabel,
+          participation_id: participation.id,
+          error: message,
+        },
+      })
+      setHistoryError(
+        message,
       )
     } finally {
-      setIsHistoryLoading(false)
+      setClearingParticipationId('')
     }
   }
 
@@ -5574,14 +5850,6 @@ function SuperAdminContestHistoryPage() {
                   >
                     Actualiser
                   </button>
-                  <button
-                    className="table-action-button danger"
-                    disabled={isHistoryLoading || historyData.participations.length === 0}
-                    onClick={handleClearHistory}
-                    type="button"
-                  >
-                    Vider l’historique
-                  </button>
                 </div>
               </div>
 
@@ -5616,12 +5884,7 @@ function SuperAdminContestHistoryPage() {
               <div className="history-list page-history-list">
                 {historyData.participations.length > 0 ? (
                   historyData.participations.map((participation) => (
-                    <button
-                      className="history-row history-row-button"
-                      key={participation.id}
-                      onClick={() => setSelectedParticipation(participation)}
-                      type="button"
-                    >
+                    <article className="history-row" key={participation.id}>
                       <div>
                         <strong>
                           #{participation.rank} · {participation.userLabel}
@@ -5630,10 +5893,37 @@ function SuperAdminContestHistoryPage() {
                         <small>{participation.answers}</small>
                       </div>
                       <span>{participation.score} pts</span>
+                      <span className="history-response-time">
+                        <small>Temps réponse</small>
+                        <strong>{formatDurationMs(participation.responseTimeMs)}</strong>
+                      </span>
                       <span className={`status-pill ${participation.completed ? 'active' : 'pending'}`}>
                         {participation.completed ? 'Terminé' : 'En cours'}
                       </span>
-                    </button>
+                      <div className="table-actions compact">
+                        <button
+                          className="table-action-button"
+                          onClick={() => setSelectedParticipation(participation)}
+                          type="button"
+                        >
+                          Détail
+                        </button>
+                        {historyData.contest.type === 'quiz' &&
+                        !historyData.contest.isLive &&
+                        participation.userId ? (
+                          <button
+                            className="table-action-button danger"
+                            disabled={clearingParticipationId === participation.id}
+                            onClick={() => handleClearPlayerJcqHistory(participation)}
+                            type="button"
+                          >
+                            {clearingParticipationId === participation.id
+                              ? 'Vidage...'
+                              : 'Permettre rejouer'}
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
                   ))
                 ) : (
                   <p className="empty-panel-text">
@@ -5656,7 +5946,10 @@ function SuperAdminContestHistoryPage() {
         {historyData && selectedParticipation ? (
           <ParticipationAnswerDetailModal
             participation={selectedParticipation}
-            questions={historyData.questions}
+            questions={
+              historyData.questionsByParticipationId[selectedParticipation.id] ??
+              historyData.questions
+            }
             onClose={() => setSelectedParticipation(null)}
           />
         ) : null}

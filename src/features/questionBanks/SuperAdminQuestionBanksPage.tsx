@@ -98,6 +98,13 @@ type QuestionAnswerField = {
   imageKey: 'optionAImageUrl' | 'optionBImageUrl' | 'optionCImageUrl' | 'optionDImageUrl'
 }
 
+type QuestionImageFieldKey =
+  | 'questionImageUrl'
+  | 'optionAImageUrl'
+  | 'optionBImageUrl'
+  | 'optionCImageUrl'
+  | 'optionDImageUrl'
+
 type QuestionMediaMode = 'text' | 'question_image' | 'answer_images' | 'mixed'
 type CategoryQuestionMediaFilter = 'all' | QuestionMediaMode
 
@@ -135,6 +142,9 @@ const emptyQuestionForm: QuestionForm = {
 }
 
 const CATEGORY_QUESTIONS_PAGE_SIZE = 8
+const QUESTION_BANK_QUESTIONS_PAGE_SIZE = 1000
+const questionSelectColumns =
+  'id, question_bank_id, category_id, question_type, prediction_type, prediction_payload, question_text, question_image_url, option_a, option_a_image_url, option_b, option_b_image_url, option_c, option_c_image_url, option_d, option_d_image_url, correct_answer, points, time_limit, is_active, difficulty'
 const questionAnswerFields: QuestionAnswerField[] = [
   { letter: 'A', textKey: 'optionA', imageKey: 'optionAImageUrl' },
   { letter: 'B', textKey: 'optionB', imageKey: 'optionBImageUrl' },
@@ -285,6 +295,25 @@ function buildQuestionCsvTemplate() {
 
 function normalizeOptionalUrl(value: string) {
   return value.trim()
+}
+
+function createClientUuid() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = char === 'x' ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
+}
+
+function safeStorageFileName(fileName: string) {
+  return fileName
+    .replace(/\.[^/.]+$/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/(^-|-$)/g, '')
 }
 
 function stringifyJsonObject(value: unknown) {
@@ -462,8 +491,33 @@ function parseQuestionCsv(text: string) {
     )
 }
 
+async function fetchAllQuestionBankRows() {
+  const rows: Record<string, unknown>[] = []
+  let from = 0
+
+  while (true) {
+    const to = from + QUESTION_BANK_QUESTIONS_PAGE_SIZE - 1
+    const { data, error } = await supabase
+      .from('questions')
+      .select(questionSelectColumns)
+      .not('question_bank_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (error) throw error
+
+    const pageRows = (data ?? []) as Record<string, unknown>[]
+    rows.push(...pageRows)
+
+    if (pageRows.length < QUESTION_BANK_QUESTIONS_PAGE_SIZE) break
+    from += QUESTION_BANK_QUESTIONS_PAGE_SIZE
+  }
+
+  return rows
+}
+
 async function loadQuestionBankData() {
-  const [banksResponse, categoriesResponse, linksResponse, questionsResponse] =
+  const [banksResponse, categoriesResponse, linksResponse, questionRows] =
     await Promise.all([
       supabase
         .from('question_banks')
@@ -475,19 +529,29 @@ async function loadQuestionBankData() {
         .eq('is_active', true)
         .order('name', { ascending: true }),
       supabase.from('question_bank_categories').select('question_bank_id, category_id'),
-      supabase
-        .from('questions')
-        .select(
-          'id, question_bank_id, category_id, question_type, prediction_type, prediction_payload, question_text, question_image_url, option_a, option_a_image_url, option_b, option_b_image_url, option_c, option_c_image_url, option_d, option_d_image_url, correct_answer, points, time_limit, is_active, difficulty',
-        )
-        .not('question_bank_id', 'is', null)
-        .order('created_at', { ascending: false }),
+      fetchAllQuestionBankRows(),
     ])
 
   if (banksResponse.error) throw banksResponse.error
   if (categoriesResponse.error) throw categoriesResponse.error
   if (linksResponse.error) throw linksResponse.error
-  if (questionsResponse.error) throw questionsResponse.error
+
+  const bankIds = (banksResponse.data ?? [])
+    .map((bank) => bank.id as string | null)
+    .filter((bankId): bankId is string => Boolean(bankId))
+
+  const questionCountResults = await Promise.all(
+    bankIds.map(async (bankId) => {
+      const { count, error } = await supabase
+        .from('questions')
+        .select('id', { count: 'exact', head: true })
+        .eq('question_bank_id', bankId)
+        .eq('is_active', true)
+
+      if (error) throw error
+      return [bankId, count ?? 0] as const
+    }),
+  )
 
   const categoryIdsByBank = new Map<string, string[]>()
   for (const link of linksResponse.data ?? []) {
@@ -497,12 +561,7 @@ async function loadQuestionBankData() {
     categoryIdsByBank.set(bankId, [...(categoryIdsByBank.get(bankId) ?? []), categoryId])
   }
 
-  const questionsCountByBank = new Map<string, number>()
-  for (const question of questionsResponse.data ?? []) {
-    const bankId = question.question_bank_id as string | null
-    if (!bankId) continue
-    questionsCountByBank.set(bankId, (questionsCountByBank.get(bankId) ?? 0) + 1)
-  }
+  const questionsCountByBank = new Map<string, number>(questionCountResults)
 
   const banks: QuestionBank[] = (banksResponse.data ?? []).map((bank) => ({
     id: bank.id as string,
@@ -520,7 +579,7 @@ async function loadQuestionBankData() {
     name: (category.name as string | null) ?? 'Catégorie',
   }))
 
-  const questions: BankQuestion[] = (questionsResponse.data ?? []).map((question) => ({
+  const questions: BankQuestion[] = questionRows.map((question) => ({
     id: question.id as string,
     bankId: (question.question_bank_id as string | null) ?? '',
     questionType: (question.question_type as string | null) ?? 'quiz',
@@ -573,6 +632,8 @@ export function SuperAdminQuestionBanksPage({
   const [isLoading, setIsLoading] = useState(true)
   const [isSavingBank, setIsSavingBank] = useState(false)
   const [isSavingQuestion, setIsSavingQuestion] = useState(false)
+  const [uploadingQuestionImageKey, setUploadingQuestionImageKey] =
+    useState<QuestionImageFieldKey | ''>('')
   const [isBankFormVisible, setIsBankFormVisible] = useState(false)
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false)
   const [csvImportBankIds, setCsvImportBankIds] = useState<string[]>([])
@@ -874,6 +935,57 @@ export function SuperAdminQuestionBanksPage({
   function updateQuestionMediaMode(mode: QuestionMediaMode) {
     setQuestionMediaMode(mode)
     setQuestionForm((current) => applyQuestionMediaMode(current, mode))
+  }
+
+  async function handleQuestionImageUpload(
+    event: ChangeEvent<HTMLInputElement>,
+    imageKey: QuestionImageFieldKey,
+  ) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      setError('Format accepté : PNG, JPG, WEBP ou GIF.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('L’image ne doit pas dépasser 5 Mo.')
+      return
+    }
+
+    const activeBankId = questionForm.bankId || selectedBankId || 'unassigned'
+    setUploadingQuestionImageKey(imageKey)
+    setError('')
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const safeName = safeStorageFileName(file.name) || 'question-image'
+      const path = `question-media/${activeBankId}/${createClientUuid()}-${safeName}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from('brand-assets')
+        .upload(path, file, {
+          cacheControl: '31536000',
+          contentType: file.type,
+          upsert: false,
+        })
+
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage.from('brand-assets').getPublicUrl(path)
+      setQuestionForm((current) => {
+        const nextForm = { ...current, [imageKey]: data.publicUrl }
+        setQuestionMediaMode(detectQuestionMediaMode(nextForm))
+        return nextForm
+      })
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : 'Impossible de charger cette image.',
+      )
+    } finally {
+      setUploadingQuestionImageKey('')
+    }
   }
 
   function toggleBankCategory(categoryId: string) {
@@ -1190,6 +1302,52 @@ export function SuperAdminQuestionBanksPage({
     }
   }
 
+  async function deleteQuestionBankCategory(summary: (typeof bankCategorySummaries)[number]) {
+    const confirmed = window.confirm(
+      `Supprimer définitivement la catégorie "${summary.name}", ses liens de banques et ses questions de banque ? Cette action sera bloquée si un concours utilise encore cette catégorie.`,
+    )
+    if (!confirmed) return
+
+    setError('')
+    try {
+      const { data, error: deleteError } = await supabase.rpc(
+        'admin_delete_question_bank_category',
+        { p_category_id: summary.id },
+      )
+      if (deleteError) throw deleteError
+
+      const result = data as
+        | {
+            deleted_questions?: number | null
+            deleted_bank_links?: number | null
+            deleted_empty_banks?: number | null
+          }
+        | null
+
+      await refreshData(
+        selectedBank && summary.banks.some((bank) => bank.id === selectedBank.id)
+          ? ''
+          : selectedBankId,
+      )
+      setSelectedCategoryId('')
+      setError(
+        `Catégorie supprimée. ${formatNumber(
+          result?.deleted_questions ?? 0,
+        )} question(s), ${formatNumber(
+          result?.deleted_bank_links ?? 0,
+        )} lien(s) de banque et ${formatNumber(
+          result?.deleted_empty_banks ?? 0,
+        )} banque(s) vide(s) supprimés.`,
+      )
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'Suppression de la catégorie de banque impossible.',
+      )
+    }
+  }
+
   async function handleLogout() {
     await adminAuth.logout()
     navigate(authRoute, { replace: true })
@@ -1380,6 +1538,19 @@ export function SuperAdminQuestionBanksPage({
                           .join(' · ')
                       : 'Questions détectées, banque introuvable dans le catalogue'}
                   </p>
+                  <button
+                    className="question-bank-category-delete-button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void deleteQuestionBankCategory(summary)
+                    }}
+                    title="Supprimer cette catégorie, ses liens de banques et ses questions de banque"
+                    type="button"
+                  >
+                    <span aria-hidden="true">×</span>
+                    <strong>Supprimer</strong>
+                    <small>catégorie + questions</small>
+                  </button>
                 </article>
               ))}
             </div>
@@ -1972,6 +2143,22 @@ export function SuperAdminQuestionBanksPage({
                     }
                     placeholder="https://..."
                   />
+                  <div className="question-bank-media-upload-row">
+                    <label className="question-bank-media-upload-button">
+                      Charger une image
+                      <input
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        disabled={Boolean(uploadingQuestionImageKey)}
+                        onChange={(event) => handleQuestionImageUpload(event, 'questionImageUrl')}
+                        type="file"
+                      />
+                    </label>
+                    <small>
+                      {uploadingQuestionImageKey === 'questionImageUrl'
+                        ? 'Chargement...'
+                        : 'Stockage MegaPromo, évite les limites des sites externes.'}
+                    </small>
+                  </div>
                   {questionForm.questionImageUrl ? (
                     <span className="question-bank-media-preview">
                       <img src={questionForm.questionImageUrl} alt="" loading="lazy" />
@@ -2020,6 +2207,22 @@ export function SuperAdminQuestionBanksPage({
                               }
                               placeholder="https://..."
                             />
+                            <div className="question-bank-media-upload-row is-compact">
+                              <label className="question-bank-media-upload-button">
+                                Charger
+                                <input
+                                  accept="image/png,image/jpeg,image/webp,image/gif"
+                                  disabled={Boolean(uploadingQuestionImageKey)}
+                                  onChange={(event) => handleQuestionImageUpload(event, imageKey)}
+                                  type="file"
+                                />
+                              </label>
+                              <small>
+                                {uploadingQuestionImageKey === imageKey
+                                  ? 'Chargement...'
+                                  : 'Image stockée par MegaPromo.'}
+                              </small>
+                            </div>
                           </label>
                         ) : null}
                         {shouldShowAnswerImages && imageValue ? (
