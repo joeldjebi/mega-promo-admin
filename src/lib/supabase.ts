@@ -74,6 +74,7 @@ const rpcPermissionFeatures: Record<string, string> = {
   admin_run_system_logs_maintenance: 'system_logs',
   admin_upsert_system_logs_maintenance: 'system_logs',
   admin_get_player_referral_overview: 'users',
+  admin_get_suspicious_players: 'users',
   admin_register_player_payment_method_if_empty: 'users',
   admin_update_player_subscription_status: 'users',
   admin_schedule_user_deletion: 'users',

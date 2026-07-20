@@ -51,6 +51,9 @@ type PlayerUserItem = {
   contestResponseTimeMs: number | null
   contestCompleted: boolean | null
   contestParticipatedAt: string
+  riskLevel: 'normal' | 'review' | 'restricted'
+  sharedDeviceAccounts: number
+  sharedFcmAccounts: number
 }
 
 type UserRoleFilter = 'player' | 'partner' | 'all_non_admin'
@@ -58,6 +61,7 @@ type UserStatusFilter = 'all' | 'active' | 'inactive'
 type UserPlanFilter = 'all' | 'premium' | 'standard'
 type UserPushFilter = 'all' | 'enabled' | 'disabled'
 type UserAppVersionFilter = 'all' | 'latest' | 'outdated'
+type UserRiskFilter = 'all' | 'suspect' | 'restricted'
 type UserSortFilter = 'recent' | 'points_desc' | 'contest_score_desc'
 
 type ContestFilterOption = {
@@ -299,6 +303,18 @@ function isUserOnLatestAppVersion(
   return currentBuild > 0 && latestBuild > 0 && currentBuild >= latestBuild
 }
 
+function userRiskLabel(user: PlayerUserItem) {
+  if (user.riskLevel === 'restricted') return 'Risque élevé'
+  if (user.riskLevel === 'review') return 'À vérifier'
+  return 'Normal'
+}
+
+function userRiskClassName(user: PlayerUserItem) {
+  if (user.riskLevel === 'restricted') return 'inactive'
+  if (user.riskLevel === 'review') return 'warning'
+  return 'active'
+}
+
 function getVisibleUsersNavItems(
   permissions: string[] | undefined,
   navItems: UsersNavItem[],
@@ -354,6 +370,7 @@ async function fetchPlayersData({
   planFilter,
   pushFilter,
   appVersionFilter,
+  riskFilter,
   appUpdateConfig,
   sortFilter,
   contestId,
@@ -366,6 +383,7 @@ async function fetchPlayersData({
   planFilter: UserPlanFilter
   pushFilter: UserPushFilter
   appVersionFilter: UserAppVersionFilter
+  riskFilter: UserRiskFilter
   appUpdateConfig: AppUpdateConfigSummary | null
   sortFilter: UserSortFilter
   contestId: string
@@ -413,6 +431,39 @@ async function fetchPlayersData({
     throw contestParticipationsResponse.error
   }
 
+  const suspiciousPlayers = new Map<
+    string,
+    {
+      riskLevel: 'normal' | 'review' | 'restricted'
+      sharedDeviceAccounts: number
+      sharedFcmAccounts: number
+    }
+  >()
+
+  try {
+    const { data, error } = await supabase.rpc('admin_get_suspicious_players')
+    if (error) throw error
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (!item || typeof item !== 'object') continue
+        const row = item as Record<string, unknown>
+        const userId = typeof row.user_id === 'string' ? row.user_id : ''
+        if (!userId) continue
+        const riskLevel =
+          row.risk_level === 'restricted' || row.risk_level === 'review'
+            ? row.risk_level
+            : 'normal'
+        suspiciousPlayers.set(userId, {
+          riskLevel,
+          sharedDeviceAccounts: numberFromUnknown(row.shared_device_accounts),
+          sharedFcmAccounts: numberFromUnknown(row.shared_fcm_accounts),
+        })
+      }
+    }
+  } catch (error) {
+    console.warn('[MegaPromo][SA users][suspiciousPlayers]', error)
+  }
+
   const contestParticipations = new Map<
     string,
     {
@@ -449,6 +500,7 @@ async function fetchPlayersData({
   const mappedUsers = (usersResponse.data ?? []).map((user) => {
     const id = user.id as string
     const contestParticipation = contestParticipations.get(id)
+    const risk = suspiciousPlayers.get(id)
     return {
       id,
       phone: (user.phone as string | null) ?? '',
@@ -481,6 +533,9 @@ async function fetchPlayersData({
       contestResponseTimeMs: contestParticipation?.responseTimeMs ?? null,
       contestCompleted: contestParticipation?.completed ?? null,
       contestParticipatedAt: contestParticipation?.participatedAt ?? '',
+      riskLevel: risk?.riskLevel ?? 'normal',
+      sharedDeviceAccounts: risk?.sharedDeviceAccounts ?? 0,
+      sharedFcmAccounts: risk?.sharedFcmAccounts ?? 0,
     }
   })
 
@@ -502,6 +557,10 @@ async function fetchPlayersData({
       appVersionFilter === 'outdated' &&
       isUserOnLatestAppVersion(user, appUpdateConfig)
     ) {
+      return false
+    }
+    if (riskFilter === 'suspect' && user.riskLevel === 'normal') return false
+    if (riskFilter === 'restricted' && user.riskLevel !== 'restricted') {
       return false
     }
     return true
@@ -627,6 +686,7 @@ export function SuperAdminUsersPage({
   const [userPushFilter, setUserPushFilter] = useState<UserPushFilter>('all')
   const [userAppVersionFilter, setUserAppVersionFilter] =
     useState<UserAppVersionFilter>('all')
+  const [userRiskFilter, setUserRiskFilter] = useState<UserRiskFilter>('all')
   const [userSortFilter, setUserSortFilter] = useState<UserSortFilter>('recent')
   const [userContestFilter, setUserContestFilter] = useState('')
   const [contestOptions, setContestOptions] = useState<ContestFilterOption[]>([])
@@ -678,6 +738,7 @@ export function SuperAdminUsersPage({
         planFilter: userPlanFilter,
         pushFilter: userPushFilter,
         appVersionFilter: userAppVersionFilter,
+        riskFilter: userRiskFilter,
         appUpdateConfig: nextAppUpdateConfig,
         sortFilter: userSortFilter,
         contestId: userContestFilter,
@@ -696,6 +757,7 @@ export function SuperAdminUsersPage({
     userContestFilter,
     userPlanFilter,
     userPushFilter,
+    userRiskFilter,
     userRoleFilter,
     userSortFilter,
     userStatusFilter,
@@ -745,6 +807,7 @@ export function SuperAdminUsersPage({
     userContestFilter,
     userPlanFilter,
     userPushFilter,
+    userRiskFilter,
     userSortFilter,
     userStatusFilter,
   ])
@@ -765,6 +828,7 @@ export function SuperAdminUsersPage({
           planFilter: userPlanFilter,
           pushFilter: userPushFilter,
           appVersionFilter: userAppVersionFilter,
+          riskFilter: userRiskFilter,
           appUpdateConfig: nextAppUpdateConfig,
           sortFilter: userSortFilter,
           contestId: userContestFilter,
@@ -790,6 +854,7 @@ export function SuperAdminUsersPage({
     userContestFilter,
     userPlanFilter,
     userPushFilter,
+    userRiskFilter,
     userRoleFilter,
     userSortFilter,
     userStatusFilter,
@@ -1228,6 +1293,16 @@ export function SuperAdminUsersPage({
               <option value="outdated">App à vérifier</option>
             </select>
             <select
+              onChange={(event) =>
+                setUserRiskFilter(event.target.value as UserRiskFilter)
+              }
+              value={userRiskFilter}
+            >
+              <option value="all">Tous risques</option>
+              <option value="suspect">Comptes suspects</option>
+              <option value="restricted">Risque élevé</option>
+            </select>
+            <select
               onChange={(event) => setUserSortFilter(event.target.value as UserSortFilter)}
               value={userSortFilter}
             >
@@ -1284,6 +1359,15 @@ export function SuperAdminUsersPage({
                   <div>
                     <strong>{user.role}</strong>
                     <p>{userContestFilter ? 'Participant' : 'Compte'}</p>
+                    <span className={`status-pill ${userRiskClassName(user)}`}>
+                      {userRiskLabel(user)}
+                    </span>
+                    {user.riskLevel !== 'normal' ? (
+                      <p>
+                        Device {user.sharedDeviceAccounts} · Push{' '}
+                        {user.sharedFcmAccounts}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="user-performance-cell">
                     {userContestFilter ? (

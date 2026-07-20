@@ -161,15 +161,22 @@ type MobileInfoMessageFormState = {
 }
 
 type LegalPageKey = 'terms' | 'privacy' | 'account-deletion'
+type AppUpdateType = 'minor' | 'major' | 'urgent'
 type AppUpdateConfigItem = {
   minimumAndroidBuild: number
   latestAndroidBuild: number
+  latestAndroidVersion: string
   minimumIosBuild: number
   latestIosBuild: number
+  latestIosVersion: string
   androidStoreUrl: string
   iosStoreUrl: string
   title: string
   message: string
+  updateType: AppUpdateType
+  minorMessage: string
+  majorMessage: string
+  urgentMessage: string
   forceUpdate: boolean
   isActive: boolean
   updatedAt: string
@@ -177,12 +184,18 @@ type AppUpdateConfigItem = {
 type AppUpdateConfigFormState = {
   minimumAndroidBuild: string
   latestAndroidBuild: string
+  latestAndroidVersion: string
   minimumIosBuild: string
   latestIosBuild: string
+  latestIosVersion: string
   androidStoreUrl: string
   iosStoreUrl: string
   title: string
   message: string
+  updateType: AppUpdateType
+  minorMessage: string
+  majorMessage: string
+  urgentMessage: string
   forceUpdate: boolean
   isActive: boolean
 }
@@ -344,13 +357,22 @@ function createDefaultMobileInfoMessageForm(): MobileInfoMessageFormState {
 const defaultAppUpdateConfigForm: AppUpdateConfigFormState = {
   minimumAndroidBuild: '1',
   latestAndroidBuild: '1',
+  latestAndroidVersion: '1.0.0',
   minimumIosBuild: '1',
   latestIosBuild: '1',
+  latestIosVersion: '1.0.0',
   androidStoreUrl: '',
   iosStoreUrl: '',
   title: 'Mise à jour disponible',
   message:
     'Une nouvelle version de MegaPromo est disponible avec des améliorations importantes.',
+  updateType: 'minor',
+  minorMessage:
+    'Une nouvelle version de MegaPromo est disponible. Tu peux la faire quand tu veux pour profiter des dernières améliorations.',
+  majorMessage:
+    'Une mise à jour importante de MegaPromo est disponible. Mets ton app à jour pour profiter d’une expérience plus fiable.',
+  urgentMessage:
+    'Cette version de MegaPromo n’est plus compatible. Tu dois mettre l’application à jour pour continuer.',
   forceUpdate: false,
   isActive: true,
 }
@@ -501,12 +523,18 @@ function appUpdateConfigToForm(
   return {
     minimumAndroidBuild: String(config.minimumAndroidBuild),
     latestAndroidBuild: String(config.latestAndroidBuild),
+    latestAndroidVersion: config.latestAndroidVersion,
     minimumIosBuild: String(config.minimumIosBuild),
     latestIosBuild: String(config.latestIosBuild),
+    latestIosVersion: config.latestIosVersion,
     androidStoreUrl: config.androidStoreUrl,
     iosStoreUrl: config.iosStoreUrl,
     title: config.title,
     message: config.message,
+    updateType: config.updateType,
+    minorMessage: config.minorMessage,
+    majorMessage: config.majorMessage,
+    urgentMessage: config.urgentMessage,
     forceUpdate: config.forceUpdate,
     isActive: config.isActive,
   }
@@ -664,7 +692,7 @@ async function fetchAppUpdateConfigForAdmin(): Promise<AppUpdateConfigItem | nul
   const { data, error } = await supabase
     .from('app_update_config')
     .select(
-      'minimum_android_build, latest_android_build, minimum_ios_build, latest_ios_build, android_store_url, ios_store_url, title, message, force_update, is_active, updated_at',
+      'minimum_android_build, latest_android_build, latest_android_version, minimum_ios_build, latest_ios_build, latest_ios_version, android_store_url, ios_store_url, title, message, update_type, minor_message, major_message, urgent_message, force_update, is_active, updated_at',
     )
     .eq('key', 'main')
     .maybeSingle()
@@ -675,14 +703,30 @@ async function fetchAppUpdateConfigForAdmin(): Promise<AppUpdateConfigItem | nul
   return {
     minimumAndroidBuild: (data.minimum_android_build as number | null) ?? 1,
     latestAndroidBuild: (data.latest_android_build as number | null) ?? 1,
+    latestAndroidVersion:
+      (data.latest_android_version as string | null) ?? '1.0.0',
     minimumIosBuild: (data.minimum_ios_build as number | null) ?? 1,
     latestIosBuild: (data.latest_ios_build as number | null) ?? 1,
+    latestIosVersion: (data.latest_ios_version as string | null) ?? '1.0.0',
     androidStoreUrl: (data.android_store_url as string | null) ?? '',
     iosStoreUrl: (data.ios_store_url as string | null) ?? '',
     title: (data.title as string | null) ?? 'Mise à jour disponible',
     message:
       (data.message as string | null) ??
       'Une nouvelle version de MegaPromo est disponible.',
+    updateType:
+      data.update_type === 'major' || data.update_type === 'urgent'
+        ? data.update_type
+        : 'minor',
+    minorMessage:
+      (data.minor_message as string | null) ??
+      defaultAppUpdateConfigForm.minorMessage,
+    majorMessage:
+      (data.major_message as string | null) ??
+      defaultAppUpdateConfigForm.majorMessage,
+    urgentMessage:
+      (data.urgent_message as string | null) ??
+      defaultAppUpdateConfigForm.urgentMessage,
     forceUpdate: (data.force_update as boolean | null) ?? false,
     isActive: (data.is_active as boolean | null) ?? true,
     updatedAt: (data.updated_at as string | null) ?? '',
@@ -1357,31 +1401,51 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
     setSettingsError('')
 
     const title = appUpdateConfigForm.title.trim()
-    const message = appUpdateConfigForm.message.trim()
+    const selectedMessage =
+      appUpdateConfigForm.updateType === 'urgent'
+        ? appUpdateConfigForm.urgentMessage
+        : appUpdateConfigForm.updateType === 'major'
+          ? appUpdateConfigForm.majorMessage
+          : appUpdateConfigForm.minorMessage
+    const message = selectedMessage.trim()
     if (!title || !message) {
       setSettingsError('Titre et message de mise à jour sont requis.')
       return
     }
 
-    const minimumAndroidBuild =
-      Number(appUpdateConfigForm.minimumAndroidBuild) || 1
     const latestAndroidBuild = Number(appUpdateConfigForm.latestAndroidBuild) || 1
-    const minimumIosBuild = Number(appUpdateConfigForm.minimumIosBuild) || 1
     const latestIosBuild = Number(appUpdateConfigForm.latestIosBuild) || 1
+    const isUrgentUpdate = appUpdateConfigForm.updateType === 'urgent'
+    const minimumAndroidBuild = isUrgentUpdate ? latestAndroidBuild : 1
+    const minimumIosBuild = isUrgentUpdate ? latestIosBuild : 1
 
     setIsAppUpdateConfigSaving(true)
     try {
       const { error } = await supabase.from('app_update_config').upsert({
         key: 'main',
         minimum_android_build: minimumAndroidBuild,
-        latest_android_build: Math.max(latestAndroidBuild, minimumAndroidBuild),
+        latest_android_build: latestAndroidBuild,
+        latest_android_version:
+          appUpdateConfigForm.latestAndroidVersion.trim() || '1.0.0',
         minimum_ios_build: minimumIosBuild,
-        latest_ios_build: Math.max(latestIosBuild, minimumIosBuild),
+        latest_ios_build: latestIosBuild,
+        latest_ios_version:
+          appUpdateConfigForm.latestIosVersion.trim() || '1.0.0',
         android_store_url: appUpdateConfigForm.androidStoreUrl.trim() || null,
         ios_store_url: appUpdateConfigForm.iosStoreUrl.trim() || null,
         title,
         message,
-        force_update: appUpdateConfigForm.forceUpdate,
+        update_type: appUpdateConfigForm.updateType,
+        minor_message:
+          appUpdateConfigForm.minorMessage.trim() ||
+          defaultAppUpdateConfigForm.minorMessage,
+        major_message:
+          appUpdateConfigForm.majorMessage.trim() ||
+          defaultAppUpdateConfigForm.majorMessage,
+        urgent_message:
+          appUpdateConfigForm.urgentMessage.trim() ||
+          defaultAppUpdateConfigForm.urgentMessage,
+        force_update: isUrgentUpdate,
         is_active: appUpdateConfigForm.isActive,
         updated_at: new Date().toISOString(),
       })
@@ -2930,27 +2994,30 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                   appUpdateConfigForm.isActive ? 'active' : 'inactive'
                 }`}
               >
-                {appUpdateConfigForm.forceUpdate ? 'Obligatoire' : 'Configurable'}
+                {appUpdateConfigForm.updateType === 'urgent'
+                  ? 'Urgente'
+                  : appUpdateConfigForm.updateType === 'major'
+                    ? 'Majeure'
+                    : 'Mineure'}
               </span>
             </div>
             <form className="category-form" onSubmit={handleSaveAppUpdateConfig}>
               <div className="form-grid two-columns">
                 <label>
-                  <span>Build minimum Android</span>
+                  <span>Version Android</span>
                   <input
-                    min="1"
                     onChange={(event) =>
                       setAppUpdateConfigForm((current) => ({
                         ...current,
-                        minimumAndroidBuild: event.target.value,
+                        latestAndroidVersion: event.target.value,
                       }))
                     }
-                    type="number"
-                    value={appUpdateConfigForm.minimumAndroidBuild}
+                    placeholder="1.0.15"
+                    value={appUpdateConfigForm.latestAndroidVersion}
                   />
                 </label>
                 <label>
-                  <span>Dernier build Android</span>
+                  <span>Build Android</span>
                   <input
                     min="1"
                     onChange={(event) =>
@@ -2964,37 +3031,7 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                   />
                 </label>
                 <label>
-                  <span>Build minimum iOS</span>
-                  <input
-                    min="1"
-                    onChange={(event) =>
-                      setAppUpdateConfigForm((current) => ({
-                        ...current,
-                        minimumIosBuild: event.target.value,
-                      }))
-                    }
-                    type="number"
-                    value={appUpdateConfigForm.minimumIosBuild}
-                  />
-                </label>
-                <label>
-                  <span>Dernier build iOS</span>
-                  <input
-                    min="1"
-                    onChange={(event) =>
-                      setAppUpdateConfigForm((current) => ({
-                        ...current,
-                        latestIosBuild: event.target.value,
-                      }))
-                    }
-                    type="number"
-                    value={appUpdateConfigForm.latestIosBuild}
-                  />
-                </label>
-              </div>
-              <div className="form-grid two-columns">
-                <label>
-                  <span>Lien Play Store</span>
+                  <span>URL app Android</span>
                   <input
                     onChange={(event) =>
                       setAppUpdateConfigForm((current) => ({
@@ -3007,7 +3044,34 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                   />
                 </label>
                 <label>
-                  <span>Lien App Store</span>
+                  <span>Version iOS</span>
+                  <input
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        latestIosVersion: event.target.value,
+                      }))
+                    }
+                    placeholder="1.0.15"
+                    value={appUpdateConfigForm.latestIosVersion}
+                  />
+                </label>
+                <label>
+                  <span>Build iOS</span>
+                  <input
+                    min="1"
+                    onChange={(event) =>
+                      setAppUpdateConfigForm((current) => ({
+                        ...current,
+                        latestIosBuild: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={appUpdateConfigForm.latestIosBuild}
+                  />
+                </label>
+                <label>
+                  <span>URL app iOS</span>
                   <input
                     onChange={(event) =>
                       setAppUpdateConfigForm((current) => ({
@@ -3021,6 +3085,22 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                 </label>
               </div>
               <label>
+                <span>Type de mise à jour</span>
+                <select
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      updateType: event.target.value as AppUpdateType,
+                    }))
+                  }
+                  value={appUpdateConfigForm.updateType}
+                >
+                  <option value="minor">Mineure · rappel 1 fois par semaine</option>
+                  <option value="major">Majeure · rappel 1 fois par jour</option>
+                  <option value="urgent">Urgente · mise à jour obligatoire</option>
+                </select>
+              </label>
+              <label>
                 <span>Titre affiché</span>
                 <input
                   onChange={(event) =>
@@ -3033,16 +3113,42 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                 />
               </label>
               <label>
-                <span>Message affiché</span>
+                <span>Message mineur</span>
                 <textarea
                   onChange={(event) =>
                     setAppUpdateConfigForm((current) => ({
                       ...current,
-                      message: event.target.value,
+                      minorMessage: event.target.value,
                     }))
                   }
                   rows={3}
-                  value={appUpdateConfigForm.message}
+                  value={appUpdateConfigForm.minorMessage}
+                />
+              </label>
+              <label>
+                <span>Message majeur</span>
+                <textarea
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      majorMessage: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  value={appUpdateConfigForm.majorMessage}
+                />
+              </label>
+              <label>
+                <span>Message urgent</span>
+                <textarea
+                  onChange={(event) =>
+                    setAppUpdateConfigForm((current) => ({
+                      ...current,
+                      urgentMessage: event.target.value,
+                    }))
+                  }
+                  rows={3}
+                  value={appUpdateConfigForm.urgentMessage}
                 />
               </label>
               <label className="checkbox-row">
@@ -3058,19 +3164,10 @@ export function SuperAdminSettingsPage({ authRoute, rootRoute, navItems, accessR
                 />
                 <span>Activer le contrôle de version au démarrage</span>
               </label>
-              <label className="checkbox-row">
-                <input
-                  checked={appUpdateConfigForm.forceUpdate}
-                  onChange={(event) =>
-                    setAppUpdateConfigForm((current) => ({
-                      ...current,
-                      forceUpdate: event.target.checked,
-                    }))
-                  }
-                  type="checkbox"
-                />
-                <span>Forcer la mise à jour pour tous les joueurs</span>
-              </label>
+              <p className="helper-text">
+                En mode urgent, les joueurs dont le build est inférieur au build
+                cible ne peuvent plus continuer sans mettre à jour l’application.
+              </p>
               <div className="modal-actions">
                 <span className="helper-text">
                   {appUpdateConfigUpdatedAt
