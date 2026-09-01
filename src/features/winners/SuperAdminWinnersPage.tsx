@@ -11,6 +11,7 @@ type WinnersNavItem = { label: string; href: string; icon: string; permission: s
 type SuperAdminWinnersPageProps = { authRoute: string; rootRoute: string; contestsRoute: string; navItems: WinnersNavItem[]; historyMode?: boolean }
 type SupabaseLikeError = { message?: unknown; details?: unknown; hint?: unknown; code?: unknown }
 type WinnerStatus = 'pending' | 'sent' | 'received' | 'cancelled'
+type WinnerUniqueFilter = 'all' | 'unique' | 'repeat'
 type UserOption = {
   id: string
   label: string
@@ -83,6 +84,26 @@ function toDatetimeLocalValue(date: Date) { const offset = date.getTimezoneOffse
 function isoToDatetimeLocalValue(value: string) { if (!value) return ''; return toDatetimeLocalValue(new Date(value)) }
 function hasContestEnded(endsAt: string) { const endDate = new Date(endsAt); return !Number.isNaN(endDate.getTime()) && endDate <= new Date() }
 function getVisibleWinnersNavItems(permissions: string[] | undefined, navItems: WinnersNavItem[]) { return navItems.filter((item) => hasAdminPermission(permissions, item.permission, 'read')) }
+function normalizeWhatsAppPhone(value: string) {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.startsWith('00')) return digits.slice(2)
+  if (digits.length === 10 && digits.startsWith('0')) return `225${digits}`
+  if (digits.length === 8) return `225${digits}`
+  return digits
+}
+function createWinnerWhatsAppLink(winner: WinnerItem) {
+  const phone = normalizeWhatsAppPhone(winner.paymentNumber)
+  if (!phone) return ''
+  const message = [
+    `Bonjour ${winner.userLabel}, félicitations pour ton gain MegaPromo.`,
+    'Je veux t’ajouter au groupe WhatsApp des gagnants pour le suivi.',
+    winner.contestTitle ? `Concours : ${winner.contestTitle}.` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+}
 function useRealtimeRefresh(channelName: string, tables: string[], onRefresh: () => void | Promise<void>) { const tablesKey = tables.join('|'); useEffect(() => { let refreshTimeout = 0; const scheduleRefresh = () => { window.clearTimeout(refreshTimeout); refreshTimeout = window.setTimeout(() => { void onRefresh() }, 350) }; const channel = supabase.channel(channelName); tables.forEach((table) => { channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh) }); channel.subscribe(); return () => { window.clearTimeout(refreshTimeout); void supabase.removeChannel(channel) } }, [channelName, tablesKey, onRefresh]) }
 async function fetchAppFeatureFlag(key: string, defaultEnabled = true): Promise<AppFeatureFlagState> {
   const { data, error } = await supabase
@@ -253,6 +274,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
   const [winnerSearch, setWinnerSearch] = useState('')
   const [winnerStatusFilter, setWinnerStatusFilter] = useState<'all' | WinnerStatus>('all')
   const [winnerTypeFilter, setWinnerTypeFilter] = useState<'all' | 'contest' | 'live'>('all')
+  const [winnerUniqueFilter, setWinnerUniqueFilter] = useState<WinnerUniqueFilter>('all')
   const [winnerPage, setWinnerPage] = useState(0)
   const [rewardsFlag, setRewardsFlag] = useState<AppFeatureFlagState>({
     isEnabled: true,
@@ -262,7 +284,19 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
 
   const filteredWinners = useMemo(() => {
     const search = winnerSearch.trim().toLowerCase()
+    const winnerCountsByUserId = new Map<string, number>()
+    winnersData.winners.forEach((winner) => {
+      const key = winner.userId || winner.paymentNumber || winner.id
+      winnerCountsByUserId.set(key, (winnerCountsByUserId.get(key) ?? 0) + 1)
+    })
+
+    const seenUniqueWinnerKeys = new Set<string>()
     return winnersData.winners.filter((winner) => {
+      const uniqueKey = winner.userId || winner.paymentNumber || winner.id
+      const winsCount = winnerCountsByUserId.get(uniqueKey) ?? 1
+      const isUniqueWinner = winsCount === 1
+      const isFirstUniqueRow = !seenUniqueWinnerKeys.has(uniqueKey)
+      if (isFirstUniqueRow) seenUniqueWinnerKeys.add(uniqueKey)
       const matchesSearch =
         !search ||
         winner.userLabel.toLowerCase().includes(search) ||
@@ -273,9 +307,12 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
       const matchesType =
         winnerTypeFilter === 'all' ||
         (winnerTypeFilter === 'live' ? winner.isLiveContest : !winner.isLiveContest)
-      return matchesSearch && matchesStatus && matchesType
+      const matchesUnique =
+        winnerUniqueFilter === 'all' ||
+        (winnerUniqueFilter === 'unique' ? isFirstUniqueRow : !isUniqueWinner)
+      return matchesSearch && matchesStatus && matchesType && matchesUnique
     })
-  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnersData.winners])
+  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnerUniqueFilter, winnersData.winners])
   const winnerPageSize = 10
   const totalWinnerPages = Math.max(1, Math.ceil(filteredWinners.length / winnerPageSize))
   const paginatedWinners = useMemo(() => {
@@ -300,7 +337,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
 
   useEffect(() => {
     setWinnerPage(0)
-  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter])
+  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnerUniqueFilter])
 
   useEffect(() => {
     if (winnerPage + 1 > totalWinnerPages) {
@@ -1082,6 +1119,15 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
               <option value="contest">Concours</option>
               <option value="live">Quiz Live</option>
             </select>
+            <select
+              aria-label="Filtrer les gagnants uniques"
+              onChange={(event) => setWinnerUniqueFilter(event.target.value as WinnerUniqueFilter)}
+              value={winnerUniqueFilter}
+            >
+              <option value="all">Tous les gagnants</option>
+              <option value="unique">Gagnants uniques</option>
+              <option value="repeat">Multi-gagnants</option>
+            </select>
           </div>
 
           <div className="premium-winner-table" role="table" aria-label="Liste des gagnants">
@@ -1115,6 +1161,18 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
                     {winnerStatusLabel(winner.status)}
                   </span>
                   <div className="contest-actions">
+                    {createWinnerWhatsAppLink(winner) ? (
+                      <a
+                        aria-label={`Contacter ${winner.userLabel} sur WhatsApp`}
+                        className="table-action-button success"
+                        href={createWinnerWhatsAppLink(winner)}
+                        rel="noreferrer"
+                        target="_blank"
+                        title="Ouvrir WhatsApp avec un message d'invitation au groupe des gagnants"
+                      >
+                        WhatsApp
+                      </a>
+                    ) : null}
                     <button
                       aria-label={`Modifier le gain de ${winner.userLabel}`}
                       className="table-action-button"
