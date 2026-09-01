@@ -12,6 +12,7 @@ type SuperAdminWinnersPageProps = { authRoute: string; rootRoute: string; contes
 type SupabaseLikeError = { message?: unknown; details?: unknown; hint?: unknown; code?: unknown }
 type WinnerStatus = 'pending' | 'sent' | 'received' | 'cancelled'
 type WinnerUniqueFilter = 'all' | 'unique' | 'repeat'
+type WinnerPaymentNumberFilter = 'all' | 'unique' | 'shared' | 'missing'
 type UserOption = {
   id: string
   label: string
@@ -291,6 +292,8 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
   const [winnerStatusFilter, setWinnerStatusFilter] = useState<'all' | WinnerStatus>('all')
   const [winnerTypeFilter, setWinnerTypeFilter] = useState<'all' | 'contest' | 'live'>('all')
   const [winnerUniqueFilter, setWinnerUniqueFilter] = useState<WinnerUniqueFilter>('all')
+  const [winnerPaymentNumberFilter, setWinnerPaymentNumberFilter] =
+    useState<WinnerPaymentNumberFilter>('all')
   const [winnerPage, setWinnerPage] = useState(0)
   const [rewardsFlag, setRewardsFlag] = useState<AppFeatureFlagState>({
     isEnabled: true,
@@ -326,9 +329,31 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
       const matchesUnique =
         winnerUniqueFilter === 'all' ||
         (winnerUniqueFilter === 'unique' ? isFirstUniqueRow : !isUniqueWinner)
-      return matchesSearch && matchesStatus && matchesType && matchesUnique
+      const hasPaymentNumber = normalizeWhatsAppPhone(winner.paymentNumber) !== ''
+      const hasUniquePaymentNumber =
+        hasPaymentNumber && winner.paymentNumberUsageCount === 1
+      const hasSharedPaymentNumber = winner.paymentNumberUsageCount > 1
+      const matchesPaymentNumber =
+        winnerPaymentNumberFilter === 'all' ||
+        (winnerPaymentNumberFilter === 'unique' && hasUniquePaymentNumber) ||
+        (winnerPaymentNumberFilter === 'shared' && hasSharedPaymentNumber) ||
+        (winnerPaymentNumberFilter === 'missing' && !hasPaymentNumber)
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesType &&
+        matchesUnique &&
+        matchesPaymentNumber
+      )
     })
-  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnerUniqueFilter, winnersData.winners])
+  }, [
+    winnerSearch,
+    winnerStatusFilter,
+    winnerTypeFilter,
+    winnerUniqueFilter,
+    winnerPaymentNumberFilter,
+    winnersData.winners,
+  ])
   const winnerPageSize = 10
   const totalWinnerPages = Math.max(1, Math.ceil(filteredWinners.length / winnerPageSize))
   const paginatedWinners = useMemo(() => {
@@ -353,7 +378,13 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
 
   useEffect(() => {
     setWinnerPage(0)
-  }, [winnerSearch, winnerStatusFilter, winnerTypeFilter, winnerUniqueFilter])
+  }, [
+    winnerSearch,
+    winnerStatusFilter,
+    winnerTypeFilter,
+    winnerUniqueFilter,
+    winnerPaymentNumberFilter,
+  ])
 
   useEffect(() => {
     if (winnerPage + 1 > totalWinnerPages) {
@@ -1199,6 +1230,20 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
               <option value="all">Tous les gagnants</option>
               <option value="unique">Gagnants uniques</option>
               <option value="repeat">Multi-gagnants</option>
+            </select>
+            <select
+              aria-label="Filtrer par numéro de gain"
+              onChange={(event) =>
+                setWinnerPaymentNumberFilter(
+                  event.target.value as WinnerPaymentNumberFilter,
+                )
+              }
+              value={winnerPaymentNumberFilter}
+            >
+              <option value="all">Tous les numéros</option>
+              <option value="unique">Numéros uniques</option>
+              <option value="shared">Numéros partagés</option>
+              <option value="missing">Numéros manquants</option>
             </select>
           </div>
 
