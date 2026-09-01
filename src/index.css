@@ -3915,6 +3915,12 @@ h3 {
   min-width: 1040px;
 }
 
+.replay-payments-table .premium-contest-head,
+.replay-payments-table .premium-contest-row {
+  grid-template-columns: minmax(190px, 1fr) minmax(220px, 1.2fr) 120px minmax(180px, 0.9fr) 110px minmax(210px, 1fr) 170px;
+  min-width: 1200px;
+}
+
 .partner-contest-head,
 .partner-contest-row {
   grid-template-columns: minmax(260px, 1.5fr) 90px minmax(150px, 0.85fr) minmax(120px, 0.7fr) 120px 130px 100px 170px;

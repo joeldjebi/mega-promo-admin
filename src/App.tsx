@@ -30,6 +30,7 @@ import { SuperAdminCountriesPage } from './features/countries/SuperAdminCountrie
 import { SuperAdminPartnersPage } from './features/partners/SuperAdminPartnersPage'
 import { SuperAdminPlansPage } from './features/plans/SuperAdminPlansPage'
 import { SuperAdminQuestionBanksPage } from './features/questionBanks/SuperAdminQuestionBanksPage'
+import { SuperAdminQuizReplayPaymentsPage } from './features/quizReplays/SuperAdminQuizReplayPaymentsPage'
 import { SuperAdminRewardCatalogPage } from './features/rewardCatalog/SuperAdminRewardCatalogPage'
 import { SuperAdminRewardHistoryPage } from './features/rewardHistory/SuperAdminRewardHistoryPage'
 import { SuperAdminSubscriptionHistoryPage } from './features/subscriptionHistory/SuperAdminSubscriptionHistoryPage'
@@ -589,6 +590,7 @@ const SUPER_ADMIN_QUESTION_BANKS_ROUTE = `${SUPER_ADMIN_ROUTE}/question-banks`
 const SUPER_ADMIN_PARTNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/partners`
 const SUPER_ADMIN_PLANS_ROUTE = `${SUPER_ADMIN_ROUTE}/plans`
 const SUPER_ADMIN_WINNERS_ROUTE = `${SUPER_ADMIN_ROUTE}/winners`
+const SUPER_ADMIN_QUIZ_REPLAYS_ROUTE = `${SUPER_ADMIN_ROUTE}/quiz-replays`
 const SUPER_ADMIN_REWARD_HISTORY_ROUTE = `${SUPER_ADMIN_ROUTE}/reward-history`
 const SUPER_ADMIN_SUBSCRIPTION_HISTORY_ROUTE = `${SUPER_ADMIN_ROUTE}/subscription-history`
 const SUPER_ADMIN_REWARD_CATALOG_ROUTE = `${SUPER_ADMIN_ROUTE}/reward-catalog`
@@ -702,6 +704,7 @@ const navItems = [
   { label: 'Secteurs', href: SUPER_ADMIN_SECTORS_ROUTE, icon: 'T', permission: 'sectors' },
   { label: 'Forfaits', href: SUPER_ADMIN_PLANS_ROUTE, icon: 'F', permission: 'plans' },
   { label: 'Gagnants', href: SUPER_ADMIN_WINNERS_ROUTE, icon: 'W', permission: 'winners' },
+  { label: 'Paiements replay', href: SUPER_ADMIN_QUIZ_REPLAYS_ROUTE, icon: 'Y', permission: 'winners' },
   { label: 'Historique des gains', href: SUPER_ADMIN_REWARD_HISTORY_ROUTE, icon: 'H', permission: 'winners' },
   { label: 'Historique des abonnements', href: SUPER_ADMIN_SUBSCRIPTION_HISTORY_ROUTE, icon: 'B', permission: 'users' },
   { label: 'Catalogue des gains', href: SUPER_ADMIN_REWARD_CATALOG_ROUTE, icon: 'R', permission: 'reward_catalog' },
@@ -2226,6 +2229,10 @@ function App() {
           element={<ProtectedSuperAdminRoute page="winners" />}
         />
         <Route
+          path={SUPER_ADMIN_QUIZ_REPLAYS_ROUTE}
+          element={<ProtectedSuperAdminRoute page="quiz-replays" />}
+        />
+        <Route
           path={SUPER_ADMIN_REWARD_HISTORY_ROUTE}
           element={<ProtectedSuperAdminRoute page="reward-history" />}
         />
@@ -2474,6 +2481,7 @@ function ProtectedSuperAdminRoute({
     | 'partners'
     | 'plans'
     | 'winners'
+    | 'quiz-replays'
     | 'reward-history'
     | 'subscription-history'
     | 'reward-catalog'
@@ -2517,6 +2525,8 @@ function ProtectedSuperAdminRoute({
         ? 'users'
         : page === 'reward-history'
           ? 'winners'
+          : page === 'quiz-replays'
+            ? 'winners'
           : page === 'subscription-history'
             ? 'users'
         : page === 'reward-catalog'
@@ -2632,6 +2642,15 @@ function ProtectedSuperAdminRoute({
         contestsRoute={SUPER_ADMIN_CONTESTS_ROUTE}
         navItems={navItems}
         rootRoute={SUPER_ADMIN_ROUTE}
+      />
+    )
+  }
+  if (page === 'quiz-replays') {
+    return (
+      <SuperAdminQuizReplayPaymentsPage
+        authRoute={SUPER_ADMIN_AUTH_ROUTE}
+        contestsRoute={SUPER_ADMIN_CONTESTS_ROUTE}
+        navItems={navItems}
       />
     )
   }
