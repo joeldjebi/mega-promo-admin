@@ -31,6 +31,7 @@ type PlayerUserItem = {
   fcmTokenUpdatedAt: string
   fcmTokenLastError: string
   fcmTokenLastErrorAt: string
+  whatsappGroupAddedAt: string
   isPremium: boolean
   premiumExpiresAt: string
   pointsTotal: number
@@ -393,7 +394,7 @@ async function fetchPlayersData({
   let usersQuery = supabase
     .from('users')
     .select(
-      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
+      'id, phone, username, avatar_url, role, fcm_token, fcm_token_platform, fcm_token_updated_at, fcm_token_last_error, fcm_token_last_error_at, whatsapp_group_added_at, is_premium, premium_expires_at, points_total, participations_today, last_participation_date, device_info, location_info, device_last_seen_at, is_active, account_status, deletion_requested_at, deletion_scheduled_at, deleted_at, anonymized_ref, created_at',
     )
     .or('role.is.null,role.not.in.(admin,super_admin,super-admin,sa)')
     .order('created_at', { ascending: false })
@@ -512,6 +513,7 @@ async function fetchPlayersData({
       fcmTokenUpdatedAt: (user.fcm_token_updated_at as string | null) ?? '',
       fcmTokenLastError: (user.fcm_token_last_error as string | null) ?? '',
       fcmTokenLastErrorAt: (user.fcm_token_last_error_at as string | null) ?? '',
+      whatsappGroupAddedAt: (user.whatsapp_group_added_at as string | null) ?? '',
       isPremium: (user.is_premium as boolean | null) ?? false,
       premiumExpiresAt: (user.premium_expires_at as string | null) ?? '',
       pointsTotal: (user.points_total as number | null) ?? 0,
@@ -1452,6 +1454,20 @@ export function SuperAdminUsersPage({
                       {userLatestBuildTarget(user, appUpdateConfig) > 0
                         ? ` / latest ${userLatestBuildTarget(user, appUpdateConfig)}`
                         : ''}
+                    </p>
+                    <span
+                      className={`status-pill push-token-pill ${
+                        user.whatsappGroupAddedAt ? 'active' : 'inactive'
+                      }`}
+                    >
+                      {user.whatsappGroupAddedAt
+                        ? 'Groupe WhatsApp'
+                        : 'Pas dans groupe'}
+                    </span>
+                    <p>
+                      {user.whatsappGroupAddedAt
+                        ? `Ajouté ${formatDate(user.whatsappGroupAddedAt)}`
+                        : 'Gagnant non marqué'}
                     </p>
                   </div>
                   <div>

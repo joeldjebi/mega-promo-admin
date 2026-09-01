@@ -15,6 +15,7 @@ type WinnerUniqueFilter = 'all' | 'unique' | 'repeat'
 type UserOption = {
   id: string
   label: string
+  whatsappGroupAddedAt: string
   hasPushToken?: boolean
   pushPlatform?: string
   pushLastError?: string
@@ -39,6 +40,8 @@ type WinnerItem = {
   prizeValue: number
   paymentMethod: string
   paymentNumber: string
+  paymentNumberUsageCount: number
+  whatsappGroupAddedAt: string
   status: WinnerStatus
   sentAt: string
   createdAt: string
@@ -92,18 +95,6 @@ function normalizeWhatsAppPhone(value: string) {
   if (digits.length === 8) return `225${digits}`
   return digits
 }
-function createWinnerWhatsAppLink(winner: WinnerItem) {
-  const phone = normalizeWhatsAppPhone(winner.paymentNumber)
-  if (!phone) return ''
-  const message = [
-    `Bonjour ${winner.userLabel}, félicitations pour ton gain MegaPromo.`,
-    'Je veux t’ajouter au groupe WhatsApp des gagnants pour le suivi.',
-    winner.contestTitle ? `Concours : ${winner.contestTitle}.` : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
-  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
-}
 function useRealtimeRefresh(channelName: string, tables: string[], onRefresh: () => void | Promise<void>) { const tablesKey = tables.join('|'); useEffect(() => { let refreshTimeout = 0; const scheduleRefresh = () => { window.clearTimeout(refreshTimeout); refreshTimeout = window.setTimeout(() => { void onRefresh() }, 350) }; const channel = supabase.channel(channelName); tables.forEach((table) => { channel.on('postgres_changes', { event: '*', schema: 'public', table }, scheduleRefresh) }); channel.subscribe(); return () => { window.clearTimeout(refreshTimeout); void supabase.removeChannel(channel) } }, [channelName, tablesKey, onRefresh]) }
 async function fetchAppFeatureFlag(key: string, defaultEnabled = true): Promise<AppFeatureFlagState> {
   const { data, error } = await supabase
@@ -135,7 +126,7 @@ async function fetchWinnersData(): Promise<WinnersData> {
       .order('created_at', { ascending: false }),
     supabase
       .from('users')
-      .select('id, username, phone')
+      .select('id, username, phone, whatsapp_group_added_at')
       .eq('role', 'player')
       .order('created_at', { ascending: false })
       .limit(500),
@@ -168,6 +159,7 @@ async function fetchWinnersData(): Promise<WinnersData> {
     return {
       id: user.id as string,
       label: username || phone || 'Joueur',
+      whatsappGroupAddedAt: (user.whatsapp_group_added_at as string | null) ?? '',
     }
   })
   const contests = (contestsResponse.data ?? []).map((contest) => ({
@@ -181,6 +173,13 @@ async function fetchWinnersData(): Promise<WinnersData> {
   const userLabels = new Map(users.map((user) => [user.id, user.label]))
   const contestLabels = new Map(contests.map((contest) => [contest.id, contest.title]))
   const contestTypes = new Map(contests.map((contest) => [contest.id, contest.isLive]))
+  const userWhatsAppGroupAddedAt = new Map(users.map((user) => [user.id, user.whatsappGroupAddedAt]))
+  const paymentNumberCounts = new Map<string, number>()
+  for (const winner of winnersResponse.data ?? []) {
+    const phone = normalizeWhatsAppPhone((winner.payment_number as string | null) ?? '')
+    if (!phone) continue
+    paymentNumberCounts.set(phone, (paymentNumberCounts.get(phone) ?? 0) + 1)
+  }
 
   return {
     users,
@@ -209,6 +208,10 @@ async function fetchWinnersData(): Promise<WinnersData> {
       prizeValue: (winner.prize_value as number | null) ?? 0,
       paymentMethod: (winner.payment_method as string | null) ?? '',
       paymentNumber: (winner.payment_number as string | null) ?? '',
+      paymentNumberUsageCount:
+        paymentNumberCounts.get(normalizeWhatsAppPhone((winner.payment_number as string | null) ?? '')) ?? 0,
+      whatsappGroupAddedAt:
+        userWhatsAppGroupAddedAt.get((winner.user_id as string | null) ?? '') ?? '',
       status: ((winner.status as string | null) ?? 'pending') as WinnerStatus,
       sentAt: (winner.sent_at as string | null) ?? '',
       createdAt: (winner.created_at as string | null) ?? '',
@@ -761,6 +764,62 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     await loadWinners()
   }
 
+  async function handleToggleWinnerWhatsAppGroup(winner: WinnerItem) {
+    setWinnersError('')
+    setWinnersNotice('')
+
+    if (!winner.userId) {
+      setWinnersError('Impossible de marquer ce gagnant sans utilisateur associé.')
+      return
+    }
+
+    const nextAddedAt = winner.whatsappGroupAddedAt
+      ? null
+      : new Date().toISOString()
+    const { error } = await supabase
+      .from('users')
+      .update({ whatsapp_group_added_at: nextAddedAt })
+      .eq('id', winner.userId)
+
+    if (error) {
+      void logError({
+        feature: 'winners',
+        action: 'whatsapp_group_toggle_failed',
+        message: 'Echec changement statut groupe WhatsApp gagnant.',
+        userId: winner.userId,
+        entityType: 'winner',
+        entityId: winner.id,
+        metadata: {
+          user_label: winner.userLabel,
+          next_added: Boolean(nextAddedAt),
+          error: error.message,
+        },
+      })
+      setWinnersError(error.message)
+      return
+    }
+
+    setWinnersNotice(
+      nextAddedAt
+        ? `${winner.userLabel} est marqué comme ajouté au groupe WhatsApp.`
+        : `${winner.userLabel} n’est plus marqué comme ajouté au groupe WhatsApp.`,
+    )
+    void logAdminAction({
+      feature: 'winners',
+      action: nextAddedAt ? 'whatsapp_group_added' : 'whatsapp_group_removed',
+      message: 'Statut groupe WhatsApp gagnant modifie par le SA.',
+      userId: winner.userId,
+      entityType: 'winner',
+      entityId: winner.id,
+      metadata: {
+        user_label: winner.userLabel,
+        contest_title: winner.contestTitle,
+        payment_number: winner.paymentNumber,
+      },
+    })
+    await loadWinners()
+  }
+
   async function sendWinnerStatusPush({
     userId,
     userLabel,
@@ -1156,23 +1215,31 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
                       {winner.paymentMethod || (winner.status === 'pending' ? 'À définir' : 'Non renseignée')}
                     </strong>
                     <p>{winner.paymentNumber || (winner.status === 'pending' ? 'À définir' : 'Non renseigné')}</p>
+                    {winner.paymentNumberUsageCount > 1 ? (
+                      <span className="status-pill warning shared-phone-pill">
+                        Numéro partagé x{winner.paymentNumberUsageCount}
+                      </span>
+                    ) : null}
                   </div>
                   <span className={`status-pill ${winner.status}`}>
                     {winnerStatusLabel(winner.status)}
                   </span>
                   <div className="contest-actions">
-                    {createWinnerWhatsAppLink(winner) ? (
-                      <a
-                        aria-label={`Contacter ${winner.userLabel} sur WhatsApp`}
-                        className="table-action-button success"
-                        href={createWinnerWhatsAppLink(winner)}
-                        rel="noreferrer"
-                        target="_blank"
-                        title="Ouvrir WhatsApp avec un message d'invitation au groupe des gagnants"
-                      >
-                        WhatsApp
-                      </a>
-                    ) : null}
+                    <button
+                      aria-label={`Marquer ${winner.userLabel} dans le groupe WhatsApp`}
+                      className={`table-action-button ${
+                        winner.whatsappGroupAddedAt ? 'success' : ''
+                      }`}
+                      onClick={() => void handleToggleWinnerWhatsAppGroup(winner)}
+                      title={
+                        winner.whatsappGroupAddedAt
+                          ? `Ajouté le ${formatDate(winner.whatsappGroupAddedAt)}`
+                          : 'Marquer ce gagnant comme ajouté au groupe WhatsApp'
+                      }
+                      type="button"
+                    >
+                      {winner.whatsappGroupAddedAt ? 'Ajouté groupe' : 'Marquer groupe'}
+                    </button>
                     <button
                       aria-label={`Modifier le gain de ${winner.userLabel}`}
                       className="table-action-button"

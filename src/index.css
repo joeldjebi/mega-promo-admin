@@ -5665,6 +5665,12 @@ h3 {
   color: var(--blue-dark);
 }
 
+.table-action-button.success {
+  background: rgb(46 175 121 / 10%);
+  border-color: rgb(46 175 121 / 22%);
+  color: var(--green);
+}
+
 .table-action-button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -5678,6 +5684,11 @@ h3 {
 .table-action-button.success:hover {
   border-color: rgb(34 197 94 / 30%);
   color: rgb(21 128 61);
+}
+
+.shared-phone-pill {
+  display: inline-block;
+  margin-top: 6px;
 }
 
 .table-action-select {
