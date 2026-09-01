@@ -998,6 +998,56 @@ export function SuperAdminUsersPage({
     )
   }
 
+  async function handleToggleWhatsAppGroup(user: PlayerUserItem) {
+    setUsersError('')
+    setUsersNotice('')
+
+    const nextAddedAt = user.whatsappGroupAddedAt
+      ? null
+      : new Date().toISOString()
+    const { error } = await supabase
+      .from('users')
+      .update({ whatsapp_group_added_at: nextAddedAt })
+      .eq('id', user.id)
+
+    if (error) {
+      void logError({
+        feature: 'users',
+        action: 'whatsapp_group_toggle_failed',
+        message: 'Echec changement statut groupe WhatsApp utilisateur.',
+        userId: user.id,
+        entityType: 'user',
+        entityId: user.id,
+        metadata: {
+          username: user.username,
+          next_added: Boolean(nextAddedAt),
+          error: error.message,
+        },
+      })
+      setUsersError(error.message)
+      return
+    }
+
+    await loadUsers()
+    setUsersNotice(
+      nextAddedAt
+        ? 'Le joueur est marqué comme ajouté au groupe WhatsApp.'
+        : 'Le joueur n’est plus marqué comme ajouté au groupe WhatsApp.',
+    )
+    void logAdminAction({
+      feature: 'users',
+      action: nextAddedAt ? 'whatsapp_group_added' : 'whatsapp_group_removed',
+      message: 'Statut groupe WhatsApp utilisateur modifie par le SA.',
+      userId: user.id,
+      entityType: 'user',
+      entityId: user.id,
+      metadata: {
+        username: user.username,
+        phone_present: Boolean(user.phone),
+      },
+    })
+  }
+
   function openDeletionDialog(user: PlayerUserItem, action: UserDeletionAction) {
     setUsersError('')
     setUsersNotice('')
@@ -1074,6 +1124,11 @@ export function SuperAdminUsersPage({
 
     if (action === 'premium') {
       void handleTogglePremium(user)
+      return
+    }
+
+    if (action === 'whatsapp_group') {
+      void handleToggleWhatsAppGroup(user)
       return
     }
 
@@ -1498,6 +1553,11 @@ export function SuperAdminUsersPage({
                       </option>
                       <option value="premium">
                         {user.isPremium ? 'Retirer premium' : 'Activer premium'}
+                      </option>
+                      <option value="whatsapp_group">
+                        {user.whatsappGroupAddedAt
+                          ? 'Retirer du groupe WhatsApp'
+                          : 'Marquer ajouté WhatsApp'}
                       </option>
                       <option value="schedule_deletion">
                         Programmer suppression

@@ -41,6 +41,7 @@ type WinnerItem = {
   paymentMethod: string
   paymentNumber: string
   paymentNumberUsageCount: number
+  paymentNumberSharedUserLabels: string[]
   whatsappGroupAddedAt: string
   status: WinnerStatus
   sentAt: string
@@ -175,10 +176,17 @@ async function fetchWinnersData(): Promise<WinnersData> {
   const contestTypes = new Map(contests.map((contest) => [contest.id, contest.isLive]))
   const userWhatsAppGroupAddedAt = new Map(users.map((user) => [user.id, user.whatsappGroupAddedAt]))
   const paymentNumberCounts = new Map<string, number>()
+  const paymentNumberUserLabels = new Map<string, Set<string>>()
   for (const winner of winnersResponse.data ?? []) {
     const phone = normalizeWhatsAppPhone((winner.payment_number as string | null) ?? '')
     if (!phone) continue
     paymentNumberCounts.set(phone, (paymentNumberCounts.get(phone) ?? 0) + 1)
+    const userId = (winner.user_id as string | null) ?? ''
+    const label = userLabels.get(userId) ?? 'Joueur'
+    if (!paymentNumberUserLabels.has(phone)) {
+      paymentNumberUserLabels.set(phone, new Set<string>())
+    }
+    paymentNumberUserLabels.get(phone)?.add(label)
   }
 
   return {
@@ -210,6 +218,11 @@ async function fetchWinnersData(): Promise<WinnersData> {
       paymentNumber: (winner.payment_number as string | null) ?? '',
       paymentNumberUsageCount:
         paymentNumberCounts.get(normalizeWhatsAppPhone((winner.payment_number as string | null) ?? '')) ?? 0,
+      paymentNumberSharedUserLabels: Array.from(
+        paymentNumberUserLabels.get(
+          normalizeWhatsAppPhone((winner.payment_number as string | null) ?? ''),
+        ) ?? [],
+      ),
       whatsappGroupAddedAt:
         userWhatsAppGroupAddedAt.get((winner.user_id as string | null) ?? '') ?? '',
       status: ((winner.status as string | null) ?? 'pending') as WinnerStatus,
@@ -1217,7 +1230,8 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
                     <p>{winner.paymentNumber || (winner.status === 'pending' ? 'À définir' : 'Non renseigné')}</p>
                     {winner.paymentNumberUsageCount > 1 ? (
                       <span className="status-pill warning shared-phone-pill">
-                        Numéro partagé x{winner.paymentNumberUsageCount}
+                        Numéro partagé x{winner.paymentNumberUsageCount} ·{' '}
+                        {winner.paymentNumberSharedUserLabels.join(', ')}
                       </span>
                     ) : null}
                   </div>
