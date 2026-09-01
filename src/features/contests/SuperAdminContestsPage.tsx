@@ -54,6 +54,11 @@ type ContestItem = {
   participants: number
   paidWinnersCount: number
   lastPaidWinnerAt: string
+  replayEnabled: boolean
+  replayAmount: number
+  replayPaymentTarget: string
+  replayPaymentUrl: string
+  replayPaymentInstructions: string
 }
 type ContestListItem = ContestItem & { seriesItems?: ContestItem[] }
 
@@ -115,6 +120,23 @@ type ContestFormState = {
   liveSeriesCount: string
   liveSeriesIntervalMinutes: string
   liveEstimatedDurationSeconds: string
+  replayEnabled: boolean
+  replayAmount: string
+  replayPaymentTarget: string
+  replayPaymentUrl: string
+  replayPaymentInstructions: string
+}
+type QuizReplayRequestItem = {
+  id: string
+  contestId: string
+  contestTitle: string
+  userId: string
+  userLabel: string
+  proofImageUrl: string
+  amount: number
+  paymentTarget: string
+  status: string
+  createdAt: string
 }
 type ContestsData = {
   contests: ContestItem[]
@@ -122,10 +144,17 @@ type ContestsData = {
   partners: PartnerOption[]
   types: ContestTypeOption[]
   rewards: RewardCatalogItem[]
+  replayRequests: QuizReplayRequestItem[]
 }
 type ContestWinnerPaymentSummary = {
   paidWinnersCount: number
   lastPaidWinnerAt: string
+}
+type SupabaseLikeError = {
+  message?: unknown
+  details?: unknown
+  hint?: unknown
+  code?: unknown
 }
 type PlayerPlanAccessPreset = 'all' | 'free' | 'premium' | 'vip' | 'premium_vip'
 const playerPlanAccessOptions: Array<{ key: PlayerPlanAccessKey; label: string }> = [
@@ -207,6 +236,31 @@ function playerPlanAccessKeysFromPreset(
 function formatNumber(value: number) { return new Intl.NumberFormat('fr-FR').format(value) }
 function formatMoney(value: number | null) { if (!value) return '0 FCFA'; return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA` }
 function formatDate(value: string) { if (!value) return 'Non défini'; return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
+function formatUnknownError(error: unknown, fallback: string) { if (error instanceof Error) return error.message; if (error && typeof error === 'object') { const payload = error as SupabaseLikeError; return [payload.message, payload.details, payload.hint, payload.code].filter((item) => typeof item === 'string' && item.length > 0).join(' · ') || fallback } return typeof error === 'string' && error.length > 0 ? error : fallback }
+function isMissingTableError(error: unknown, tableName: string) { if (!error || typeof error !== 'object') return false; const payload = error as SupabaseLikeError; const message = String(payload.message ?? ''); return payload.code === 'PGRST205' && message.includes(`'public.${tableName}'`) }
+function metadataString(metadata: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+  }
+  return ''
+}
+function metadataNumber(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+function metadataBoolean(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key]
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') return ['true', '1', 'yes', 'oui', 'on'].includes(value.trim().toLowerCase())
+  return false
+}
 function createClientUuid() { if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID(); return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,(char)=>{const random=Math.floor(Math.random()*16);const value=char==='x'?random:(random&0x3)|0x8;return value.toString(16)}) }
 function toDatetimeLocalValue(date: Date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16) }
 function isoToDatetimeLocalValue(value: string) { if (!value) return ''; return toDatetimeLocalValue(new Date(value)) }
@@ -364,6 +418,7 @@ async function fetchContestsData(): Promise<ContestsData> {
     rewardsResponse,
     participationsResponse,
     winnersResponse,
+    replayRequestsResponse,
   ] = await Promise.all([
       supabase
         .from('contests')
@@ -398,6 +453,11 @@ async function fetchContestsData(): Promise<ContestsData> {
         .from('winners')
         .select('contest_id, status, reward_claim_status, sent_at')
         .not('sent_at', 'is', null),
+      supabase
+        .from('quiz_replay_requests')
+        .select('id, contest_id, user_id, proof_image_url, amount, payment_target, status, created_at')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true }),
     ])
 
   if (contestsResponse.error) throw contestsResponse.error
@@ -407,6 +467,12 @@ async function fetchContestsData(): Promise<ContestsData> {
   if (rewardsResponse.error) throw rewardsResponse.error
   if (participationsResponse.error) throw participationsResponse.error
   if (winnersResponse.error) throw winnersResponse.error
+  if (
+    replayRequestsResponse.error &&
+    !isMissingTableError(replayRequestsResponse.error, 'quiz_replay_requests')
+  ) {
+    throw replayRequestsResponse.error
+  }
 
   const categories = (categoriesResponse.data ?? []).map((category) => ({
     id: category.id as string,
@@ -445,6 +511,38 @@ async function fetchContestsData(): Promise<ContestsData> {
   const rewardLabels = new Map(
     rewards.map((reward) => [reward.id, reward.valueLabel || reward.name]),
   )
+  const contestTitles = new Map(
+    (contestsResponse.data ?? []).map((contest) => [
+      contest.id as string,
+      (contest.title as string | null) ?? 'JCQ',
+    ]),
+  )
+  const replayRequestsRaw = replayRequestsResponse.error
+    ? []
+    : (replayRequestsResponse.data ?? [])
+  const replayUserIds = Array.from(
+    new Set(
+      replayRequestsRaw
+        .map((request) => request.user_id as string | null)
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  )
+  const replayUserLabels = new Map<string, string>()
+
+  if (replayUserIds.length > 0) {
+    const { data: replayUsers, error: replayUsersError } = await supabase
+      .from('users')
+      .select('id, username, phone')
+      .in('id', replayUserIds)
+    if (replayUsersError) throw replayUsersError
+
+    for (const user of replayUsers ?? []) {
+      const userId = user.id as string
+      const username = (user.username as string | null)?.trim() ?? ''
+      const phone = (user.phone as string | null)?.trim() ?? ''
+      replayUserLabels.set(userId, username || phone || 'Joueur MegaPromo')
+    }
+  }
   const participationsByContest = new Map<string, number>()
   const winnerPaymentsByContest = new Map<string, ContestWinnerPaymentSummary>()
 
@@ -493,6 +591,22 @@ async function fetchContestsData(): Promise<ContestsData> {
     partners,
     types,
     rewards,
+    replayRequests: replayRequestsRaw.map((request) => {
+      const contestId = (request.contest_id as string | null) ?? ''
+      const userId = (request.user_id as string | null) ?? ''
+      return {
+        id: request.id as string,
+        contestId,
+        contestTitle: contestTitles.get(contestId) ?? 'JCQ',
+        userId,
+        userLabel: replayUserLabels.get(userId) ?? 'Joueur MegaPromo',
+        proofImageUrl: (request.proof_image_url as string | null) ?? '',
+        amount: (request.amount as number | null) ?? 0,
+        paymentTarget: (request.payment_target as string | null) ?? '',
+        status: (request.status as string | null) ?? 'pending',
+        createdAt: (request.created_at as string | null) ?? '',
+      }
+    }),
     contests: (contestsResponse.data ?? []).map((contest) => {
       const id = contest.id as string
       const categoryId = contest.category_id as string | null
@@ -580,6 +694,23 @@ async function fetchContestsData(): Promise<ContestsData> {
           winnerPaymentsByContest.get(id)?.paidWinnersCount ?? 0,
         lastPaidWinnerAt:
           winnerPaymentsByContest.get(id)?.lastPaidWinnerAt ?? '',
+        replayEnabled: metadataBoolean(rewardMetadata, 'quiz_replay_enabled'),
+        replayAmount: metadataNumber(rewardMetadata, 'quiz_replay_amount'),
+        replayPaymentTarget: metadataString(
+          rewardMetadata,
+          'quiz_replay_payment_target',
+          'quiz_replay_payment_number',
+        ),
+        replayPaymentUrl: metadataString(
+          rewardMetadata,
+          'quiz_replay_payment_url',
+          'quiz_replay_payment_link',
+        ),
+        replayPaymentInstructions: metadataString(
+          rewardMetadata,
+          'quiz_replay_payment_instructions',
+          'quiz_replay_message',
+        ),
       }
     }),
   }
@@ -618,6 +749,11 @@ function createDefaultContestForm(): ContestFormState {
     liveSeriesCount: '1',
     liveSeriesIntervalMinutes: '180',
     liveEstimatedDurationSeconds: '100',
+    replayEnabled: false,
+    replayAmount: '',
+    replayPaymentTarget: '',
+    replayPaymentUrl: '',
+    replayPaymentInstructions: '',
   }
 }
 
@@ -650,6 +786,11 @@ function contestToForm(contest: ContestItem): ContestFormState {
     liveSeriesCount: '1',
     liveSeriesIntervalMinutes: '180',
     liveEstimatedDurationSeconds: '100',
+    replayEnabled: contest.replayEnabled,
+    replayAmount: contest.replayAmount ? String(contest.replayAmount) : '',
+    replayPaymentTarget: contest.replayPaymentTarget,
+    replayPaymentUrl: contest.replayPaymentUrl,
+    replayPaymentInstructions: contest.replayPaymentInstructions,
   }
 }
 
@@ -866,6 +1007,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     partners: [],
     types: [],
     rewards: [],
+    replayRequests: [],
   })
   const [isContestsLoading, setIsContestsLoading] = useState(true)
   const [contestsError, setContestsError] = useState('')
@@ -890,6 +1032,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
   const [pronosticResolutionError, setPronosticResolutionError] = useState('')
   const [isResolvingPronostic, setIsResolvingPronostic] = useState(false)
   const [republishingContestId, setRepublishingContestId] = useState<string | null>(null)
+  const [processingReplayRequestId, setProcessingReplayRequestId] = useState<string | null>(null)
   const [contestSearch, setContestSearch] = useState('')
   const [contestStatusFilter, setContestStatusFilter] = useState('all')
   const [contestTypeFilter, setContestTypeFilter] = useState('all')
@@ -1030,6 +1173,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
       'partners',
       'contest_types',
       'reward_catalog',
+      'quiz_replay_requests',
     ],
     loadContests,
   )
@@ -1145,6 +1289,7 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     const prizeDescription = contestForm.prizeDescription.trim()
     const prizeValue = Number(contestForm.prizeValue)
     const winnersCount = Number(contestForm.winnersCount)
+    const replayAmount = Number(contestForm.replayAmount)
     const maxParticipants = contestForm.maxParticipants
       ? Number(contestForm.maxParticipants)
       : null
@@ -1214,6 +1359,26 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     ) {
       setContestError('La date live doit être comprise entre le début et la fin.')
       return
+    }
+
+    if (contestForm.replayEnabled && (contestForm.isLive || contestForm.type !== 'quiz')) {
+      setContestError('Le rejeu payant est disponible uniquement pour les JCQ non live.')
+      return
+    }
+
+    if (contestForm.replayEnabled) {
+      if (!Number.isFinite(replayAmount) || replayAmount <= 0) {
+        setContestError('Renseigne un montant de rejeu supérieur à 0 FCFA.')
+        return
+      }
+
+      if (
+        contestForm.replayPaymentTarget.trim().length === 0 &&
+        contestForm.replayPaymentUrl.trim().length === 0
+      ) {
+        setContestError('Renseigne un numéro Mobile Money ou un lien de paiement pour le rejeu.')
+        return
+      }
     }
 
     const liveSeriesCount = Number(contestForm.liveSeriesCount)
@@ -1364,6 +1529,23 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
         }
       }
 
+      if (!contestForm.isLive && contestForm.type === 'quiz') {
+        const replayConfigResponse = await Promise.all(
+          savedContestIds.map((contestId) =>
+            supabase.rpc('admin_update_quiz_replay_config', {
+              p_contest_id: contestId,
+              p_enabled: contestForm.replayEnabled,
+              p_amount: contestForm.replayEnabled ? Math.round(replayAmount) : 0,
+              p_payment_target: contestForm.replayPaymentTarget.trim(),
+              p_payment_url: contestForm.replayPaymentUrl.trim(),
+              p_instructions: contestForm.replayPaymentInstructions.trim(),
+            }),
+          ),
+        )
+        const replayConfigError = replayConfigResponse.find((response) => response.error)?.error
+        if (replayConfigError) throw replayConfigError
+      }
+
       if (!editingContestId && contestForm.status === 'active') {
         await sendContestPlayersPush({
           contestId: savedContestIds[0] ?? primaryContestId,
@@ -1393,6 +1575,9 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
           live_series_count: shouldCreateLiveSeries ? liveSeriesCount : 1,
           reward_catalog_id: selectedReward.id,
           winners_count: winnersCount,
+          quiz_replay_enabled: !contestForm.isLive && contestForm.type === 'quiz'
+            ? contestForm.replayEnabled
+            : false,
         },
       })
       closeContestModal()
@@ -1771,6 +1956,130 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
     }
   }
 
+  async function handleApproveReplayRequest(request: QuizReplayRequestItem) {
+    setContestsError('')
+    setContestsNotice('')
+    setProcessingReplayRequestId(request.id)
+
+    try {
+      const { error } = await supabase.rpc('admin_approve_quiz_replay_request', {
+        p_request_id: request.id,
+      })
+      if (error) throw error
+
+      try {
+        await supabase.functions.invoke('send-push-notifications', {
+          body: {
+            userIds: [request.userId],
+            title: 'Replay autorisé',
+            body: `${request.userLabel}, tu peux rejouer "${request.contestTitle}" maintenant.`,
+            type: 'quiz_replay_approved',
+            data: {
+              type: 'quiz_replay_approved',
+              source: 'admin_approve_quiz_replay_request',
+              contest_id: request.contestId,
+              contestId: request.contestId,
+              request_id: request.id,
+            },
+          },
+        })
+      } catch (pushError) {
+        console.warn('[MegaPromo][quizReplayPush][error]', pushError)
+      }
+
+      await loadContests()
+      setContestsNotice(
+        `Replay autorisé pour ${request.userLabel} sur "${request.contestTitle}". Notification envoyée.`,
+      )
+      void logAdminAction({
+        feature: 'contests',
+        action: 'approve_quiz_replay',
+        message: 'Demande de rejeu JCQ approuvee par le SA.',
+        entityType: 'quiz_replay_request',
+        entityId: request.id,
+        metadata: {
+          contest_id: request.contestId,
+          contest_title: request.contestTitle,
+          user_id: request.userId,
+          amount: request.amount,
+        },
+      })
+    } catch (error) {
+      const message = formatUnknownError(
+        error,
+        'Impossible d’autoriser ce rejeu.',
+      )
+      setContestsError(message)
+      void logError({
+        feature: 'contests',
+        action: 'approve_quiz_replay_failed',
+        message: 'Echec approbation demande de rejeu JCQ.',
+        entityType: 'quiz_replay_request',
+        entityId: request.id,
+        metadata: {
+          contest_id: request.contestId,
+          user_id: request.userId,
+          error: message,
+        },
+      })
+    } finally {
+      setProcessingReplayRequestId(null)
+    }
+  }
+
+  async function handleRejectReplayRequest(request: QuizReplayRequestItem) {
+    const reason = window.prompt(
+      `Motif du refus pour ${request.userLabel} ?`,
+      'Preuve de paiement non conforme.',
+    )
+    if (reason === null) return
+
+    setContestsError('')
+    setContestsNotice('')
+    setProcessingReplayRequestId(request.id)
+
+    try {
+      const { error } = await supabase.rpc('admin_reject_quiz_replay_request', {
+        p_request_id: request.id,
+        p_rejection_reason: reason.trim() || 'Preuve de paiement non conforme.',
+      })
+      if (error) throw error
+
+      await loadContests()
+      setContestsNotice(`Demande de rejeu refusée pour ${request.userLabel}.`)
+      void logAdminAction({
+        feature: 'contests',
+        action: 'reject_quiz_replay',
+        message: 'Demande de rejeu JCQ refusee par le SA.',
+        entityType: 'quiz_replay_request',
+        entityId: request.id,
+        metadata: {
+          contest_id: request.contestId,
+          contest_title: request.contestTitle,
+          user_id: request.userId,
+          reason,
+        },
+      })
+    } catch (error) {
+      const message = formatUnknownError(error, 'Impossible de refuser ce rejeu.')
+      setContestsError(message)
+      void logError({
+        feature: 'contests',
+        action: 'reject_quiz_replay_failed',
+        message: 'Echec refus demande de rejeu JCQ.',
+        entityType: 'quiz_replay_request',
+        entityId: request.id,
+        metadata: {
+          contest_id: request.contestId,
+          user_id: request.userId,
+          error: message,
+        },
+      })
+    } finally {
+      setProcessingReplayRequestId(null)
+    }
+  }
+
   function handleContestTableAction(contest: ContestListItem, action: string) {
     if (!action) return
 
@@ -1967,6 +2276,81 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
         <section className="panel contests-page-panel">
           <div className="section-heading">
             <div>
+              <p className="eyebrow">Rejeu JCQ</p>
+              <h2>Preuves de paiement à valider</h2>
+            </div>
+            <span className="pill">
+              {formatNumber(contestsData.replayRequests.length)} en attente
+            </span>
+          </div>
+
+          <div className="premium-contest-table replay-requests-table">
+            <div className="premium-contest-head">
+              <span>Joueur</span>
+              <span>JCQ</span>
+              <span>Montant</span>
+              <span>Paiement</span>
+              <span>Preuve</span>
+              <span>Reçu le</span>
+              <span>Actions</span>
+            </div>
+            {contestsData.replayRequests.length > 0 ? (
+              contestsData.replayRequests.map((request) => {
+                const isProcessing = processingReplayRequestId === request.id
+                return (
+                  <div className="premium-contest-row" key={request.id}>
+                    <div>
+                      <strong>{request.userLabel}</strong>
+                      <p>{request.userId}</p>
+                    </div>
+                    <div>
+                      <strong>{request.contestTitle}</strong>
+                      <p>{request.contestId}</p>
+                    </div>
+                    <p>{formatMoney(request.amount)}</p>
+                    <p>{request.paymentTarget || 'Non défini'}</p>
+                    <p>
+                      {request.proofImageUrl ? (
+                        <a href={request.proofImageUrl} rel="noreferrer" target="_blank">
+                          Voir la photo
+                        </a>
+                      ) : (
+                        'Aucune photo'
+                      )}
+                    </p>
+                    <p>{formatDate(request.createdAt)}</p>
+                    <div className="contest-actions">
+                      <button
+                        className="inline-action-button"
+                        disabled={isProcessing}
+                        onClick={() => void handleApproveReplayRequest(request)}
+                        type="button"
+                      >
+                        {isProcessing ? 'Traitement...' : 'Autoriser'}
+                      </button>
+                      <button
+                        className="secondary-action-button"
+                        disabled={isProcessing}
+                        onClick={() => void handleRejectReplayRequest(request)}
+                        type="button"
+                      >
+                        Refuser
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            ) : (
+              <p className="empty-panel-text">
+                Aucune preuve de paiement en attente pour le moment.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="panel contests-page-panel">
+          <div className="section-heading">
+            <div>
               <p className="eyebrow">Catalogue</p>
               <h2>Liste des concours</h2>
             </div>
@@ -2052,6 +2436,11 @@ export function SuperAdminContestsPage({ authRoute, rootRoute, contestsRoute, na
                         {contest.republishSequence > 1
                           ? `Remis en jeu #${contest.republishSequence}`
                           : 'Remis en jeu'}
+                      </span>
+                    ) : null}
+                    {contest.replayEnabled ? (
+                      <span className="status-pill active">
+                        Rejeu {formatMoney(contest.replayAmount)}
                       </span>
                     ) : null}
                   </div>
@@ -2253,6 +2642,7 @@ export function SuperAdminLiveSeriesPage({
     partners: [],
     types: [],
     rewards: [],
+    replayRequests: [],
   })
 
   const loadSeries = useCallback(async () => {
@@ -2766,6 +3156,91 @@ function ContestModal({
                 </div>
               ) : null}
             </>
+          ) : null}
+
+          {form.type === 'quiz' && !form.isLive ? (
+            <div className="contest-context-note">
+              <label className="switch-row inline-switch">
+                <span>Autoriser le rejeu payant</span>
+                <input
+                  checked={form.replayEnabled}
+                  onChange={(event) =>
+                    onChange({ ...form, replayEnabled: event.target.checked })
+                  }
+                  type="checkbox"
+                />
+              </label>
+              <p>
+                Après une première participation, le joueur pourra payer, envoyer
+                une preuve photo, puis rejouer seulement après validation du SA.
+              </p>
+
+              {form.replayEnabled ? (
+                <>
+                  <div className="form-grid two-columns">
+                    <label>
+                      <span>Montant du rejeu</span>
+                      <input
+                        inputMode="numeric"
+                        min="1"
+                        onChange={(event) =>
+                          onChange({ ...form, replayAmount: event.target.value })
+                        }
+                        placeholder="Ex : 100"
+                        type="number"
+                        value={form.replayAmount}
+                      />
+                    </label>
+
+                    <label>
+                      <span>Numéro Mobile Money</span>
+                      <input
+                        onChange={(event) =>
+                          onChange({
+                            ...form,
+                            replayPaymentTarget: event.target.value,
+                          })
+                        }
+                        placeholder="Ex : 07 00 00 00 00"
+                        value={form.replayPaymentTarget}
+                      />
+                    </label>
+                  </div>
+
+                  <label>
+                    <span>Lien de paiement</span>
+                    <input
+                      onChange={(event) =>
+                        onChange({ ...form, replayPaymentUrl: event.target.value })
+                      }
+                      placeholder="https://..."
+                      value={form.replayPaymentUrl}
+                    />
+                    <small className="form-help">
+                      Facultatif si le numéro Mobile Money est renseigné.
+                    </small>
+                  </label>
+
+                  <label>
+                    <span>Message personnalisé</span>
+                    <textarea
+                      onChange={(event) =>
+                        onChange({
+                          ...form,
+                          replayPaymentInstructions: event.target.value,
+                        })
+                      }
+                      placeholder="Explique le paiement et la soumission de la preuve."
+                      rows={3}
+                      value={form.replayPaymentInstructions}
+                    />
+                    <small className="form-help">
+                      L’app indique aussi un délai de traitement maximum de 5 minutes.
+                    </small>
+                  </label>
+                </>
+              ) : null}
+            </div>
           ) : null}
 
           <label>

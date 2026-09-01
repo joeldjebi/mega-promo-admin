@@ -3909,6 +3909,12 @@ h3 {
   grid-template-columns: minmax(260px, 1.45fr) 90px 70px 110px minmax(125px, 0.7fr) 120px 130px 100px 150px;
 }
 
+.replay-requests-table .premium-contest-head,
+.replay-requests-table .premium-contest-row {
+  grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 1.35fr) 100px minmax(120px, 0.75fr) 100px 130px 180px;
+  min-width: 1040px;
+}
+
 .partner-contest-head,
 .partner-contest-row {
   grid-template-columns: minmax(260px, 1.5fr) 90px minmax(150px, 0.85fr) minmax(120px, 0.7fr) 120px 130px 100px 170px;
