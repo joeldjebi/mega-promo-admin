@@ -68,6 +68,10 @@ type WinnerFormState = {
   status: WinnerStatus
   sentAt: string
 }
+type WinnerPushFormState = {
+  title: string
+  body: string
+}
 type WinnersData = {
   winners: WinnerItem[]
   users: UserOption[]
@@ -261,6 +265,13 @@ function winnerToForm(winner: WinnerItem): WinnerFormState {
   }
 }
 
+function createWinnerPushForm(winner: WinnerItem): WinnerPushFormState {
+  return {
+    title: 'Tu as gagné sur MegaPromo',
+    body: `${winner.userLabel}, tu as gagné "${winner.prizeDescription || 'un gain MegaPromo'}" sur "${winner.contestTitle}". Ouvre MegaPromo pour suivre ton gain.`,
+  }
+}
+
 function winnerStatusLabel(status: WinnerStatus) {
   if (status === 'sent' || status === 'received') return 'payé'
   if (status === 'cancelled') return 'annulé'
@@ -296,6 +307,12 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     useState<WinnerPaymentNumberFilter>('all')
   const [winnerPage, setWinnerPage] = useState(0)
   const [sendingWinnerPushId, setSendingWinnerPushId] = useState('')
+  const [winnerPushTarget, setWinnerPushTarget] = useState<WinnerItem | null>(null)
+  const [winnerPushForm, setWinnerPushForm] = useState<WinnerPushFormState>({
+    title: '',
+    body: '',
+  })
+  const [winnerPushError, setWinnerPushError] = useState('')
   const [rewardsFlag, setRewardsFlag] = useState<AppFeatureFlagState>({
     isEnabled: true,
     updatedAt: '',
@@ -577,6 +594,20 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     setWinnerError('')
     setEditingWinnerId(null)
     setIsWinnerModalOpen(false)
+  }
+
+  function openWinnerPushModal(winner: WinnerItem) {
+    setWinnersError('')
+    setWinnersNotice('')
+    setWinnerPushError('')
+    setWinnerPushTarget(winner)
+    setWinnerPushForm(createWinnerPushForm(winner))
+  }
+
+  function closeWinnerPushModal() {
+    if (sendingWinnerPushId) return
+    setWinnerPushError('')
+    setWinnerPushTarget(null)
   }
 
   function handleWinnerContestChange(contestId: string) {
@@ -929,14 +960,31 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     }
   }
 
-  async function handleSendWinnerPush(winner: WinnerItem) {
+  async function handleSendWinnerPush(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const winner = winnerPushTarget
+
+    if (!winner) {
+      setWinnerPushError('Aucun gagnant sélectionné.')
+      return
+    }
+
     if (!winner.userId) {
-      setWinnersError('Impossible d’envoyer une notification sans joueur associé.')
+      setWinnerPushError('Impossible d’envoyer une notification sans joueur associé.')
+      return
+    }
+
+    const title = winnerPushForm.title.trim()
+    const body = winnerPushForm.body.trim()
+
+    if (!title || !body) {
+      setWinnerPushError('Le titre et le message sont obligatoires.')
       return
     }
 
     setWinnersError('')
     setWinnersNotice('')
+    setWinnerPushError('')
     setSendingWinnerPushId(winner.id)
 
     try {
@@ -948,13 +996,14 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
         status: winner.status,
         winnerId: winner.id,
         source: 'winner_admin_manual_push',
-        title: 'Tu as gagné sur MegaPromo',
-        body: `${winner.userLabel}, tu as gagné "${winner.prizeDescription || 'un gain MegaPromo'}" sur "${winner.contestTitle}". Ouvre MegaPromo pour suivre ton gain.`,
+        title,
+        body,
         throwOnFailure: true,
         failurePrefix: 'Notification non envoyée',
       })
 
       setWinnersNotice(`Notification envoyée à ${winner.userLabel}.`)
+      setWinnerPushTarget(null)
       void logAdminAction({
         feature: 'winners',
         action: 'winner_manual_push_sent',
@@ -968,6 +1017,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
           contest_title: winner.contestTitle,
           prize_description: winner.prizeDescription,
           status: winner.status,
+          notification_title: title,
         },
       })
     } catch (error) {
@@ -975,7 +1025,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
         error,
         'Impossible d’envoyer la notification push au gagnant.',
       )
-      setWinnersError(message)
+      setWinnerPushError(message)
       void logError({
         feature: 'winners',
         action: 'winner_manual_push_failed',
@@ -1407,7 +1457,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
                       aria-label={`Envoyer une notification push à ${winner.userLabel}`}
                       className="table-action-button"
                       disabled={sendingWinnerPushId === winner.id}
-                      onClick={() => void handleSendWinnerPush(winner)}
+                      onClick={() => openWinnerPushModal(winner)}
                       title="Envoyer une notification push à ce gagnant"
                       type="button"
                     >
@@ -1532,7 +1582,121 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
           users={winnersData.users}
         />
       ) : null}
+      {winnerPushTarget ? (
+        <WinnerPushModal
+          error={winnerPushError}
+          form={winnerPushForm}
+          isSending={sendingWinnerPushId === winnerPushTarget.id}
+          onChange={setWinnerPushForm}
+          onClose={closeWinnerPushModal}
+          onSubmit={handleSendWinnerPush}
+          winner={winnerPushTarget}
+        />
+      ) : null}
     </main>
+  )
+}
+
+
+function WinnerPushModal({
+  error,
+  form,
+  isSending,
+  onChange,
+  onClose,
+  onSubmit,
+  winner,
+}: {
+  error: string
+  form: WinnerPushFormState
+  isSending: boolean
+  onChange: (next: WinnerPushFormState) => void
+  onClose: () => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
+  winner: WinnerItem
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section aria-label="Notification gagnant" className="contest-modal">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Push gagnant</p>
+            <h2>Notifier {winner.userLabel}</h2>
+          </div>
+          <button
+            aria-label="Fermer"
+            disabled={isSending}
+            onClick={onClose}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+
+        <form className="category-form contest-form" onSubmit={onSubmit}>
+          <div className="compact-list">
+            <article>
+              <div>
+                <strong>{winner.contestTitle}</strong>
+                <p>{winner.prizeDescription || 'Gain MegaPromo'}</p>
+              </div>
+              <span className={`status-pill ${winner.status}`}>
+                {winnerStatusLabel(winner.status)}
+              </span>
+            </article>
+          </div>
+
+          <label>
+            <span>Titre de la notification</span>
+            <input
+              maxLength={80}
+              onChange={(event) =>
+                onChange({ ...form, title: event.target.value })
+              }
+              placeholder="Ex: Tu as gagné sur MegaPromo"
+              value={form.title}
+            />
+          </label>
+
+          <label>
+            <span>Message</span>
+            <textarea
+              maxLength={240}
+              onChange={(event) =>
+                onChange({ ...form, body: event.target.value })
+              }
+              placeholder="Écris le message envoyé au gagnant"
+              rows={5}
+              value={form.body}
+            />
+          </label>
+
+          <p className="modal-helper-text">
+            Cette notification sera envoyée uniquement à ce gagnant.
+          </p>
+
+          {error ? <p className="form-error">{error}</p> : null}
+
+          <div className="modal-actions">
+            <button
+              className="secondary-action-button"
+              disabled={isSending}
+              onClick={onClose}
+              type="button"
+            >
+              Annuler
+            </button>
+            <button
+              className="inline-action-button"
+              disabled={isSending}
+              type="submit"
+            >
+              {isSending ? 'Envoi...' : 'Envoyer la notification'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   )
 }
 
