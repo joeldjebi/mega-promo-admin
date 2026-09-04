@@ -295,6 +295,7 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
   const [winnerPaymentNumberFilter, setWinnerPaymentNumberFilter] =
     useState<WinnerPaymentNumberFilter>('all')
   const [winnerPage, setWinnerPage] = useState(0)
+  const [sendingWinnerPushId, setSendingWinnerPushId] = useState('')
   const [rewardsFlag, setRewardsFlag] = useState<AppFeatureFlagState>({
     isEnabled: true,
     updatedAt: '',
@@ -870,23 +871,39 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
     contestTitle,
     prizeDescription,
     status,
+    winnerId,
+    source = 'winner_paid',
+    title = 'Gain payé',
+    body,
+    throwOnFailure = false,
+    failurePrefix = 'Statut mis à jour, mais push non envoyé',
   }: {
     userId: string
     userLabel: string
     contestTitle: string
     prizeDescription: string
     status: WinnerStatus
+    winnerId?: string
+    source?: string
+    title?: string
+    body?: string
+    throwOnFailure?: boolean
+    failurePrefix?: string
   }) {
     if (!userId) return
 
     const pushPayload = {
       userIds: [userId],
-      title: 'Gain payé',
-      body: `${userLabel}, ton gain "${prizeDescription}" pour "${contestTitle}" vient d’être payé.`,
+      title,
+      body:
+        body ??
+        `${userLabel}, ton gain "${prizeDescription}" pour "${contestTitle}" vient d’être payé.`,
       type: 'winner',
       data: {
         type: 'winner',
-        source: 'winner_paid',
+        source,
+        winner_id: winnerId,
+        winnerId,
         contestTitle,
         prizeDescription,
         status,
@@ -900,13 +917,80 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
         { body: pushPayload },
       )
       console.info('[MegaPromo][winnerPush][response]', pushResponse)
+      if (pushResponse.error) throw pushResponse.error
     } catch (pushError) {
       console.warn('[MegaPromo][winnerPush][error]', pushError)
       setWinnersError(
-        `Statut mis à jour, mais push non envoyé: ${
+        `${failurePrefix}: ${
           pushError instanceof Error ? pushError.message : 'Edge Function indisponible.'
         }`,
       )
+      if (throwOnFailure) throw pushError
+    }
+  }
+
+  async function handleSendWinnerPush(winner: WinnerItem) {
+    if (!winner.userId) {
+      setWinnersError('Impossible d’envoyer une notification sans joueur associé.')
+      return
+    }
+
+    setWinnersError('')
+    setWinnersNotice('')
+    setSendingWinnerPushId(winner.id)
+
+    try {
+      await sendWinnerStatusPush({
+        userId: winner.userId,
+        userLabel: winner.userLabel,
+        contestTitle: winner.contestTitle,
+        prizeDescription: winner.prizeDescription || 'un gain MegaPromo',
+        status: winner.status,
+        winnerId: winner.id,
+        source: 'winner_admin_manual_push',
+        title: 'Tu as gagné sur MegaPromo',
+        body: `${winner.userLabel}, tu as gagné "${winner.prizeDescription || 'un gain MegaPromo'}" sur "${winner.contestTitle}". Ouvre MegaPromo pour suivre ton gain.`,
+        throwOnFailure: true,
+        failurePrefix: 'Notification non envoyée',
+      })
+
+      setWinnersNotice(`Notification envoyée à ${winner.userLabel}.`)
+      void logAdminAction({
+        feature: 'winners',
+        action: 'winner_manual_push_sent',
+        message: 'Notification push envoyee manuellement a un gagnant.',
+        userId: winner.userId,
+        entityType: 'winner',
+        entityId: winner.id,
+        metadata: {
+          user_label: winner.userLabel,
+          contest_id: winner.contestId,
+          contest_title: winner.contestTitle,
+          prize_description: winner.prizeDescription,
+          status: winner.status,
+        },
+      })
+    } catch (error) {
+      const message = formatUnknownError(
+        error,
+        'Impossible d’envoyer la notification push au gagnant.',
+      )
+      setWinnersError(message)
+      void logError({
+        feature: 'winners',
+        action: 'winner_manual_push_failed',
+        message: 'Echec notification push manuelle a un gagnant.',
+        userId: winner.userId,
+        entityType: 'winner',
+        entityId: winner.id,
+        metadata: {
+          user_label: winner.userLabel,
+          contest_title: winner.contestTitle,
+          error: message,
+        },
+      })
+    } finally {
+      setSendingWinnerPushId('')
     }
   }
 
@@ -1318,6 +1402,16 @@ export function SuperAdminWinnersPage({ authRoute, rootRoute, contestsRoute, nav
                       type="button"
                     >
                       Historique
+                    </button>
+                    <button
+                      aria-label={`Envoyer une notification push à ${winner.userLabel}`}
+                      className="table-action-button"
+                      disabled={sendingWinnerPushId === winner.id}
+                      onClick={() => void handleSendWinnerPush(winner)}
+                      title="Envoyer une notification push à ce gagnant"
+                      type="button"
+                    >
+                      {sendingWinnerPushId === winner.id ? 'Envoi...' : 'Notifier'}
                     </button>
                     {winner.status !== 'sent' ? (
                       <button
